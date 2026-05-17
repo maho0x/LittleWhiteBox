@@ -1038,8 +1038,9 @@ function validateComfyTextNode(workflow, nodeId, label, { required = false } = {
         return;
     }
     const node = requireComfyNode(workflow, id, label);
-    if (!('text' in node.inputs)) {
-        throw new Error(`${label}需要填 CLIP Text Encode 这类带 text 输入的节点：${id}`);
+    const hasTextField = ['text', 'positive', 'negative', 'prompt'].some(k => k in node.inputs);
+    if (!hasTextField) {
+        throw new Error(`${label}需要填带 text/positive/prompt 输入的节点：${id}`);
     }
 }
 
@@ -1180,14 +1181,24 @@ function resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId 
     return saveImageAsset || null;
 }
 
+function injectTextFieldIntoNode(nodeInputs, value) {
+    for (const key of ['text', 'positive', 'negative', 'prompt']) {
+        if (key in nodeInputs && typeof nodeInputs[key] === 'string') {
+            nodeInputs[key] = value;
+            return;
+        }
+    }
+    nodeInputs.text = value;
+}
+
 function injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap) {
     const wf = JSON.parse(JSON.stringify(workflow));
     validateComfyWorkflowNodeMap(wf, nodeMap);
     if (nodeMap.positive && wf[nodeMap.positive]) {
-        wf[nodeMap.positive].inputs.text = positive;
+        injectTextFieldIntoNode(wf[nodeMap.positive].inputs, positive);
     }
     if (nodeMap.negative && wf[nodeMap.negative]) {
-        wf[nodeMap.negative].inputs.text = negative;
+        injectTextFieldIntoNode(wf[nodeMap.negative].inputs, negative);
     }
     if (nodeMap.width && width && wf[nodeMap.width]) {
         const widthNode = wf[nodeMap.width].inputs;
