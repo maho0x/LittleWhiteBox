@@ -46,6 +46,7 @@ const STORAGE_KEYS = { global: 'LittleWhiteBox_StoryOutline_GlobalSettings', com
 const STORY_OUTLINE_ID = 'lwb_story_outline';
 const CHAR_CARD_UID = '__CHARACTER_CARD__';
 const DEBUG_KEY = 'LittleWhiteBox_StoryOutline_Debug';
+const OVERLAY_LAYOUT_KEY = 'LittleWhiteBox_StoryOutline_OverlayLayout';
 
 let overlayCreated = false, frameReady = false, pendingMsgs = [], presetCleanup = null, step1Cache = null;
 
@@ -66,6 +67,101 @@ const setStore = (k, v) => safe(() => localStorage.setItem(k, JSON.stringify(v))
 
 /** 随机范围 */
 const randRange = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+function readOverlayLayout() {
+    const layout = getStore(OVERLAY_LAYOUT_KEY, null);
+    if (!layout || typeof layout !== 'object' || Array.isArray(layout)) {
+        return { mobile: {}, desktop: {} };
+    }
+    return {
+        mobile: layout.mobile && typeof layout.mobile === 'object' && !Array.isArray(layout.mobile) ? layout.mobile : {},
+        desktop: layout.desktop && typeof layout.desktop === 'object' && !Array.isArray(layout.desktop) ? layout.desktop : {}
+    };
+}
+
+function writeOverlayLayout(layout) {
+    setStore(OVERLAY_LAYOUT_KEY, layout);
+}
+
+function getDesktopLayoutBounds(overlay) {
+    const overlayWidth = overlay?.clientWidth || window.innerWidth;
+    const overlayHeight = overlay?.clientHeight || window.innerHeight;
+    return {
+        maxWidth: Math.max(400, Math.floor(Math.min(window.innerWidth * 0.95, overlayWidth))),
+        maxHeight: Math.max(300, Math.floor(Math.min(window.innerHeight * 0.9, overlayHeight))),
+        overlayWidth,
+        overlayHeight
+    };
+}
+
+function normalizeDesktopOverlayLayout(layout, overlay) {
+    if (!layout || typeof layout !== 'object') return null;
+    const widthValue = Number(layout.width);
+    const heightValue = Number(layout.height);
+    const leftValue = Number(layout.left);
+    const topValue = Number(layout.top);
+    if (![widthValue, heightValue, leftValue, topValue].every(Number.isFinite)) return null;
+
+    const bounds = getDesktopLayoutBounds(overlay);
+    const width = clamp(Math.round(widthValue), 400, bounds.maxWidth);
+    const height = clamp(Math.round(heightValue), 300, bounds.maxHeight);
+
+    return {
+        width,
+        height,
+        left: clamp(Math.round(leftValue), 0, Math.max(0, bounds.overlayWidth - width)),
+        top: clamp(Math.round(topValue), 0, Math.max(0, bounds.overlayHeight - height))
+    };
+}
+
+function applySavedOverlayLayout(wrap, overlay) {
+    if (!wrap || !overlay) return;
+
+    if (isMobile()) {
+        const { mobile } = readOverlayLayout();
+        const fallbackHeight = Math.round(window.innerHeight * 0.4);
+        const height = clamp(Math.round(Number(mobile?.height) || fallbackHeight), 44, Math.round(window.innerHeight * 0.9));
+        wrap.style.setProperty('height', `${height}px`, 'important');
+        wrap.style.setProperty('top', '0px', 'important');
+        return;
+    }
+
+    const { desktop } = readOverlayLayout();
+    const normalized = normalizeDesktopOverlayLayout(desktop, overlay);
+    if (!normalized) return;
+
+    wrap.style.setProperty('left', `${normalized.left}px`, 'important');
+    wrap.style.setProperty('top', `${normalized.top}px`, 'important');
+    wrap.style.setProperty('width', `${normalized.width}px`, 'important');
+    wrap.style.setProperty('height', `${normalized.height}px`, 'important');
+    wrap.style.setProperty('transform', 'none', 'important');
+}
+
+function saveCurrentOutlineOverlayLayout() {
+    const overlay = document.getElementById("xiaobaix-story-outline-overlay");
+    const wrap = overlay?.querySelector(".xb-so-frame-wrap");
+    if (!overlay || !wrap) return;
+
+    const layout = readOverlayLayout();
+    const overlayRect = overlay.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+
+    if (isMobile()) {
+        layout.mobile = {
+            height: clamp(Math.round(wrapRect.height), 44, Math.round(window.innerHeight * 0.9))
+        };
+    } else {
+        layout.desktop = normalizeDesktopOverlayLayout({
+            width: wrapRect.width,
+            height: wrapRect.height,
+            left: wrapRect.left - overlayRect.left,
+            top: wrapRect.top - overlayRect.top
+        }, overlay) || layout.desktop || {};
+    }
+
+    writeOverlayLayout(layout);
+}
 
 /**
  * 修复单个 JSON 字符串的语法问题
@@ -1277,7 +1373,7 @@ function createOverlay() {
         shouldHandle: () => !isMobile(),
         onStart(e) { const r = wrap.getBoundingClientRect(), ro = overlay.getBoundingClientRect(); wrap.style.left = (r.left - ro.left) + 'px'; wrap.style.top = (r.top - ro.top) + 'px'; wrap.style.transform = ''; setPtr('none'); return { sx: e.clientX, sy: e.clientY, sl: parseFloat(wrap.style.left), st: parseFloat(wrap.style.top) }; },
         onMove(e, s) { wrap.style.left = Math.max(0, Math.min(overlay.clientWidth - wrap.offsetWidth, s.sl + e.clientX - s.sx)) + 'px'; wrap.style.top = Math.max(0, Math.min(overlay.clientHeight - wrap.offsetHeight, s.st + e.clientY - s.sy)) + 'px'; },
-        onEnd: () => setPtr('')
+        onEnd: () => { setPtr(''); saveCurrentOutlineOverlayLayout(); }
     });
 
     // 缩放
@@ -1285,7 +1381,7 @@ function createOverlay() {
         shouldHandle: () => !isMobile(),
         onStart(e) { const r = wrap.getBoundingClientRect(), ro = overlay.getBoundingClientRect(); wrap.style.left = (r.left - ro.left) + 'px'; wrap.style.top = (r.top - ro.top) + 'px'; wrap.style.transform = ''; setPtr('none'); return { sx: e.clientX, sy: e.clientY, sw: wrap.offsetWidth, sh: wrap.offsetHeight, ratio: wrap.offsetWidth / wrap.offsetHeight }; },
         onMove(e, s) { const dx = e.clientX - s.sx, dy = e.clientY - s.sy, delta = Math.abs(dx) > Math.abs(dy) ? dx : dy * s.ratio; let w = Math.max(400, Math.min(window.innerWidth * 0.95, s.sw + delta)), h = w / s.ratio; if (h > window.innerHeight * 0.9) { h = window.innerHeight * 0.9; w = h * s.ratio; } if (h < 300) { h = 300; w = h * s.ratio; } wrap.style.width = w + 'px'; wrap.style.height = h + 'px'; },
-        onEnd: () => setPtr('')
+        onEnd: () => { setPtr(''); saveCurrentOutlineOverlayLayout(); }
     });
 
     // 移动端
@@ -1293,7 +1389,7 @@ function createOverlay() {
         shouldHandle: () => isMobile(),
         onStart(e) { setPtr('none'); return { sy: e.clientY, sh: wrap.offsetHeight }; },
         onMove(e, s) { wrap.style.height = Math.max(44, Math.min(window.innerHeight * 0.9, s.sh + e.clientY - s.sy)) + 'px'; },
-        onEnd: () => setPtr('')
+        onEnd: () => { setPtr(''); saveCurrentOutlineOverlayLayout(); }
     });
 
     // Guarded by isTrustedMessage (origin + source).
@@ -1303,13 +1399,27 @@ function createOverlay() {
 
 function updateLayout() {
     const wrap = document.querySelector(".xb-so-frame-wrap"); if (!wrap) return;
+    const overlay = document.getElementById("xiaobaix-story-outline-overlay");
     const drag = document.querySelector(".xb-so-drag-handle"), resize = document.querySelector(".xb-so-resize-handle"), mobile = document.querySelector(".xb-so-resize-mobile");
-    if (isMobile()) { if (drag) drag.style.display = 'none'; if (resize) resize.style.display = 'none'; if (mobile) mobile.style.display = 'flex'; wrap.style.cssText = MOBILE_LAYOUT_STYLE; const fixedHeight = window.innerHeight * 0.4; wrap.style.height = Math.max(44, fixedHeight) + 'px'; wrap.style.top = '0px'; }
-    else { if (drag) drag.style.display = 'block'; if (resize) resize.style.display = 'block'; if (mobile) mobile.style.display = 'none'; wrap.style.cssText = DESKTOP_LAYOUT_STYLE; }
+    if (isMobile()) {
+        if (drag) drag.style.display = 'none';
+        if (resize) resize.style.display = 'none';
+        if (mobile) mobile.style.display = 'flex';
+        wrap.style.cssText = MOBILE_LAYOUT_STYLE;
+        applySavedOverlayLayout(wrap, overlay);
+    }
+    else {
+        if (drag) drag.style.display = 'block';
+        if (resize) resize.style.display = 'block';
+        if (mobile) mobile.style.display = 'none';
+        wrap.style.cssText = DESKTOP_LAYOUT_STYLE;
+        applySavedOverlayLayout(wrap, overlay);
+    }
 }
 
 function showOverlay() { if (!overlayCreated) createOverlay(); frameReady = false; const f = document.getElementById("xiaobaix-story-outline-iframe"); if (f) f.src = IFRAME_PATH; updateLayout(); $("#xiaobaix-story-outline-overlay").show(); }
 function hideOverlay() {
+    saveCurrentOutlineOverlayLayout();
     document.getElementById("xiaobaix-story-outline-overlay")?.remove();
     overlayCreated = false;
     frameReady = false;
@@ -1318,7 +1428,13 @@ function hideOverlay() {
 }
 
 let lastIsMobile = isMobile();
-window.addEventListener('resize', () => { const nowIsMobile = isMobile(); if (nowIsMobile !== lastIsMobile) { lastIsMobile = nowIsMobile; updateLayout(); } });
+window.addEventListener('resize', () => {
+    const nowIsMobile = isMobile();
+    if (nowIsMobile !== lastIsMobile) {
+        lastIsMobile = nowIsMobile;
+        updateLayout();
+    }
+});
 
 
 // ==================== 11. 事件与初始化 ====================

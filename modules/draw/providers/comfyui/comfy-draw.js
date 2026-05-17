@@ -1031,16 +1031,22 @@ function requireComfyNode(workflow, nodeId, label) {
     return node;
 }
 
-function validateComfyTextNode(workflow, nodeId, label, { required = false } = {}) {
+function getComfyTextFieldCandidates(role) {
+    if (role === 'negative') return ['text', 'negative', 'prompt'];
+    return ['text', 'prompt', 'positive'];
+}
+
+function validateComfyTextNode(workflow, nodeId, label, { required = false, role = 'positive' } = {}) {
     const id = String(nodeId || '').trim();
     if (!id) {
         if (required) throw new Error(`请填写${label}`);
         return;
     }
     const node = requireComfyNode(workflow, id, label);
-    const hasTextField = ['text', 'positive', 'negative', 'prompt'].some(k => k in node.inputs);
+    const fields = getComfyTextFieldCandidates(role);
+    const hasTextField = fields.some(k => k in node.inputs);
     if (!hasTextField) {
-        throw new Error(`${label}需要填带 text/positive/prompt 输入的节点：${id}`);
+        throw new Error(`${label}需要填带 ${fields.join('/')} 输入的节点：${id}`);
     }
 }
 
@@ -1081,8 +1087,8 @@ function validateComfySaveImageNode(workflow, nodeId, { required = false } = {})
 }
 
 function validateComfyWorkflowNodeMap(workflow, nodeMap) {
-    validateComfyTextNode(workflow, nodeMap.positive, '正向提示词节点', { required: true });
-    validateComfyTextNode(workflow, nodeMap.negative, '负向提示词节点');
+    validateComfyTextNode(workflow, nodeMap.positive, '正向提示词节点', { required: true, role: 'positive' });
+    validateComfyTextNode(workflow, nodeMap.negative, '负向提示词节点', { role: 'negative' });
     validateComfyInputNode(workflow, nodeMap.width, '宽度节点', 'width');
     validateComfyInputNode(workflow, nodeMap.height, '高度节点', 'height');
     validateComfySeedNode(workflow, nodeMap.seed);
@@ -1181,8 +1187,8 @@ function resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId 
     return saveImageAsset || null;
 }
 
-function injectTextFieldIntoNode(nodeInputs, value) {
-    for (const key of ['text', 'positive', 'negative', 'prompt']) {
+function injectTextFieldIntoNode(nodeInputs, value, role) {
+    for (const key of getComfyTextFieldCandidates(role)) {
         if (key in nodeInputs && typeof nodeInputs[key] === 'string') {
             nodeInputs[key] = value;
             return;
@@ -1195,10 +1201,10 @@ function injectPromptIntoWorkflow(workflow, positive, negative, width, height, n
     const wf = JSON.parse(JSON.stringify(workflow));
     validateComfyWorkflowNodeMap(wf, nodeMap);
     if (nodeMap.positive && wf[nodeMap.positive]) {
-        injectTextFieldIntoNode(wf[nodeMap.positive].inputs, positive);
+        injectTextFieldIntoNode(wf[nodeMap.positive].inputs, positive, 'positive');
     }
     if (nodeMap.negative && wf[nodeMap.negative]) {
-        injectTextFieldIntoNode(wf[nodeMap.negative].inputs, negative);
+        injectTextFieldIntoNode(wf[nodeMap.negative].inputs, negative, 'negative');
     }
     if (nodeMap.width && width && wf[nodeMap.width]) {
         const widthNode = wf[nodeMap.width].inputs;

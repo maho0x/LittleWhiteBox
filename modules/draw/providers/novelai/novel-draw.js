@@ -2720,7 +2720,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             await renderSharedPreviewsForMessage(messageId);
 
             try {
-                const { processMessageById } = await import('../iframe-renderer.js');
+                const { processMessageById } = await import('../../../iframe-renderer.js');
                 processMessageById(messageId, true);
             } catch {}
         } else if (shouldUpdateDom) {
