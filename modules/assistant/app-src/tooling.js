@@ -16,6 +16,10 @@ export const TOOL_NAMES = {
     WRITE_IDENTITY: 'WriteIdentity',
     READ_WORKLOG: 'ReadWorklog',
     WRITE_WORKLOG: 'WriteWorklog',
+    PLAN_CREATE: 'PlanCreate',
+    PLAN_UPDATE: 'PlanUpdate',
+    PLAN_LIST: 'PlanList',
+    PLAN_GET: 'PlanGet',
     READ_SKILLS_CATALOG: 'ReadSkillsCatalog',
     READ_SKILL: 'ReadSkill',
     UPDATE_SKILL: 'UpdateSkill',
@@ -326,6 +330,115 @@ export const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
+            name: TOOL_NAMES.PLAN_CREATE,
+            description: [
+                'Create one tracked checklist item for the current assistant session.',
+                'Use when the work has multiple steps, blockers, follow-up decisions, or a result that may need to be resumed later.',
+                'Example: title "Check Comfy workflow mapping"; detail "Verify prompt node, SaveImage node, seed/size mapping, then report risks."',
+                'This only records the plan item; it does not run tools or delegate work.',
+            ].join('\n'),
+            parameters: {
+                type: 'object',
+                properties: {
+                    title: { type: 'string', description: 'Short concrete item name, not a vague category.' },
+                    detail: { type: 'string', description: 'Useful context, done criteria, or the exact thing to check.' },
+                    priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'], description: 'Use normal by default; raise only for real urgency.' },
+                    owner: { type: 'string', description: 'Who is expected to move it forward. Default assistant; use user only for user-side actions.' },
+                    blockedBy: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Plan ids that must be completed before this item can start.',
+                    },
+                    note: { type: 'string', description: 'Optional first progress note or reason this item exists.' },
+                },
+                required: ['title'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: TOOL_NAMES.PLAN_UPDATE,
+            description: [
+                'Update one tracked checklist item after actual progress, a blocker, or a decision.',
+                'Use status for progress state, note for a short progress note, and result/error for final outcome or failure cause.',
+                'Example: after tests pass, set status to "completed" and summarize the verified checks in result.',
+                'If blockedBy points to unfinished items, the item cannot move to in_progress.',
+            ].join('\n'),
+            parameters: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'Plan id returned by PlanCreate or PlanList.' },
+                    title: { type: 'string', description: 'Optional clearer replacement title.' },
+                    detail: { type: 'string', description: 'Optional replacement context or done criteria.' },
+                    status: {
+                        type: 'string',
+                        enum: ['pending', 'in_progress', 'blocked', 'completed', 'failed', 'cancelled'],
+                        description: 'New progress state.',
+                    },
+                    priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'], description: 'New priority when importance changed.' },
+                    owner: { type: 'string', description: 'New owner when responsibility changed.' },
+                    blockedBy: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Replacement blocker id list; pass an empty array to clear blockers.',
+                    },
+                    note: { type: 'string', description: 'Append one short progress note.' },
+                    result: { type: 'string', description: 'Concrete result, usually for completed items.' },
+                    error: { type: 'string', description: 'Failure reason or blocking error, usually for failed items.' },
+                },
+                required: ['id'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: TOOL_NAMES.PLAN_LIST,
+            description: [
+                'List tracked checklist items for the current assistant session.',
+                'Use before resuming work, choosing the next step, or checking blockers.',
+                'Leave filters empty for the current checklist; add status, priority, or owner only when narrowing.',
+            ].join('\n'),
+            parameters: {
+                type: 'object',
+                properties: {
+                    status: {
+                        type: 'string',
+                        enum: ['pending', 'in_progress', 'blocked', 'completed', 'failed', 'cancelled'],
+                        description: 'Optional status filter, for example pending or blocked.',
+                    },
+                    priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'], description: 'Optional priority filter.' },
+                    owner: { type: 'string', description: 'Optional owner filter, for example assistant or user.' },
+                    limit: { type: 'number', description: 'Maximum items to return. Default 50, max 100.' },
+                },
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: TOOL_NAMES.PLAN_GET,
+            description: [
+                'Read the full record for one tracked checklist item.',
+                'Use when the next action depends on detail, blockers, notes, result, or error for a known plan id.',
+            ].join('\n'),
+            parameters: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'Plan id returned by PlanCreate or PlanList.' },
+                },
+                required: ['id'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: TOOL_NAMES.READ_SKILLS_CATALOG,
             description: 'Read the skill catalog index at user/files/LittleWhiteBox_Assistant_Skills.json and return registered skill metadata plus the injection-ready catalog summary.',
             parameters: {
@@ -494,6 +607,14 @@ export function describeToolCall(name, args = {}) {
             return '读取工作记录';
         case TOOL_NAMES.WRITE_WORKLOG:
             return `写入工作记录 ${args.name || ''}`.trim();
+        case TOOL_NAMES.PLAN_CREATE:
+            return `创建计划 ${args.title || ''}`.trim();
+        case TOOL_NAMES.PLAN_UPDATE:
+            return `更新计划 ${args.id || args.title || ''}`.trim();
+        case TOOL_NAMES.PLAN_LIST:
+            return '查看计划列表';
+        case TOOL_NAMES.PLAN_GET:
+            return `查看计划 ${args.id || ''}`.trim();
         case TOOL_NAMES.READ_SKILLS_CATALOG:
             return '读取技能目录';
         case TOOL_NAMES.READ_SKILL:
@@ -511,6 +632,85 @@ export function describeToolCall(name, args = {}) {
     }
 }
 
+function formatPlanLine(plan = {}) {
+    const title = String(plan.title || plan.id || '').trim();
+    const meta = [
+        plan.status ? `状态：${plan.status}` : '',
+        plan.priority ? `优先级：${plan.priority}` : '',
+        plan.owner ? `owner：${plan.owner}` : '',
+    ].filter(Boolean).join('，');
+    return `- ${title}${plan.id ? ` (${plan.id})` : ''}${meta ? `：${meta}` : ''}`;
+}
+
+function formatPlanToolResult(message, parsed = {}) {
+    if (![
+        TOOL_NAMES.PLAN_CREATE,
+        TOOL_NAMES.PLAN_UPDATE,
+        TOOL_NAMES.PLAN_LIST,
+        TOOL_NAMES.PLAN_GET,
+    ].includes(message.toolName)) {
+        return null;
+    }
+    const plan = parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null;
+    const blockers = Array.isArray(parsed.blockers) ? parsed.blockers : [];
+    if (parsed.ok === false) {
+        const lines = [
+            `计划工具失败：${parsed.error || 'unknown_error'}`,
+            parsed.id ? `计划：${parsed.id}` : '',
+        ];
+        if (blockers.length) {
+            lines.push(`阻塞项：${blockers.map((item) => `${item.title || item.id || ''}(${item.status || 'unknown'})`).join('、')}`);
+        }
+        return {
+            summary: lines.filter(Boolean).join('\n'),
+            details: JSON.stringify(parsed, null, 2),
+        };
+    }
+    if (message.toolName === TOOL_NAMES.PLAN_CREATE) {
+        return {
+            summary: [
+                `计划已创建：${plan?.title || ''}`,
+                plan?.id ? `id：${plan.id}` : '',
+                plan?.status ? `状态：${plan.status}` : '',
+                blockers.length ? `阻塞项：${blockers.map((item) => item.title || item.id).filter(Boolean).join('、')}` : '',
+            ].filter(Boolean).join('\n'),
+            details: JSON.stringify(plan || parsed, null, 2),
+        };
+    }
+    if (message.toolName === TOOL_NAMES.PLAN_UPDATE) {
+        return {
+            summary: [
+                `计划已更新：${plan?.title || plan?.id || ''}`.trim(),
+                plan?.status ? `状态：${plan.status}` : '',
+                blockers.length ? `阻塞项：${blockers.map((item) => item.title || item.id).filter(Boolean).join('、')}` : '',
+            ].filter(Boolean).join('\n'),
+            details: JSON.stringify(plan || parsed, null, 2),
+        };
+    }
+    if (message.toolName === TOOL_NAMES.PLAN_LIST) {
+        const plans = Array.isArray(parsed.plans) ? parsed.plans : [];
+        const lines = [`当前会话计划：${Number(parsed.count) || 0} 项，展示 ${plans.length} 项。`];
+        if (plans.length) {
+            lines.push('');
+            lines.push(...formatPreviewList(plans, formatPlanLine));
+        }
+        if (parsed.truncated) {
+            lines.push('结果已截断，可以用 status、priority 或 owner 缩小范围。');
+        }
+        return {
+            summary: lines.join('\n'),
+            details: plans.map(formatPlanLine).join('\n'),
+        };
+    }
+    if (message.toolName === TOOL_NAMES.PLAN_GET) {
+        return {
+            summary: plan ? formatPlanLine(plan).replace(/^- /, '') : '计划不存在',
+            details: JSON.stringify(parsed, null, 2),
+        };
+    }
+    return null;
+}
+
 export function formatToolResultDisplay(message) {
     const parsed = safeJsonParse(message.content, null);
     if (!parsed || typeof parsed !== 'object') {
@@ -519,6 +719,9 @@ export function formatToolResultDisplay(message) {
             details: '',
         };
     }
+
+    const planToolResult = formatPlanToolResult(message, parsed);
+    if (planToolResult) return planToolResult;
 
     if (parsed.ok === false && parsed.error) {
         const lines = [

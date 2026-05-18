@@ -9,7 +9,7 @@ export function collectContextHintItems(state = {}) {
         ? String(state.selectedSkillFilePath || '').trim()
         : String(state.selectedFilePath || '').trim();
     const selectedTreePath = isMemoryPanel ? '' : String(state.selectedTreePath || '').trim();
-    const formatIdeHint = (text) => `[IDE] ${text}`;
+    const formatContextHint = (text) => `上下文：${text}`;
 
     if (externalEditorContext && (externalEditorContext.filePath || externalEditorContext.note || externalEditorContext.selectionText)) {
         const parts = [];
@@ -28,7 +28,7 @@ export function collectContextHintItems(state = {}) {
         if (externalEditorContext.selectionText) {
             parts.push('含选中文本');
         }
-        contextItems.push(formatIdeHint(parts.join(' · ')));
+        contextItems.push(formatContextHint(parts.join(' · ')));
     }
 
     if (state.isWorkspaceOpen) {
@@ -37,7 +37,7 @@ export function collectContextHintItems(state = {}) {
             if (!selectedFilePath) {
                 parts.push('未锁定具体文件');
             }
-            contextItems.push(formatIdeHint(parts.join(' · ')));
+            contextItems.push(formatContextHint(parts.join(' · ')));
         } else if (selectedFilePath) {
             const memoryFile = isMemoryPanel ? findMemoryFileByPath(state.skillFiles, selectedFilePath) : null;
             const memoryDescriptor = isMemoryPanel ? describeMemoryFile(memoryFile, selectedFilePath) : null;
@@ -55,7 +55,7 @@ export function collectContextHintItems(state = {}) {
                     parts.push('含选中文本');
                 }
             }
-            contextItems.push(formatIdeHint(parts.join(' · ')));
+            contextItems.push(formatContextHint(parts.join(' · ')));
         }
     }
 

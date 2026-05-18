@@ -1,0 +1,21 @@
+import Dexie from '../../../libs/dexie.mjs';
+
+const db = new Dexie('LittleWhiteBox_Assistant');
+
+db.version(1).stores({
+    sessions: 'id, updatedAt',
+    messages: '[sessionId+order], sessionId',
+});
+
+db.version(2).stores({
+    sessions: 'id, updatedAt',
+    messages: '[sessionId+order], sessionId',
+    meta: 'key',
+    plans: '[sessionId+id], sessionId, status, owner, priority, updatedAt, completedAt',
+});
+
+export const sessionsTable = db.sessions;
+export const messagesTable = db.messages;
+export const metaTable = db.meta;
+export const plansTable = db.plans;
+export default db;

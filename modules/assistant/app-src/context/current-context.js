@@ -28,7 +28,7 @@ export function buildWorkspaceUserContextTextForState(inputState = {}) {
     if (!sourceState.isWorkspaceOpen) return '';
     if (!selectedFilePath && !selectedTreePath) return '';
 
-    const lines = ['[IDE background]'];
+    const lines = ['[Current context]'];
     if (selectedTreePath && String(selectedTreePath).endsWith('/') && (!selectedFilePath || selectedTreePath !== selectedFilePath)) {
         lines.push(`用户当前在工作区聚焦了目录：${selectedTreePath}`);
         if (!selectedFilePath) {

@@ -9,7 +9,8 @@ import {
     formatToolResultDisplay,
 } from './tooling.js';
 import { createAssistantRuntime } from './runtime.js';
-import { buildWorkspaceUserContextTextForState } from './context/ide-context.js';
+import { buildWorkspaceUserContextTextForState } from './context/current-context.js';
+import { buildCurrentPlansContextText } from './context/current-plans.js';
 import { normalizeMemoryFiles } from './memory/memory-files.js';
 import {
     DEFAULT_PRESET_NAME,
@@ -46,6 +47,7 @@ import {
     WORKSPACE_KERNEL_VERSION,
     WORKSPACE_MESSAGE_TYPES,
 } from '../shared/workspace-protocol.js';
+import { createPlanLedger } from '../shared/plan-ledger.js';
 
 const SOURCE = 'xb-assistant-app';
 const ROOT_ID = 'xb-assistant-root';
@@ -63,6 +65,7 @@ const TOAST_DURATION_MIN_MS = 1800;
 const TOAST_DURATION_MAX_MS = 4200;
 const CONFIG_SAVE_TIMEOUT_MS = 3000;
 const CONFIG_SAVE_RESULT_MS = 1800;
+const currentPlanContextLedger = createPlanLedger();
 const TOOL_MODE_OPTIONS = [
     { value: 'native', label: '原生 Tool Calling' },
     { value: 'tagged-json', label: 'Tagged JSON 兼容模式' },
@@ -93,6 +96,7 @@ const state = {
     runtime: null,
     workspaceDrafts: {},
     pendingApproval: null,
+    assistantSessionId: '',
     messages: [],
     historySummary: '',
     archivedTurnCount: 0,
@@ -102,6 +106,7 @@ const state = {
         summaryActive: false,
     },
     isBusy: false,
+    isPreparingRun: false,
     currentRound: 0,
     progressLabel: '',
     activeRun: null,
@@ -1363,7 +1368,7 @@ function buildExternalEditorContextText() {
     const context = normalizeExternalEditorContext(state.externalEditorContext);
     if (!context) return '';
 
-    const lines = ['[IDE background]'];
+    const lines = ['[Current context]'];
     if (context.filePath) {
         lines.push(`用户当前打开了文件：${context.filePath}`);
     }
@@ -1397,6 +1402,23 @@ function getEphemeralUserContextText() {
     return [
         buildExternalEditorContextText(),
         buildWorkspaceUserContextText(),
+    ].filter(Boolean).join('\n\n').trim();
+}
+
+async function getRunUserContextSnapshotText() {
+    const currentContextText = getEphemeralUserContextText();
+    let currentPlansText = '';
+    try {
+        currentPlansText = await buildCurrentPlansContextText({
+            sessionId: state.assistantSessionId,
+            ledger: currentPlanContextLedger,
+        });
+    } catch (error) {
+        console.warn('[Assistant] 读取当前计划失败:', error);
+    }
+    return [
+        currentContextText,
+        currentPlansText,
     ].filter(Boolean).join('\n\n').trim();
 }
 
@@ -1474,12 +1496,12 @@ function applyConfig(config) {
     render();
 }
 
-function createAssistantRun() {
+async function createAssistantRun() {
     return {
         id: createRequestId('run'),
         controller: new AbortController(),
         toolRequestIds: new Set(),
-        userContextSnapshotText: getEphemeralUserContextText(),
+        userContextSnapshotText: await getRunUserContextSnapshotText(),
         cancelNotice: '',
         lightBrakeMessage: '',
         lastLightBrakeKey: '',
@@ -1896,7 +1918,7 @@ function bindEvents(root) {
         }
 
         if (action === 'reroll') {
-            if (state.isBusy) return;
+            if (state.isBusy || state.isPreparingRun) return;
             const turnUserIndex = findTurnUserMessageIndex(messageIndex - 1);
             if (turnUserIndex < 0) {
                 showToast('这条消息前没有可重跑的用户输入');
@@ -1909,14 +1931,20 @@ function bindEvents(root) {
                 return;
             }
 
-            state.messages = nextMessages;
-            state.pendingApproval = null;
-            state.editingMessageIndex = -1;
-            await persistSession();
-            render();
+            state.isPreparingRun = true;
+            try {
+                state.messages = nextMessages;
+                state.pendingApproval = null;
+                state.editingMessageIndex = -1;
+                await persistSession();
+                render();
 
-            const run = createAssistantRun();
-            await executeAssistantRun(run);
+                const run = await createAssistantRun();
+                state.isPreparingRun = false;
+                await executeAssistantRun(run);
+            } finally {
+                state.isPreparingRun = false;
+            }
         }
     };
 
@@ -2029,10 +2057,12 @@ function bindEvents(root) {
             cancelActiveRun('本轮请求已终止。');
             return;
         }
+        if (state.isPreparingRun) return;
         const value = input.value.trim();
         const attachments = normalizeAttachments(state.draftAttachments);
         if (!value && !attachments.length) return;
 
+        state.isPreparingRun = true;
         pushMessage({ role: 'user', content: value, attachments });
         input.value = '';
         state.draftAttachments = [];
@@ -2041,8 +2071,13 @@ function bindEvents(root) {
         render();
 
         state.editingMessageIndex = -1;
-        const run = createAssistantRun();
-        await executeAssistantRun(run);
+        try {
+            const run = await createAssistantRun();
+            state.isPreparingRun = false;
+            await executeAssistantRun(run);
+        } finally {
+            state.isPreparingRun = false;
+        }
     });
 
     input.addEventListener('input', resizeComposer);

@@ -152,6 +152,11 @@ const TOOL_GUIDELINES = [
     '',
     ' - Suggest generating a skill only when workflow is stable, reusable, and user wants reuse',
     ' - Update or delete existing skills only when user explicitly requests it',
+    '',
+    '## Using Plans',
+    ' - Use PlanCreate for multi-step work, long investigations, or tasks that are easy to lose track of.',
+    ' - Use PlanUpdate after finishing, blocking, failing, or materially changing a tracked step.',
+    ' - Plans are only a structured checklist. They do not execute tools or delegate work by themselves.',
 ].join('\n');
 
 // ============================================================

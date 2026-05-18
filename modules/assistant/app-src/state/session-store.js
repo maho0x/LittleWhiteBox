@@ -1,8 +1,15 @@
-import db, { sessionsTable, messagesTable } from './session-db.js';
+import db, { metaTable, messagesTable, sessionsTable } from './session-db.js';
+import { createPlanLedger } from '../../shared/plan-ledger.js';
 import { normalizeLocalSources } from '../workspace/local-sources.js';
 
-const SESSION_ID = 'default';
+const LEGACY_SESSION_ID = 'default';
+const CURRENT_SESSION_META_KEY = 'currentSessionId';
 let writeQueue = Promise.resolve();
+const planLedger = createPlanLedger();
+
+function createAssistantSessionId() {
+    return `asst-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -13,9 +20,9 @@ function cloneJson(value) {
     }
 }
 
-function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks, order) {
+function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks, order, sessionId) {
     return {
-        sessionId: SESSION_ID,
+        sessionId,
         order,
         role: message.role,
         content: String(message.content || ''),
@@ -84,12 +91,51 @@ export function createSessionStore(deps) {
         getActiveContextMessages,
     } = deps;
 
+    let currentSessionId = '';
+
+    async function persistCurrentSessionId(sessionId) {
+        currentSessionId = String(sessionId || '').trim() || createAssistantSessionId();
+        state.assistantSessionId = currentSessionId;
+        await metaTable.put({
+            key: CURRENT_SESSION_META_KEY,
+            value: currentSessionId,
+            updatedAt: Date.now(),
+        });
+        return currentSessionId;
+    }
+
+    async function resolveCurrentSessionId() {
+        if (currentSessionId) return currentSessionId;
+
+        const saved = await metaTable.get(CURRENT_SESSION_META_KEY);
+        const savedSessionId = String(saved?.value || '').trim();
+        if (savedSessionId) {
+            currentSessionId = savedSessionId;
+            state.assistantSessionId = currentSessionId;
+            return currentSessionId;
+        }
+
+        const hasLegacySession = !!(await sessionsTable.get(LEGACY_SESSION_ID))
+            || (await messagesTable.where('sessionId').equals(LEGACY_SESSION_ID).count()) > 0;
+        return await persistCurrentSessionId(hasLegacySession ? LEGACY_SESSION_ID : createAssistantSessionId());
+    }
+
+    function getCurrentSessionIdSync() {
+        if (!currentSessionId) {
+            currentSessionId = String(state.assistantSessionId || '').trim() || LEGACY_SESSION_ID;
+            state.assistantSessionId = currentSessionId;
+        }
+        return currentSessionId;
+    }
+
     function buildSnapshot() {
+        const sessionId = getCurrentSessionIdSync();
         const activeMessages = getActiveContextMessages()
             .filter(isPersistableMessage)
-            .map((message, index) => serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks, index));
+            .map((message, index) => serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks, index, sessionId));
 
         return {
+            sessionId,
             historySummary: String(state.historySummary || ''),
             sidebarCollapsed: state.sidebarCollapsed !== undefined ? !!state.sidebarCollapsed : true,
             localSources: normalizeLocalSources(state.localSources),
@@ -113,7 +159,7 @@ export function createSessionStore(deps) {
     async function saveSnapshot(snapshot) {
         await db.transaction('rw', sessionsTable, messagesTable, async () => {
             await sessionsTable.put({
-                id: SESSION_ID,
+                id: snapshot.sessionId,
                 updatedAt: Date.now(),
                 historySummary: snapshot.historySummary,
                 sidebarCollapsed: snapshot.sidebarCollapsed,
@@ -132,7 +178,7 @@ export function createSessionStore(deps) {
                 treeExpandedKeys: snapshot.treeExpandedKeys,
                 skillTreeExpandedKeys: snapshot.skillTreeExpandedKeys,
             });
-            await messagesTable.where('sessionId').equals(SESSION_ID).delete();
+            await messagesTable.where('sessionId').equals(snapshot.sessionId).delete();
             if (snapshot.messages.length) {
                 await messagesTable.bulkPut(snapshot.messages);
             }
@@ -177,9 +223,18 @@ export function createSessionStore(deps) {
             .catch(() => {})
             .then(async () => {
                 try {
-                    await messagesTable.where('sessionId').equals(SESSION_ID).delete();
-                    await sessionsTable.delete(SESSION_ID);
-                    return { ok: true };
+                    const previousSessionId = await resolveCurrentSessionId();
+                    await db.transaction('rw', sessionsTable, messagesTable, async () => {
+                        await messagesTable.where('sessionId').equals(previousSessionId).delete();
+                        await sessionsTable.delete(previousSessionId);
+                    });
+                    await planLedger.clearSessionPlans(previousSessionId);
+                    const nextSessionId = await persistCurrentSessionId(createAssistantSessionId());
+                    return {
+                        ok: true,
+                        sessionId: nextSessionId,
+                        previousSessionId,
+                    };
                 } catch (error) {
                     console.error('[Assistant] 清空会话失败:', error);
                     return {
@@ -193,7 +248,9 @@ export function createSessionStore(deps) {
 
     async function restoreSession() {
         try {
-            const session = await sessionsTable.get(SESSION_ID);
+            const sessionId = await resolveCurrentSessionId();
+            state.assistantSessionId = sessionId;
+            const session = await sessionsTable.get(sessionId);
             if (!session) {
                 state.messages = [];
                 state.historySummary = '';
@@ -216,7 +273,7 @@ export function createSessionStore(deps) {
                 return;
             }
 
-            const messages = await messagesTable.where('sessionId').equals(SESSION_ID).toArray();
+            const messages = await messagesTable.where('sessionId').equals(sessionId).toArray();
             messages.sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
 
             state.messages = messages

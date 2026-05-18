@@ -65,6 +65,7 @@ export function createHostToolRequestController(deps) {
             name,
             arguments: args,
             workspaceMeta,
+            assistantSessionId: String(state.assistantSessionId || ''),
         });
     }
 

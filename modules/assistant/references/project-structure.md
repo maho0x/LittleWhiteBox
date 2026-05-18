@@ -304,8 +304,9 @@ LittleWhiteBox/
 │       │   │   ├── openai-compatible.js    # OpenAI-Compatible 适配器
 │       │   │   ├── openai-responses.js     # OpenAI Responses 适配器
 │       │   │   └── sillytavern-openai-compatible.js # 酒馆原生 OpenAI-Compatible 适配器
-│       │   ├── context/                   # IDE/外部编辑器/上下文注入相关
-│       │   │   └── ide-context.js          # IDE 背景文本与上下文构造
+│       │   ├── context/                   # 当前上下文与临时注入相关
+│       │   │   ├── current-context.js      # 工作区/外部编辑器上下文构造
+│       │   │   └── current-plans.js        # 当前会话未完成计划上下文构造
 │       │   ├── memory/                    # 记忆区文件建模与显示语义
 │       │   │   └── memory-files.js         # skill / identity / worklog 文件规范化
 │       │   ├── prompts/                   # 助手提示词模板

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-08T07:59:25.385Z",
+  "generatedAt": "2026-05-18T09:40:56.152Z",
   "version": 1,
   "files": [
     {
@@ -142,8 +142,14 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/context/ide-context.js",
-      "relativePath": "modules/assistant/app-src/context/ide-context.js",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/context/current-context.js",
+      "relativePath": "modules/assistant/app-src/context/current-context.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/context/current-plans.js",
+      "relativePath": "modules/assistant/app-src/context/current-plans.js",
       "extension": ".js"
     },
     {
@@ -370,8 +376,20 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/plan-ledger.js",
+      "relativePath": "modules/assistant/shared/plan-ledger.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/public-text-file-types.js",
       "relativePath": "modules/assistant/shared/public-text-file-types.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/session-db.js",
+      "relativePath": "modules/assistant/shared/session-db.js",
       "extension": ".js"
     },
     {
@@ -466,6 +484,18 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/plan-ledger.test.js",
+      "relativePath": "modules/assistant/tests/plan-ledger.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/session-store.test.js",
+      "relativePath": "modules/assistant/tests/session-store.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
       "relativePath": "modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
       "extension": ".js"
@@ -502,12 +532,6 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
-      "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-prompts.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-prompts.js",
       "extension": ".js"
@@ -526,8 +550,20 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/prompts/output-format-legacy.md",
+      "relativePath": "modules/draw/providers/comfyui/prompts/output-format-legacy.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/prompts/output-format.md",
       "relativePath": "modules/draw/providers/comfyui/prompts/output-format.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/prompts/top-system-pov.md",
+      "relativePath": "modules/draw/providers/comfyui/prompts/top-system-pov.md",
       "extension": ".md"
     },
     {
@@ -610,8 +646,20 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/prompts/output-format-legacy.md",
+      "relativePath": "modules/draw/providers/sd-webui/prompts/output-format-legacy.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/prompts/output-format.md",
       "relativePath": "modules/draw/providers/sd-webui/prompts/output-format.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/prompts/top-system-pov.md",
+      "relativePath": "modules/draw/providers/sd-webui/prompts/top-system-pov.md",
       "extension": ".md"
     },
     {
@@ -660,6 +708,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-llm.js",
+      "relativePath": "modules/draw/shared/draw-llm.js",
       "extension": ".js"
     },
     {
@@ -1219,6 +1273,12 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/check-garbled.js",
       "relativePath": "scripts/check-garbled.js",
       "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/check-relative-imports.mjs",
+      "relativePath": "scripts/check-relative-imports.mjs",
+      "extension": ".mjs"
     },
     {
       "source": "littlewhitebox",

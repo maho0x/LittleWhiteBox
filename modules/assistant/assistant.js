@@ -57,6 +57,7 @@ import {
     buildWorkspaceOpMeta,
     isWorkspaceMutationTool,
 } from "./shared/workspace-protocol.js";
+import { createPlanLedger, isPlanToolName } from "./shared/plan-ledger.js";
 
 const MODULE_ID = 'assistant';
 const OVERLAY_ID = 'xiaobaix-assistant-overlay';
@@ -110,6 +111,7 @@ let settingsLoaded = false;
 let localSourcesCache = [];
 let editorContextCache = null;
 let localSourcesToolRuntime = null;
+const planLedger = createPlanLedger();
 
 function summarizeLocalSourcesForDebug(localSources) {
     const normalizedSources = normalizeLocalSourcesSnapshot(localSources);
@@ -3160,6 +3162,11 @@ async function executeToolCall(name, args, options = {}) {
             return await readWorkspaceNote(args, options);
         case TOOL_NAMES.WRITE_WORKLOG:
             return await writeWorkspaceNote(args, options);
+        case TOOL_NAMES.PLAN_CREATE:
+        case TOOL_NAMES.PLAN_UPDATE:
+        case TOOL_NAMES.PLAN_LIST:
+        case TOOL_NAMES.PLAN_GET:
+            return await planLedger.execute(name, options.assistantSessionId, args);
         case TOOL_NAMES.READ_SKILLS_CATALOG:
             return await readSkillsCatalogTool(args, options);
         case TOOL_NAMES.READ_SKILL:
@@ -3298,6 +3305,7 @@ async function handleIframeMessage(event) {
             const requestId = payload?.requestId || '';
             const toolName = payload?.name || '';
             const args = payload?.arguments || {};
+            const assistantSessionId = String(payload?.assistantSessionId || '').trim();
             const workspaceMeta = buildWorkspaceOpMeta(payload?.workspaceMeta, {
                 source: isWorkspaceMutationTool(toolName) ? WORKSPACE_SOURCES.TOOL : WORKSPACE_SOURCES.HYDRATE,
                 baseVersion: getLocalSourcesToolRuntime().getWorkspaceState().version,
@@ -3311,20 +3319,25 @@ async function handleIframeMessage(event) {
             const controller = new AbortController();
             activeToolControllers.set(requestId, controller);
             try {
-                let result = await getLocalSourcesToolRuntime().execute(toolName, args, {
-                    signal: controller.signal,
-                    workspaceMeta,
-                    onLocalSourcesUpdated: (nextSources, workspaceState) => {
-                        postToIframe(iframe, {
-                            type: LOCAL_SOURCES_UPDATED,
-                            payload: {
-                                localSources: nextSources,
-                                workspaceVersion: workspaceState?.version,
-                                kernelVersion: workspaceState?.kernelVersion || WORKSPACE_KERNEL_VERSION,
-                            },
-                        });
-                    },
-                });
+                let result = isPlanToolName(toolName)
+                    ? await executeToolCall(toolName, args, {
+                        signal: controller.signal,
+                        assistantSessionId,
+                    })
+                    : await getLocalSourcesToolRuntime().execute(toolName, args, {
+                        signal: controller.signal,
+                        workspaceMeta,
+                        onLocalSourcesUpdated: (nextSources, workspaceState) => {
+                            postToIframe(iframe, {
+                                type: LOCAL_SOURCES_UPDATED,
+                                payload: {
+                                    localSources: nextSources,
+                                    workspaceVersion: workspaceState?.version,
+                                    kernelVersion: workspaceState?.kernelVersion || WORKSPACE_KERNEL_VERSION,
+                                },
+                            });
+                        },
+                    });
                 if (toolName === TOOL_NAMES.WRITE_IDENTITY) {
                     const identityFile = await readIdentityNote({}, {
                         signal: controller.signal,

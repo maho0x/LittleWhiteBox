@@ -20,6 +20,30 @@ test('lookup tools expose strict project/local scope parameters', () => {
     });
 });
 
+test('plan tools expose strict state-only schemas', () => {
+    const planTools = [
+        TOOL_NAMES.PLAN_CREATE,
+        TOOL_NAMES.PLAN_UPDATE,
+        TOOL_NAMES.PLAN_LIST,
+        TOOL_NAMES.PLAN_GET,
+    ];
+    planTools.forEach((toolName) => {
+        const definition = TOOL_DEFINITIONS.find((entry) => entry.function?.name === toolName);
+        assert(definition);
+        assert.equal(definition.function.parameters.additionalProperties, false);
+        assert.doesNotMatch(JSON.stringify(definition.function.parameters), /sessionId/i);
+    });
+    const updateDefinition = TOOL_DEFINITIONS.find((entry) => entry.function?.name === TOOL_NAMES.PLAN_UPDATE);
+    assert.deepEqual(updateDefinition.function.parameters.properties.status.enum, [
+        'pending',
+        'in_progress',
+        'blocked',
+        'completed',
+        'failed',
+        'cancelled',
+    ]);
+});
+
 test('lookup tool descriptions explain that local scope still uses local-prefixed paths', () => {
     const lookupTools = [TOOL_NAMES.LS, TOOL_NAMES.GLOB, TOOL_NAMES.GREP, TOOL_NAMES.READ];
     lookupTools.forEach((toolName) => {
@@ -113,4 +137,24 @@ test('formatToolResultDisplay keeps grep totalMatches as total match count in co
     assert.match(display.summary, /总结果数：3/);
     assert.match(display.summary, /local\/one\.txt（2 处）/);
     assert.match(display.summary, /local\/two\.md（1 处）/);
+});
+
+test('formatToolResultDisplay summarizes plan tool results', () => {
+    const display = formatToolResultDisplay({
+        toolName: TOOL_NAMES.PLAN_CREATE,
+        content: JSON.stringify({
+            ok: true,
+            plan: {
+                id: 'plan-1',
+                title: '检查 PLAN 工具',
+                status: 'pending',
+                priority: 'normal',
+                owner: 'assistant',
+            },
+            blockers: [],
+        }),
+    });
+
+    assert.match(display.summary, /计划已创建：检查 PLAN 工具/);
+    assert.match(display.summary, /id：plan-1/);
 });
