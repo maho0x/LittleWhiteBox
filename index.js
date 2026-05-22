@@ -248,15 +248,6 @@ async function updateLittleWhiteBoxExtension() {
     );
 }
 
-async function showLittleWhiteBoxUpdateDialog() {
-    return await callUpdateModule(
-        'showLittleWhiteBoxUpdateDialog',
-        false,
-        [],
-        '更新说明模块加载失败，请刷新页面或手动更新 LittleWhiteBox。',
-    );
-}
-
 async function performExtensionUpdateCheck() {
     return await callUpdateModule('performExtensionUpdateCheck', false);
 }
@@ -748,7 +739,6 @@ window.processExistingMessages = processExistingMessages;
 window.renderHtmlInIframe = renderHtmlInIframe;
 window.registerModuleCleanup = registerModuleCleanup;
 window.updateLittleWhiteBoxExtension = updateLittleWhiteBoxExtension;
-window.showLittleWhiteBoxUpdateDialog = showLittleWhiteBoxUpdateDialog;
 window.removeAllUpdateNotices = removeAllUpdateNotices;
 
 jQuery(async () => {

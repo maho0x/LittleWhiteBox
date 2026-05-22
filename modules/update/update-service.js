@@ -2,15 +2,13 @@ import { extensionTypes } from "../../../../../extensions.js";
 import { getRequestHeaders } from "../../../../../../script.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 
-export const DEFAULT_UPDATE_REPO_INFO = Object.freeze({
+const DEFAULT_UPDATE_REPO_INFO = Object.freeze({
     owner: 'RT15548',
     repo: 'LittleWhiteBox',
     homePage: 'https://github.com/RT15548/LittleWhiteBox',
 });
 
-let updateRepoInfoPromise = null;
-
-export function parseGitHubRepoInfo(homePage = '') {
+function parseGitHubRepoInfo(homePage = '') {
     const match = String(homePage || '').match(/github\.com\/([^/]+)\/([^/#?]+)/i);
     if (!match) return null;
     const owner = match[1];
@@ -20,22 +18,6 @@ export function parseGitHubRepoInfo(homePage = '') {
         repo,
         homePage: `https://github.com/${owner}/${repo}`,
     };
-}
-
-async function getLittleWhiteBoxRepoInfo() {
-    if (!updateRepoInfoPromise) {
-        updateRepoInfoPromise = (async () => {
-            try {
-                const manifestResponse = await fetch(`${extensionFolderPath}/manifest.json?t=${Date.now()}`, { cache: 'no-cache' });
-                if (manifestResponse.ok) {
-                    const manifest = await manifestResponse.json();
-                    return parseGitHubRepoInfo(manifest?.homePage) || DEFAULT_UPDATE_REPO_INFO;
-                }
-            } catch {}
-            return DEFAULT_UPDATE_REPO_INFO;
-        })();
-    }
-    return await updateRepoInfoPromise;
 }
 
 function decodeBase64Utf8(value = '') {
@@ -48,72 +30,6 @@ function decodeBase64Utf8(value = '') {
     } catch {
         return '';
     }
-}
-
-function normalizeVersionLabel(value = '') {
-    return String(value || '')
-        .trim()
-        .toLowerCase()
-        .replace(/^v/, '')
-        .replace(/[^\w.-]+/g, '');
-}
-
-function buildReleaseTagCandidates(targetVersion = '') {
-    const raw = String(targetVersion || '').trim();
-    if (!raw) return [];
-    const withoutPrefix = raw.replace(/^v/i, '');
-    return Array.from(new Set([raw, withoutPrefix, `v${withoutPrefix}`].filter(Boolean)));
-}
-
-async function fetchGitHubReleaseByTag(repoInfo, targetVersion = '') {
-    if (!repoInfo?.owner || !repoInfo?.repo) return null;
-    const target = normalizeVersionLabel(targetVersion);
-    if (!target) return null;
-
-    for (const tag of buildReleaseTagCandidates(targetVersion)) {
-        try {
-            const response = await fetch(
-                `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/releases/tags/${encodeURIComponent(tag)}?t=${Date.now()}`,
-                { cache: 'no-cache' },
-            );
-            if (!response.ok) continue;
-            const data = await response.json();
-            const releaseTag = normalizeVersionLabel(data?.tag_name || '');
-            if (releaseTag !== target) continue;
-            return {
-                source: 'release',
-                title: String(data?.name || data?.tag_name || `版本 ${targetVersion}`),
-                tagName: String(data?.tag_name || ''),
-                markdown: String(data?.body || ''),
-                htmlUrl: String(data?.html_url || `${repoInfo.homePage}/releases/tag/${encodeURIComponent(tag)}`),
-                publishedAt: String(data?.published_at || ''),
-            };
-        } catch {}
-    }
-    return null;
-}
-
-export async function fetchLittleWhiteBoxUpdateNotes(targetVersion = '') {
-    const repoInfo = await getLittleWhiteBoxRepoInfo();
-    const release = await fetchGitHubReleaseByTag(repoInfo, targetVersion);
-    if (release?.markdown?.trim()) {
-        return {
-            ...release,
-            repoInfo,
-            sourceLabel: 'GitHub Release',
-        };
-    }
-
-    return {
-        repoInfo,
-        source: 'fallback',
-        sourceLabel: '未匹配到 Release',
-        title: targetVersion ? `版本 ${targetVersion}` : '发现可用更新',
-        tagName: targetVersion,
-        markdown: '链接不到对应 Release 的更新说明，请实际更新后体验。',
-        htmlUrl: `${repoInfo.homePage}/releases`,
-        publishedAt: '',
-    };
 }
 
 async function detectLittleWhiteBoxGlobalFlag() {

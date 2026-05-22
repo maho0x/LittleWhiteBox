@@ -518,14 +518,13 @@
       b.addEventListener('mouseleave', function () { if (!this.classList.contains('updating')) { this.style.backgroundColor = 'transparent'; this.style.transform = 'scale(1)'; } });
       b.addEventListener('click', async function (e) {
         e.preventDefault(); e.stopPropagation();
-        const originalTitle = this.title || '查看更新说明并安装小白X更新';
+        const originalTitle = this.title || '下载并安装小白X的更新';
         this.classList.add('updating');
         this.style.pointerEvents = 'none';
         this.style.opacity = '.7';
         try {
           let ok = false;
-          if (window.showLittleWhiteBoxUpdateDialog) ok = await window.showLittleWhiteBoxUpdateDialog();
-          else if (window.updateLittleWhiteBoxExtension) ok = await window.updateLittleWhiteBoxExtension();
+          if (window.updateLittleWhiteBoxExtension) ok = await window.updateLittleWhiteBoxExtension();
           else console.error('[小白X] 更新函数不可用');
           if (!ok) this.title = originalTitle;
         } catch {
