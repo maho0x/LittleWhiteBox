@@ -257,35 +257,116 @@ function formatToolSummary(message = {}) {
     ) || '工具已返回结果。';
 }
 
-function renderMessageMarkdownHtml(text = '') {
-    return renderMarkdownToHtml(String(text || '').trim());
+function formatElapsedMs(ms = 0) {
+    const value = Number(ms) || 0;
+    if (!value) return '';
+    return `${(value / 1000).toFixed(1)}s`;
 }
 
-function renderTopBar({ title = '小白电纸书', subtitle = '', closeLabel = '退出' } = {}) {
+function renderLiveToolPayload(item = {}) {
+    const payload = Array.isArray(item.payload) ? item.payload : [];
+    if (!payload.length) return '';
     return `
-        <header class="xb-topbar">
-            <div>
-                <div class="xb-kicker">LittleWhiteBox Ebook</div>
-                <h1>${escapeHtml(title)}</h1>
-                ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
-            </div>
-            <button id="xb-close" title="${escapeHtml(closeLabel)}" aria-label="${escapeHtml(closeLabel)}">${escapeHtml(closeLabel)}</button>
-        </header>
+        <div class="xb-tool-payload">
+            ${payload.map((entry) => `
+                <div class="xb-tool-payload-row">
+                    <span>${escapeHtml(entry.label || '')}</span>
+                    <p>${escapeHtml(trimInlineText(entry.text || '', 260))}</p>
+                </div>
+            `).join('')}
+        </div>
     `;
+}
+
+function renderLiveToolTraceItem(item = {}) {
+    const hasStatus = item.status === 'running' || item.status === 'resolved';
+    const isRunning = item.status === 'running';
+    const payloadHtml = renderLiveToolPayload(item);
+    const hasPayload = !!payloadHtml;
+    const statusText = !hasStatus
+        ? ''
+        : isRunning
+        ? '运行中'
+        : (item.ok === false ? '失败' : '已返回');
+    const elapsed = hasStatus && !isRunning ? formatElapsedMs(item.elapsedMs) : '';
+    const statusSuffix = elapsed ? ` · ${elapsed}` : '';
+    const summary = trimInlineText(item.summary, 220) || (isRunning ? '工具已发起，等待返回。' : '工具已返回结果。');
+    const classes = [
+        'xb-tool',
+        hasPayload ? 'has-payload' : '',
+        hasStatus ? (isRunning ? 'is-running' : 'is-resolved') : '',
+        item.ok === false ? 'is-error' : '',
+    ].filter(Boolean).join(' ');
+    const headHtml = `
+        <div class="xb-tool-head">
+            <span>${escapeHtml(item.title || item.name || '工具调用')}</span>
+            ${statusText ? `<em>${escapeHtml(`${statusText}${statusSuffix}`)}</em>` : ''}
+        </div>
+    `;
+    const resultHtml = `
+        ${headHtml}
+        <small>${escapeHtml(summary)}</small>
+    `;
+    return `
+        <div class="${escapeHtml(classes)}">
+            ${hasPayload ? `
+                ${payloadHtml}
+                <div class="xb-tool-result">${resultHtml}</div>
+            ` : resultHtml}
+        </div>
+    `;
+}
+
+function renderStoredToolMessage(toolMessage = {}) {
+    const parsed = parseToolContent(toolMessage.content);
+    const display = toolMessage.toolDisplay && typeof toolMessage.toolDisplay === 'object'
+        ? toolMessage.toolDisplay
+        : null;
+    if (!display) {
+        return `
+            <div class="xb-tool ${parsed.ok === false ? 'is-error' : ''}">
+                <div class="xb-tool-plain-title">${escapeHtml(toolMessage.toolName || '工具结果')}</div>
+                <small>${escapeHtml(formatToolSummary(toolMessage))}</small>
+            </div>
+        `;
+    }
+    return renderLiveToolTraceItem({
+        name: toolMessage.toolName || '工具结果',
+        title: display.title || toolMessage.toolName || '工具结果',
+        ok: parsed.ok !== false,
+        status: display.status || 'resolved',
+        summary: formatToolSummary(toolMessage),
+        payload: Array.isArray(display.payload) ? display.payload : [],
+        elapsedMs: Number(display.elapsedMs) || 0,
+    });
+}
+
+function renderMessageMarkdownHtml(text = '') {
+    return renderMarkdownToHtml(String(text || '').trim());
 }
 
 function renderBookCards(state = {}) {
     if (!state.books.length) {
         return '<div class="xb-empty xb-library-empty">书架上还没有书。点“新建一本书”，先放上第一本书稿。</div>';
     }
+    const deleteMode = !!state.isDeleteBookOpen;
     return state.books.map((book) => {
         const active = book.id === state.book?.id ? ' is-active' : '';
+        const modeClass = deleteMode ? ' is-delete-target' : '';
+        const dataAttr = deleteMode
+            ? `data-delete-book-id="${escapeHtml(book.id)}"`
+            : `data-book-id="${escapeHtml(book.id)}"`;
         return `
-            <button class="xb-library-book${active}" data-book-id="${escapeHtml(book.id)}" ${state.isBusy ? 'disabled' : ''}>
+            <button class="xb-library-book${active}${modeClass}" ${dataAttr} ${state.isBusy ? 'disabled' : ''}>
                 <span class="xb-book-spine"></span>
-                <strong>${escapeHtml(book.title || '未命名书稿')}</strong>
-                <small>${escapeHtml(formatBookDate(book.updatedAt))}</small>
-                <em>打开</em>
+                <span class="xb-library-book-main">
+                    <strong>${escapeHtml(book.title || '未命名书稿')}</strong>
+                    <small>${deleteMode ? '点击删除这本书' : '打开后选择创作或阅读'}</small>
+                </span>
+                <span class="xb-library-book-foot">
+                    <em>${deleteMode ? 'DELETE' : (active ? 'ACTIVE' : 'EBOOK')}</em>
+                    <small>${escapeHtml(formatBookDate(book.updatedAt))}</small>
+                </span>
             </button>
         `;
     }).join('');
@@ -293,24 +374,31 @@ function renderBookCards(state = {}) {
 
 function renderLibraryShell(options = {}) {
     const state = options.state || {};
+    const bookCount = Array.isArray(state.books) ? state.books.length : 0;
+    const themeClass = state.colorTheme === 'light' ? 'theme-light' : 'theme-dark';
+    const themeToggleLabel = state.colorTheme === 'light' ? '深色' : '浅色';
+    const themeToggleTitle = state.colorTheme === 'light' ? '切换为深色视觉' : '切换为白底黑字';
     return `
-        <div class="xb-ebook-screen xb-library-screen">
-            ${renderTopBar({
-                title: '小白电纸书',
-                subtitle: '把聊天、设定和灵感整理成一本能写、能读的书。',
-            })}
-            <main class="xb-library-main">
-                <section class="xb-library-hero">
-                    <div>
-                        <div class="xb-kicker">书架</div>
-                        <h2>我的书架</h2>
-                        <p>这里放一本文稿、很多本文稿。打开一本书后，再选择写这本书，还是读这本书。</p>
-                    </div>
-                    <div class="xb-home-actions">
-                        <button id="xb-library-new-book" ${state.isBusy ? 'disabled' : ''}>新建一本书</button>
-                        <button id="xb-library-open-current" ${state.book && !state.isBusy ? '' : 'disabled'}>继续《${escapeHtml(state.book?.title || '未命名书稿')}》</button>
-                    </div>
-                </section>
+        <div class="xb-ebook-screen xb-library-screen ${escapeHtml(themeClass)}${state.isDeleteBookOpen ? ' is-delete-mode' : ''}">
+            <div class="xb-ambient-aurora"></div>
+            <header class="xb-archive-header">
+                <div>
+                    <h1>小白电纸书</h1>
+                    <div class="xb-archive-meta">${bookCount ? `${bookCount} 本书稿 · 本地书架` : '本地书架 · 等待第一本书稿'}</div>
+                </div>
+                <div class="xb-global-actions">
+                    <button id="xb-library-new-book" class="xb-glass-button" ${state.isBusy ? 'disabled' : ''}>＋ 新建</button>
+                    ${state.isDeleteBookOpen ? `
+                        <button id="xb-delete-book-close" class="xb-glass-button xb-danger-button">取消删除</button>
+                    ` : `
+                        <button id="xb-library-delete-book" class="xb-glass-button xb-danger-button" ${bookCount && !state.isBusy ? '' : 'disabled'}>删除</button>
+                    `}
+                    <button id="xb-theme-toggle" class="xb-glass-button xb-theme-button" type="button" title="${escapeHtml(themeToggleTitle)}" aria-label="${escapeHtml(themeToggleTitle)}">${escapeHtml(themeToggleLabel)}</button>
+                    <button id="xb-close" class="xb-glass-button">退出</button>
+                </div>
+            </header>
+            <main class="xb-shelf-container">
+                ${state.isDeleteBookOpen ? '<div class="xb-delete-mode-note">删除模式：点击一本书会清除书稿内容和写作记录。</div>' : ''}
                 <section class="xb-library-grid" aria-label="书籍列表">
                     ${renderBookCards(state)}
                 </section>
@@ -322,38 +410,23 @@ function renderLibraryShell(options = {}) {
 
 function renderBookEntryShell(options = {}) {
     const state = options.state || {};
-    const bookTitle = state.book?.title || '未命名书稿';
-    const chapters = getChapterFiles(state.files);
-    const metrics = chapters.reduce((acc, file) => acc + String(file.content || '').length, 0);
+    const themeClass = state.colorTheme === 'light' ? 'theme-light' : 'theme-dark';
+    const themeToggleLabel = state.colorTheme === 'light' ? '深色' : '浅色';
+    const themeToggleTitle = state.colorTheme === 'light' ? '切换为深色视觉' : '切换为白底黑字';
     return `
-        <div class="xb-ebook-screen xb-entry-screen">
-            ${renderTopBar({
-                title: bookTitle,
-                subtitle: `${chapters.length} 章 · ${metrics} 字 · ${formatBookDate(state.book?.updatedAt)}`,
-            })}
-            <main class="xb-entry-main">
-                <button class="xb-back-link" id="xb-library-link">返回书架</button>
-                <section class="xb-entry-hero">
-                    <div class="xb-book-cover">
-                        <span>${escapeHtml(bookTitle.slice(0, 1) || '书')}</span>
-                    </div>
-                    <div class="xb-entry-copy">
-                        <div class="xb-kicker">书本入口</div>
-                        <div class="xb-title-row">
-                            <h2>${escapeHtml(bookTitle)}</h2>
-                            <button class="xb-icon-button" data-book-rename title="修改书名" aria-label="修改书名" ${state.isBusy ? 'disabled' : ''}>✎</button>
-                        </div>
-                        <p>一本书有两种状态：写的时候去创作台，读的时候进阅读器。先选你现在想做的事。</p>
-                    </div>
-                </section>
-                <section class="xb-entry-actions" aria-label="书本操作">
+        <div class="xb-ebook-screen xb-entry-screen ${escapeHtml(themeClass)}">
+            <div class="xb-ambient-aurora"></div>
+            <button class="xb-portal-close" id="xb-library-link" title="返回书架" aria-label="返回书架">×</button>
+            <button class="xb-portal-theme" id="xb-theme-toggle" type="button" title="${escapeHtml(themeToggleTitle)}" aria-label="${escapeHtml(themeToggleTitle)}">${escapeHtml(themeToggleLabel)}</button>
+            <main class="xb-entry-portal" aria-label="书本入口">
+                <section class="xb-entry-actions">
                     <button class="xb-entry-action is-studio" data-entry-action="studio">
-                        <strong>创作</strong>
-                        <span>进入创作台，写正文、导入资料、整理设定，让写作助手帮你审稿和修订。</span>
+                        <strong>创作台</strong>
+                        <span>写正文、导入资料、整理设定，让写作助手审稿和修订。</span>
                     </button>
                     <button class="xb-entry-action is-reader" data-entry-action="reader">
                         <strong>阅读</strong>
-                        <span>进入阅读器，按章节读这本书。这里不放 AI，只保留舒服的阅读体验。</span>
+                        <span>按章节沉浸阅读。这里不放 AI，只保留安静的阅读体验。</span>
                     </button>
                 </section>
             </main>
@@ -485,7 +558,7 @@ function renderMessages(state = {}) {
         const isEditing = message.role === 'assistant' && state.editingMessageIndex === messageIndex;
         const content = String(message.content || '').trim();
         return `
-            <div class="xb-msg xb-msg-${escapeHtml(message.role)}${message.error ? ' is-error' : ''}${message.streaming ? ' is-streaming' : ''}" data-message-index="${messageIndex}">
+            <div class="xb-msg xb-msg-${escapeHtml(message.role)}${message.error ? ' is-error' : ''}${message.streaming ? ' is-streaming' : ''}${isEditing ? ' is-editing' : ''}" data-message-index="${messageIndex}">
                 <div class="xb-msg-head">
                     <div class="xb-msg-role">${message.role === 'user' ? '你' : '电纸书'}</div>
                     ${renderMessageActions(message, messageIndex)}
@@ -540,12 +613,7 @@ function renderMessages(state = {}) {
                                 openThoughtKeys: state.openThoughtKeys,
                             })}
                             ${String(batch.assistantMessage.content || '').trim() ? `<div class="xb-tool-preface xb-tool-preface-markdown xb-assistant-markdown">${renderMessageMarkdownHtml(batch.assistantMessage.content)}</div>` : ''}
-                            ${batch.toolMessages.map((toolMessage) => `
-                                <div class="xb-tool ${parseToolContent(toolMessage.content).ok === false ? 'is-error' : ''}">
-                                    <div>${escapeHtml(toolMessage.toolName || '工具结果')}</div>
-                                    <small>${escapeHtml(formatToolSummary(toolMessage))}</small>
-                                </div>
-                            `).join('')}
+                            ${batch.toolMessages.map((toolMessage) => renderStoredToolMessage(toolMessage)).join('')}
                         </div>
                     `).join('')}
                 </div>
@@ -567,25 +635,43 @@ function renderMessages(state = {}) {
         units.push(renderPlainMessage(message, index));
     }
 
-    if (!units.length) {
+    const liveToolTurnHtml = state.isBusy ? renderLiveToolTurn(state) : '';
+    if (!units.length && !liveToolTurnHtml) {
         return `${memoryHint}<div class="xb-agent-empty">这里是写作助手记录。可以先导入资料，也可以直接说“帮我整理第一章开头”。</div>`;
     }
-    return `${memoryHint}${units.join('')}`;
+    return `${memoryHint}${units.join('')}${liveToolTurnHtml}`;
 }
 
-function renderToolTrace(state = {}) {
-    if (!state.toolTrace.length) return '';
+function renderLiveToolTurn(state = {}) {
+    const traceItems = Array.isArray(state.toolTrace) ? state.toolTrace.slice(-8) : [];
+    if (!traceItems.length) return '';
+    const assistantMessage = state.liveToolTurn && typeof state.liveToolTurn === 'object'
+        ? state.liveToolTurn
+        : {
+            role: 'assistant',
+            content: '',
+            thoughts: [],
+            toolCalls: traceItems.map((item, index) => ({
+                id: String(item.id || `live-tool-${index}`),
+                name: String(item.name || ''),
+                arguments: '{}',
+            })),
+        };
     const rounds = new Set(state.toolTrace.map((item) => Number(item.round) || 1)).size || 1;
+    const turnKey = buildToolTurnKey([{ assistantMessage }], 'live');
     return `
-        <details class="xb-tool-trace" open>
-            <summary>已创作 ${rounds} 轮 ›</summary>
+        <details class="xb-tool-trace xb-tool-turn xb-tool-turn-live" data-tool-turn-key="${escapeHtml(turnKey)}" data-auto-open-tool-turn="true" open>
+            <summary><span>正在创作 ${rounds} 轮</span><span class="xb-tool-fold-indicator" aria-hidden="true"></span></summary>
             <div class="xb-tool-trace-body">
-                ${state.toolTrace.slice(-8).map((item) => `
-                    <div class="xb-tool ${item.ok ? '' : 'is-error'}">
-                        <div>${escapeHtml(item.title || item.name)}</div>
-                        <small>${escapeHtml(trimInlineText(item.summary, 220))}</small>
-                    </div>
-                `).join('')}
+                <div class="xb-tool-round">
+                    <div class="xb-tool-round-title">当前工具轮</div>
+                    ${renderThoughtDetails(assistantMessage, {
+                        key: `${turnKey}:thought:live`,
+                        openThoughtKeys: state.openThoughtKeys,
+                    })}
+                    ${String(assistantMessage.content || '').trim() ? `<div class="xb-tool-preface xb-tool-preface-markdown xb-assistant-markdown">${renderMessageMarkdownHtml(assistantMessage.content)}</div>` : ''}
+                    ${traceItems.map((item) => renderLiveToolTraceItem(item)).join('')}
+                </div>
             </div>
         </details>
     `;
@@ -634,15 +720,26 @@ function renderStudioShell(options = {}) {
     const agentInputAttr = (!state.isBusy && !readiness.canRun) ? 'disabled' : '';
     const sendButtonAttr = (!state.isBusy && !readiness.canRun) ? 'disabled' : '';
     const canClearConversation = !!(state.messages?.length || state.historySummary?.trim());
+    const layoutClass = ['focus-editor', 'focus-agent'].includes(state.studioLayout)
+        ? state.studioLayout
+        : 'balanced';
+    const themeClass = state.colorTheme === 'light' ? 'theme-light' : 'theme-dark';
+    const themeToggleLabel = state.colorTheme === 'light' ? '深色' : '浅色';
+    const themeToggleTitle = state.colorTheme === 'light' ? '切换为深色视觉' : '切换为白底黑字';
 
     return `
-        <div class="xb-ebook-shell">
+        <div class="xb-ebook-shell xb-studio-shell ${escapeHtml(layoutClass)} ${escapeHtml(themeClass)}">
             <aside class="xb-sidebar">
                 <div class="xb-brand">
                     <div class="xb-title-row">
                         <h1>${escapeHtml(state.book?.title || '未命名书稿')}</h1>
                         <button class="xb-icon-button" data-book-rename title="修改书名" aria-label="修改书名" ${state.isBusy ? 'disabled' : ''}>✎</button>
                         <button id="xb-entry-link" class="xb-icon-button" title="返回书本入口" aria-label="返回书本入口">↩</button>
+                    </div>
+                    <div class="xb-workspace-controller">
+                        <button type="button" class="xb-layout-button${layoutClass === 'focus-editor' ? ' is-active' : ''}" data-studio-layout="focus-editor">编辑</button>
+                        <button type="button" class="xb-layout-button${layoutClass === 'balanced' ? ' is-active' : ''}" data-studio-layout="balanced">平衡</button>
+                        <button type="button" class="xb-layout-button${layoutClass === 'focus-agent' ? ' is-active' : ''}" data-studio-layout="focus-agent">助手</button>
                     </div>
                 </div>
                 <section class="xb-panel xb-files-panel">
@@ -667,12 +764,15 @@ function renderStudioShell(options = {}) {
                     </footer>
                 </main>
                 <aside class="xb-agent">
+                    <div class="xb-agent-aurora"></div>
                     <header class="xb-agent-head">
+                        <div class="xb-agent-id"><span></span>写作助手</div>
                         <div class="xb-agent-toolbar">
                             <div class="xb-agent-context-meter" title="${escapeHtml(renderConversationContextMeterTitle(state))}">${escapeHtml(renderConversationContextMeterLabel(state))}</div>
                             <button id="xb-agent-clear" type="button" ${state.isBusy || !canClearConversation ? 'disabled' : ''}>清空对话</button>
                             <button id="xb-agent-open-settings" type="button">API配置</button>
                             <button id="xb-agent-close" type="button">退出</button>
+                            <button id="xb-theme-toggle" type="button" title="${escapeHtml(themeToggleTitle)}" aria-label="${escapeHtml(themeToggleTitle)}">${escapeHtml(themeToggleLabel)}</button>
                         </div>
                     </header>
                     <div class="xb-agent-chat-wrap">
@@ -687,7 +787,6 @@ function renderStudioShell(options = {}) {
                                     <button data-action="organize" ${agentActionAttr}>整理资料</button>
                                 </div>
                             </details>
-                            ${state.isBusy ? renderToolTrace(state) : ''}
                             <div class="xb-agent-log">${renderMessages(state)}</div>
                         </div>
                         <div class="xb-agent-scroll-helpers" id="xb-agent-scroll-helpers">
@@ -714,6 +813,17 @@ function renderStudioShell(options = {}) {
     `;
 }
 
+function renderReaderTextContent(content = '') {
+    const normalized = String(content || '').trim();
+    if (!normalized) return '';
+    return normalized
+        .split(/\n{2,}/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+        .map((block, index) => `<p class="${index === 0 ? 'xb-reader-drop' : ''}">${escapeHtml(block)}</p>`)
+        .join('');
+}
+
 function renderReaderShell(options = {}) {
     const state = options.state || {};
     const { chapters, active, activePath, index } = getActiveChapter(state);
@@ -722,19 +832,25 @@ function renderReaderShell(options = {}) {
     const next = index < chapters.length - 1 ? chapters[index + 1] : null;
     const progress = hasChapters ? `第 ${index + 1} / ${chapters.length} 章` : '暂无章节';
     const content = active?.content || '';
+    const chapterProgress = hasChapters ? Math.round(((index + 1) / chapters.length) * 100) : 0;
+    const themeClass = state.colorTheme === 'light' ? 'theme-light' : 'theme-dark';
+    const themeToggleLabel = state.colorTheme === 'light' ? '深色' : '浅色';
+    const themeToggleTitle = state.colorTheme === 'light' ? '切换为深色视觉' : '切换为白底黑字';
 
     return `
-        <div class="xb-ebook-screen xb-reader-screen">
-            ${renderTopBar({
-                title: state.book?.title || '未命名书稿',
-                subtitle: `阅读器 · ${progress}`,
-            })}
+        <div class="xb-ebook-screen xb-reader-screen ${escapeHtml(themeClass)}">
+            <div class="xb-reader-backlight"></div>
+            <nav class="xb-reader-edge" aria-label="阅读器操作">
+                <div class="xb-reader-edge-actions">
+                    <button class="xb-reader-edge-button" id="xb-entry-link" title="返回入口" aria-label="返回入口">←</button>
+                    <button class="xb-reader-edge-button" id="xb-studio-link" title="去创作台" aria-label="去创作台">✎</button>
+                    <button class="xb-reader-edge-button xb-reader-theme-toggle" id="xb-theme-toggle" type="button" title="${escapeHtml(themeToggleTitle)}" aria-label="${escapeHtml(themeToggleTitle)}">${escapeHtml(themeToggleLabel)}</button>
+                </div>
+                <div class="xb-reader-progress" title="${escapeHtml(progress)}" style="--xb-reader-progress:${chapterProgress}%"><span></span></div>
+            </nav>
             <main class="xb-reader-main">
                 <aside class="xb-reader-nav">
-                    <div class="xb-reader-actions">
-                        <button class="xb-back-link" id="xb-entry-link">返回入口</button>
-                        <button class="xb-back-link" id="xb-studio-link">去创作台</button>
-                    </div>
+                    <div class="xb-reader-index-title">目录</div>
                     <div class="xb-reader-chapters">
                         ${hasChapters ? chapters.map((chapter, chapterIndex) => `
                             <button class="xb-reader-chapter${chapter.path === activePath ? ' is-active' : ''}" data-reader-path="${escapeHtml(chapter.path)}">
@@ -748,12 +864,12 @@ function renderReaderShell(options = {}) {
                     ${hasChapters ? `
                         <header class="xb-reader-head">
                             <div>
-                                <div class="xb-kicker">${escapeHtml(progress)}</div>
+                                <div class="xb-kicker">${escapeHtml(state.book?.title || '未命名书稿')} · ${escapeHtml(progress)}</div>
                                 <h2>${escapeHtml(formatFileTitle(activePath))}</h2>
                                 <p>${escapeHtml(formatTextMetrics(content))}</p>
                             </div>
                         </header>
-                        <div class="xb-reader-content">${escapeHtml(content)}</div>
+                        <div class="xb-reader-content">${renderReaderTextContent(content)}</div>
                         <footer class="xb-reader-foot">
                             <button data-reader-path="${escapeHtml(previous?.path || '')}" ${previous ? '' : 'disabled'}>上一章</button>
                             <button data-reader-path="${escapeHtml(next?.path || '')}" ${next ? '' : 'disabled'}>下一章</button>

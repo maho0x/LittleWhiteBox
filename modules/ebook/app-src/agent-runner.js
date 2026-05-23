@@ -48,13 +48,17 @@ function buildStoredAssistantToolCallMessage(result = {}, toolCalls = []) {
     };
 }
 
-function buildToolResultMessage({ toolCallId = '', toolName = '', toolResult } = {}) {
-    return {
+function buildToolResultMessage({ toolCallId = '', toolName = '', toolResult, toolDisplay = null } = {}) {
+    const message = {
         role: 'tool',
         toolCallId: String(toolCallId || ''),
         toolName: String(toolName || ''),
         content: safeJsonStringify(toolResult),
     };
+    if (toolDisplay && typeof toolDisplay === 'object') {
+        message.toolDisplay = toolDisplay;
+    }
+    return message;
 }
 
 export function buildEbookProviderMessagesFromHistory(messages = []) {
@@ -63,11 +67,61 @@ export function buildEbookProviderMessagesFromHistory(messages = []) {
 
 function buildToolTraceEntry(toolCall = {}, args = {}, result = {}) {
     return {
+        id: String(toolCall.id || ''),
         name: toolCall.name,
         round: Number(toolCall.round) || 0,
         title: describeEbookToolCall(toolCall.name, args),
         ok: !(result && typeof result === 'object' && result.ok === false),
         summary: formatEbookToolResult(result),
+    };
+}
+
+function buildDelegateTracePayload(args = {}) {
+    return [
+        ['任务', args.task],
+        ['背景', args.context],
+        ['交付', args.deliverable],
+    ]
+        .map(([label, value]) => ({
+            label,
+            text: String(value || '').trim(),
+        }))
+        .filter((item) => item.text);
+}
+
+function buildRunningToolTraceEntry(toolCall = {}, args = {}, round = 0) {
+    const isDelegate = toolCall.name === EBOOK_TOOL_NAMES.DELEGATE_RUN;
+    return {
+        id: String(toolCall.id || ''),
+        name: toolCall.name,
+        round: Number(round) || Number(toolCall.round) || 0,
+        title: describeEbookToolCall(toolCall.name, args),
+        ok: true,
+        status: 'running',
+        startedAt: Date.now(),
+        summary: isDelegate ? '审稿分身工作中，等待返回。' : '工具运行中，等待返回。',
+        payload: isDelegate ? buildDelegateTracePayload(args) : [],
+    };
+}
+
+function resolveRunningToolTraceEntry(entry = {}, toolCall = {}, args = {}, result = {}) {
+    Object.assign(entry, buildToolTraceEntry(toolCall, args, result), {
+        status: 'resolved',
+        finishedAt: Date.now(),
+    });
+    if (Number(entry.startedAt)) {
+        entry.elapsedMs = Math.max(0, Number(entry.finishedAt) - Number(entry.startedAt));
+    }
+    return entry;
+}
+
+function buildToolDisplayFromTrace(entry = {}) {
+    if (!entry || typeof entry !== 'object') return null;
+    return {
+        title: String(entry.title || entry.name || ''),
+        status: entry.status === 'running' ? 'running' : 'resolved',
+        payload: Array.isArray(entry.payload) ? entry.payload : [],
+        elapsedMs: Number(entry.elapsedMs) || 0,
     };
 }
 
@@ -183,6 +237,7 @@ export function createEbookAgentRunner(deps = {}) {
         state.isBusy = true;
         state.status = 'AI 正在阅读作品...';
         state.toolTrace = [];
+        state.liveToolTurn = null;
         state.editingMessageIndex = -1;
         if (appendUserMessage) {
             state.messages.push({ role: 'user', content: taskText });
@@ -334,11 +389,19 @@ export function createEbookAgentRunner(deps = {}) {
                         text: visibleText,
                         thoughts: visibleThoughts,
                     }, toolCalls);
+                    state.liveToolTurn = storedAssistantToolMessage;
+                    render();
                     const storedToolMessages = [];
                     const toolResponses = [];
                     for (const toolCall of toolCalls) {
                         if (controller.signal.aborted) throw new Error('assistant_aborted');
                         const args = safeJsonParse(toolCall.arguments, {});
+                        const isDelegateTool = toolCall.name === EBOOK_TOOL_NAMES.DELEGATE_RUN;
+                        const liveTraceEntry = isDelegateTool ? buildRunningToolTraceEntry(toolCall, args, round) : null;
+                        if (liveTraceEntry) {
+                            state.toolTrace.push(liveTraceEntry);
+                            render();
+                        }
                         let toolResult;
                         if (!allowedToolNames.has(toolCall.name)) {
                             toolResult = {
@@ -354,11 +417,17 @@ export function createEbookAgentRunner(deps = {}) {
                                 toolResult = buildEbookToolFailureResult(toolCall.name, args, error);
                             }
                         }
-                        state.toolTrace.push(buildToolTraceEntry({ ...toolCall, round }, args, toolResult));
+                        const traceEntry = liveTraceEntry
+                            ? resolveRunningToolTraceEntry(liveTraceEntry, { ...toolCall, round }, args, toolResult)
+                            : buildToolTraceEntry({ ...toolCall, round }, args, toolResult);
+                        if (!liveTraceEntry) {
+                            state.toolTrace.push(traceEntry);
+                        }
                         const toolMessage = buildToolResultMessage({
                             toolCallId: toolCall.id,
                             toolName: toolCall.name,
                             toolResult,
+                            toolDisplay: isDelegateTool ? buildToolDisplayFromTrace(traceEntry) : null,
                         });
                         messages.push({
                             role: 'tool',
@@ -377,6 +446,7 @@ export function createEbookAgentRunner(deps = {}) {
                     state.messages.push(storedAssistantToolMessage, ...storedToolMessages);
                     await persistConversation?.(runBookId);
                     state.toolTrace = [];
+                    state.liveToolTurn = null;
                     if (adapter?.supportsSessionToolLoop) {
                         pendingToolResponses = toolResponses;
                     }
@@ -432,6 +502,7 @@ export function createEbookAgentRunner(deps = {}) {
             state.isBusy = false;
             state.activeController = null;
             state.toolTrace = [];
+            state.liveToolTurn = null;
             state.activeTurnStartIndex = -1;
             await refreshBooksAndFiles().catch(() => {});
             render();
@@ -461,6 +532,7 @@ export function createEbookAgentRunner(deps = {}) {
         };
         state.messages = state.messages.slice(0, turnUserIndex + 1);
         state.toolTrace = [];
+        state.liveToolTurn = null;
         state.editingMessageIndex = -1;
         await persistConversation?.(state.book.id);
         render();

@@ -16,9 +16,15 @@ const messageMarkdownModule = await import('../../agent-core/ui/message-markdown
 const {
     default: db,
     createBook,
+    deleteBook,
     getBook,
     getBookFile,
+    getSelectedBookId,
     listBookFiles,
+    listBooks,
+    ebookMessagesTable,
+    ebookSessionsTable,
+    setSelectedBookId,
     upsertBookFile,
 } = dbModule;
 const {
@@ -317,6 +323,141 @@ test('Book agent automatically passes review context into DelegateRun', async ()
     assert.match(seenUserPrompt, /本次重点看节奏/);
 });
 
+test('Book agent shows DelegateRun dispatch before result and keeps task in history', async () => {
+    await resetDb();
+    const book = await createBook('分身发起显示测试');
+    const state = {
+        config: {},
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: '',
+        viewMode: 'studio',
+        editorContent: '',
+        savedContent: '',
+        messages: [],
+        toolTrace: [],
+        openToolTurnKeys: [],
+        activeTurnStartIndex: -1,
+        openThoughtKeys: [],
+        historySummary: '',
+        archivedTurnCount: 0,
+        isBusy: false,
+        activeController: null,
+        status: '就绪',
+        toast: '',
+    };
+    let chatCount = 0;
+    let pendingHtml = '';
+    let releaseDelegate;
+    const delegateGate = new Promise((resolve) => {
+        releaseDelegate = resolve;
+    });
+
+    const runner = createEbookAgentRunner({
+        state,
+        async refreshBooksAndFiles() {
+            state.files = await listBookFiles(book.id);
+        },
+        render() {
+            const pendingDelegate = state.toolTrace.find((item) => (
+                item.name === EBOOK_TOOL_NAMES.DELEGATE_RUN
+                && item.status === 'running'
+            ));
+            if (!pendingHtml && pendingDelegate) {
+                pendingHtml = renderEbookShell({
+                    state,
+                    providerConfig: { provider: 'test', model: 'demo' },
+                    dirty: false,
+                });
+                releaseDelegate();
+            }
+        },
+        showToast() {},
+        persistConversation() {},
+        isEditorDirty() {
+            return false;
+        },
+        getActiveProviderConfig() {
+            return {
+                provider: 'test',
+                temperature: 0.2,
+                maxTokens: 1000,
+                reasoningEnabled: false,
+                reasoningEffort: 'medium',
+            };
+        },
+        createAdapter() {
+            return {
+                async chat() {
+                    chatCount += 1;
+                    if (chatCount === 1) {
+                        return {
+                            text: '第 1 章还是空壳，先让分身核对设定一致性。',
+                            toolCalls: [{
+                                id: 'delegate-review-1',
+                                name: EBOOK_TOOL_NAMES.DELEGATE_RUN,
+                                arguments: JSON.stringify({
+                                    task: '审第一章节奏',
+                                    context: '只看 book/chapters/001.md。',
+                                    deliverable: '给通过/修改/打回结论。',
+                                }),
+                            }],
+                        };
+                    }
+                    if (chatCount === 2) {
+                        await delegateGate;
+                        return {
+                            text: '分身认为第一章节奏正常。',
+                            toolCalls: [],
+                        };
+                    }
+                    return {
+                        text: '已收到分身意见。',
+                        toolCalls: [],
+                    };
+                },
+            };
+        },
+    });
+
+    await runner.runAgent('请分身审第一章。');
+
+    assert.match(pendingHtml, /审稿分身工作中，等待返回/);
+    assert.match(pendingHtml, /第 1 章还是空壳，先让分身核对设定一致性/);
+    assert.match(pendingHtml, /审第一章节奏/);
+    assert.match(pendingHtml, /只看 book\/chapters\/001\.md/);
+    assert.match(pendingHtml, /给通过\/修改\/打回结论/);
+    assert.ok(
+        pendingHtml.indexOf('给通过/修改/打回结论') < pendingHtml.indexOf('审稿分身工作中，等待返回'),
+        'running delegate card should show dispatch payload before running status',
+    );
+    assert.ok(
+        pendingHtml.indexOf('xb-agent-log') < pendingHtml.indexOf('审稿分身工作中，等待返回'),
+        'running DelegateRun should render inside the chat log instead of above it',
+    );
+    assert.ok(
+        pendingHtml.indexOf('第 1 章还是空壳，先让分身核对设定一致性') < pendingHtml.indexOf('审稿分身工作中，等待返回'),
+        'assistant preface should stay visible before the running delegate block',
+    );
+    assert.equal(state.messages.find((message) => message.role === 'tool')?.toolDisplay?.payload?.length, 3);
+
+    const finalHtml = renderEbookShell({
+        state,
+        providerConfig: { provider: 'test', model: 'demo' },
+        dirty: false,
+    });
+    assert.match(finalHtml, /已返回/);
+    assert.match(finalHtml, /第 1 章还是空壳，先让分身核对设定一致性/);
+    assert.match(finalHtml, /审第一章节奏/);
+    assert.match(finalHtml, /分身认为第一章节奏正常/);
+    assert.ok(
+        finalHtml.indexOf('给通过/修改/打回结论') < finalHtml.indexOf('已返回'),
+        'resolved delegate card should show dispatch payload before returned status',
+    );
+});
+
 test('Book Glob supports recursive patterns from book root', async () => {
     await resetDb();
     const book = await createBook('匹配测试');
@@ -532,6 +673,239 @@ test('Book controller can rename the current book', async () => {
     } finally {
         globalThis.prompt = previousPrompt;
     }
+});
+
+test('Deleting a non-current book keeps the active book and conversation state intact', async () => {
+    await resetDb();
+    const first = await createBook('第一本');
+    const second = await createBook('第二本');
+    const state = {
+        book: second,
+        books: await listBooks(),
+        files: await listBookFiles(second.id),
+        selectedPath: 'book/outline.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        messages: [{ role: 'assistant', content: '第二本的当前对话' }],
+        historySummary: '第二本的创作记录',
+        isBusy: false,
+        toast: '',
+        isDeleteBookOpen: true,
+    };
+    const previousConfirm = globalThis.confirm;
+    const restored = [];
+    let cleared = 0;
+    try {
+        globalThis.confirm = () => true;
+        const controller = createBookController({
+            state,
+            render() {},
+            requestHost() {},
+            showToast() {},
+            conversationStore: {
+                clearConversation() {
+                    cleared += 1;
+                },
+                async restoreConversation(bookId) {
+                    restored.push(bookId);
+                },
+            },
+        });
+
+        await controller.removeBook(first.id);
+
+        assert.equal(await getBook(first.id), null);
+        assert.equal(state.book?.id, second.id);
+        assert.equal(await getSelectedBookId(), second.id);
+        assert.equal(state.messages[0].content, '第二本的当前对话');
+        assert.equal(state.historySummary, '第二本的创作记录');
+        assert.equal(state.isDeleteBookOpen, false);
+        assert.equal(cleared, 0);
+        assert.deepEqual(restored, []);
+    } finally {
+        globalThis.confirm = previousConfirm;
+    }
+});
+
+test('Deleting the current book selects another remaining book without recreating a default one', async () => {
+    await resetDb();
+    const first = await createBook('第一本');
+    const second = await createBook('第二本');
+    await setSelectedBookId(first.id);
+    const state = {
+        book: first,
+        books: await listBooks(),
+        files: await listBookFiles(first.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        toast: '',
+        isDeleteBookOpen: true,
+    };
+    const previousConfirm = globalThis.confirm;
+    const restored = [];
+    const toasts = [];
+    let cleared = 0;
+    try {
+        globalThis.confirm = () => true;
+        const controller = createBookController({
+            state,
+            render() {},
+            requestHost() {},
+            showToast(message) {
+                toasts.push(message);
+            },
+            conversationStore: {
+                clearConversation() {
+                    cleared += 1;
+                },
+                async restoreConversation(bookId) {
+                    restored.push(bookId);
+                },
+            },
+        });
+
+        await controller.removeBook(first.id);
+
+        assert.equal(await getBook(first.id), null);
+        assert.equal(state.book?.id, second.id);
+        assert.equal(await getSelectedBookId(), second.id);
+        assert.equal(state.viewMode, 'library');
+        assert.equal(state.isDeleteBookOpen, false);
+        assert.equal(cleared, 0);
+        assert.deepEqual(restored, [second.id]);
+        assert.equal(toasts.at(-1), '书籍已删除');
+    } finally {
+        globalThis.confirm = previousConfirm;
+    }
+});
+
+test('Deleting the last book leaves the shelf empty instead of recreating a default book', async () => {
+    await resetDb();
+    const book = await createBook('最后一本');
+    const state = {
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        toast: '',
+        isDeleteBookOpen: true,
+    };
+    const previousConfirm = globalThis.confirm;
+    const restored = [];
+    try {
+        globalThis.confirm = () => true;
+        const controller = createBookController({
+            state,
+            render() {},
+            requestHost() {},
+            showToast() {},
+            conversationStore: {
+                async restoreConversation(bookId) {
+                    restored.push(bookId);
+                },
+            },
+        });
+
+        await controller.removeBook(book.id);
+
+        assert.deepEqual(await listBooks(), []);
+        assert.equal(await getSelectedBookId(), '');
+        assert.equal(state.book, null);
+        assert.deepEqual(state.books, []);
+        assert.deepEqual(state.files, []);
+        assert.equal(state.selectedPath, '');
+        assert.equal(state.readerPath, '');
+        assert.equal(state.viewMode, 'library');
+        assert.equal(state.isDeleteBookOpen, false);
+        assert.deepEqual(restored, ['']);
+
+        await controller.refreshBooksAndFiles();
+
+        assert.deepEqual(await listBooks(), []);
+        assert.equal(state.book, null);
+    } finally {
+        globalThis.confirm = previousConfirm;
+    }
+});
+
+test('Initializing on an empty database keeps the shelf empty', async () => {
+    await resetDb();
+    const state = {
+        book: null,
+        books: [],
+        files: [{ path: 'book/outline.md', content: '旧内容' }],
+        selectedPath: 'book/outline.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'library',
+        editorContent: '旧内容',
+        savedContent: '旧内容',
+        isBusy: false,
+        toast: '',
+        isDeleteBookOpen: true,
+    };
+    const restored = [];
+    const controller = createBookController({
+        state,
+        render() {},
+        requestHost() {},
+        showToast() {},
+        conversationStore: {
+            async restoreConversation(bookId) {
+                restored.push(bookId);
+            },
+        },
+    });
+
+    await controller.initializeBook();
+
+    assert.deepEqual(await listBooks(), []);
+    assert.equal(state.book, null);
+    assert.deepEqual(state.books, []);
+    assert.deepEqual(state.files, []);
+    assert.equal(state.selectedPath, '');
+    assert.equal(state.readerPath, '');
+    assert.equal(state.editorContent, '');
+    assert.equal(state.savedContent, '');
+    assert.equal(state.isDeleteBookOpen, false);
+    assert.deepEqual(restored, [undefined]);
+});
+
+test('Deleting a book removes persisted conversation rows and stale selection metadata', async () => {
+    await resetDb();
+    const book = await createBook('删除会话测试');
+    const state = {
+        book,
+        messages: [
+            { role: 'user', content: '写第一章' },
+            { role: 'assistant', content: '已经起草。' },
+        ],
+        toolTrace: [],
+        openToolTurnKeys: [],
+        openThoughtKeys: [],
+        editingMessageIndex: -1,
+        messageActionFeedback: {},
+        historySummary: '删除前的摘要',
+        archivedTurnCount: 0,
+    };
+    const store = createEbookConversationStore({ state });
+
+    await store.persistConversation(book.id);
+    await deleteBook(book.id);
+
+    assert.equal(await ebookSessionsTable.get(book.id), undefined);
+    assert.equal(await ebookMessagesTable.where('bookId').equals(book.id).count(), 0);
+    assert.equal(await getSelectedBookId(), '');
 });
 
 test('Book tool runtime can rename the current book', async () => {
@@ -764,7 +1138,13 @@ test('Book renderer keeps the active tool turn expanded while the run is still i
     });
 
     assert.match(html, /<details class="xb-tool-trace xb-tool-turn" data-tool-turn-key="tool-turn:call-read-live" data-auto-open-tool-turn="true" open>/);
-    assert.match(html, /<details class="xb-tool-trace" open>/);
+    assert.match(html, /xb-tool-turn-live/);
+    assert.match(html, /正在创作 1 轮/);
+    assert.doesNotMatch(html, /<details class="xb-tool-trace" open>/);
+    assert.ok(
+        html.indexOf('xb-agent-log') < html.indexOf('xb-tool-turn-live'),
+        'live tool turn should render inside the chat log',
+    );
     assert.match(html, /读取第一章/);
 });
 

@@ -40,6 +40,7 @@ function serializeMessage(bookId, message = {}, order = 0) {
             })).filter((toolCall) => toolCall.name)
             : [],
         providerPayload: cloneJson(message.providerPayload),
+        toolDisplay: cloneJson(message.toolDisplay),
         thoughts: normalizeThoughtBlocks(message.thoughts),
         createdAt: Number(message.createdAt) || Date.now(),
     };
@@ -61,6 +62,7 @@ function normalizeRestoredMessage(message = {}) {
             })).filter((toolCall) => toolCall.name)
             : undefined,
         providerPayload: cloneJson(message.providerPayload),
+        toolDisplay: cloneJson(message.toolDisplay),
         thoughts: normalizeThoughtBlocks(message.thoughts),
         createdAt: Number(message.createdAt) || 0,
     };
@@ -68,6 +70,7 @@ function normalizeRestoredMessage(message = {}) {
 
 function resetConversationUiState(state) {
     state.toolTrace = [];
+    state.liveToolTurn = null;
     state.openToolTurnKeys = [];
     state.activeTurnStartIndex = -1;
     state.openThoughtKeys = [];

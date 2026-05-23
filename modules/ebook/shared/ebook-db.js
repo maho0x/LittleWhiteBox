@@ -169,21 +169,36 @@ export async function upsertBookFile(bookId = '', path = '', content = '', optio
 
 export async function deleteBookPath(bookId = '', path = '') {
     const id = String(bookId || '').trim();
-    const normalizedPath = String(path || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
-    if (!id || !normalizedPath || normalizedPath === 'book' || normalizedPath === 'book/') {
-        throw new Error('book_path_required');
-    }
-    const files = await listBookFiles(id);
-    const isDirectory = normalizedPath.endsWith('/');
-    const targets = files.filter((file) => (
-        isDirectory
-            ? file.path.startsWith(normalizedPath)
-            : file.path === normalizedPath
-    ));
-    if (!targets.length) throw new Error('book_path_not_found');
-    await Promise.all(targets.map((file) => filesTable.delete([id, file.path])));
+    if (!id) throw new Error('bookId_required');
+    const normalizedPath = normalizeBookFilePath(path);
+    if (!normalizedPath) throw new Error('invalid_path');
+    await filesTable.delete([id, normalizedPath]);
     await touchBook(id);
-    return targets.map(cloneFile);
+}
+
+export async function deleteBook(bookId = '') {
+    const id = String(bookId || '').trim();
+    if (!id) throw new Error('bookId_required');
+    await db.transaction(
+        'rw',
+        booksTable,
+        filesTable,
+        metaTable,
+        ebookPlansTable,
+        ebookSessionsTable,
+        ebookMessagesTable,
+        async () => {
+            await filesTable.where('bookId').equals(id).delete();
+            await ebookPlansTable.where('sessionId').equals(id).delete();
+            await ebookSessionsTable.where('bookId').equals(id).delete();
+            await ebookMessagesTable.where('bookId').equals(id).delete();
+            await booksTable.delete(id);
+            const selectedId = String((await metaTable.get('selectedBookId'))?.value || '').trim();
+            if (selectedId === id) {
+                await metaTable.delete('selectedBookId');
+            }
+        },
+    );
 }
 
 export async function replaceBookFiles(bookId = '', nextFiles = []) {

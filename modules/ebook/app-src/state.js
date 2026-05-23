@@ -1,5 +1,16 @@
 import { normalizeEbookConfig } from './provider-config.js';
 
+export const EBOOK_THEME_STORAGE_KEY = 'LittleWhiteBox_Ebook_ColorTheme';
+
+function getInitialColorTheme() {
+    try {
+        const value = globalThis.localStorage?.getItem(EBOOK_THEME_STORAGE_KEY);
+        return value === 'light' ? 'light' : 'dark';
+    } catch {
+        return 'dark';
+    }
+}
+
 export function createEbookState() {
     return {
         config: normalizeEbookConfig({}),
@@ -14,6 +25,7 @@ export function createEbookState() {
         savedContent: '',
         messages: [],
         toolTrace: [],
+        liveToolTurn: null,
         openToolTurnKeys: [],
         activeTurnStartIndex: -1,
         openThoughtKeys: [],
@@ -23,7 +35,10 @@ export function createEbookState() {
         archivedTurnCount: 0,
         isBusy: false,
         activeController: null,
+        studioLayout: 'balanced',
+        colorTheme: getInitialColorTheme(),
         isSettingsOpen: false,
+        isDeleteBookOpen: false,
         configPage: 'main',
         configFormSyncPending: true,
         modelOptionsByProvider: {},

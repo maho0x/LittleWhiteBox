@@ -1,7 +1,8 @@
 import {
     createBook,
-    ensureDefaultBook,
+    deleteBook,
     getBook,
+    getSelectedBookId,
     listBookFiles,
     listBooks,
     renameBook,
@@ -34,10 +35,26 @@ export function createBookController(deps = {}) {
 
     async function refreshBooksAndFiles() {
         state.books = await listBooks();
+        if (!state.books.length) {
+            state.book = null;
+            state.files = [];
+            state.selectedPath = '';
+            state.readerPath = '';
+            state.editorContent = '';
+            state.savedContent = '';
+            state.isDeleteBookOpen = false;
+            state.viewMode = 'library';
+            return;
+        }
+        const selectedBookId = await getSelectedBookId();
+        if (state.book?.id) {
+            state.book = state.books.find((book) => book.id === state.book.id) || null;
+        }
         if (!state.book) {
-            state.book = await ensureDefaultBook();
-        } else {
-            state.book = await getBook(state.book.id) || await ensureDefaultBook();
+            state.book = state.books.find((book) => book.id === selectedBookId) || state.books[0];
+        }
+        if (state.book?.id && state.book.id !== selectedBookId) {
+            await setSelectedBookId(state.book.id);
         }
         state.files = await listBookFiles(state.book.id);
         if (!state.selectedPath || !state.files.some((file) => file.path === state.selectedPath)) {
@@ -209,9 +226,36 @@ export function createBookController(deps = {}) {
     }
 
     async function initializeBook() {
-        state.book = await ensureDefaultBook();
         await refreshBooksAndFiles();
-        await conversationStore?.restoreConversation?.(state.book.id);
+        await conversationStore?.restoreConversation?.(state.book?.id);
+    }
+
+    async function removeBook(bookId = '') {
+        if (state.isBusy) return;
+        const id = String(bookId || '').trim();
+        if (!id) return;
+        if (!confirm('确定要删除这本书吗？所有书稿内容和写作记录都将被清除，无法恢复。')) return;
+        const activeBookId = state.book?.id || '';
+        const deletingActiveBook = activeBookId === id;
+        try {
+            await deleteBook(id);
+            if (deletingActiveBook) {
+                state.book = null;
+                state.selectedPath = '';
+                state.readerPath = '';
+            }
+            await refreshBooksAndFiles();
+            state.isDeleteBookOpen = false;
+            state.viewMode = 'library';
+            const nextActiveBookId = state.book?.id || '';
+            if (deletingActiveBook || !activeBookId || nextActiveBookId !== activeBookId) {
+                await conversationStore?.restoreConversation?.(nextActiveBookId);
+            }
+            showToast('书籍已删除');
+            render();
+        } catch (error) {
+            showToast(`删除失败：${error?.message || error}`);
+        }
     }
 
     return {
@@ -220,8 +264,9 @@ export function createBookController(deps = {}) {
         importMaterial,
         initializeBook,
         isEditorDirty,
-        renameCurrentBook,
         refreshBooksAndFiles,
+        removeBook,
+        renameCurrentBook,
         saveCurrentFile,
         selectBook,
         selectFile,

@@ -1,4 +1,5 @@
 import { buildActionPrompt } from './prompts.js';
+import { EBOOK_THEME_STORAGE_KEY } from './state.js';
 import { formatDraftMetrics } from './text-metrics.js';
 
 const messageActionFeedbackTimers = new Map();
@@ -26,6 +27,20 @@ function updateComposeHint(root) {
     const hint = root.querySelector('#xb-compose-hint');
     if (!hint) return;
     hint.textContent = 'Enter 发送 · Shift+Enter 换行';
+}
+
+function applyColorTheme(root, state) {
+    const theme = state.colorTheme === 'light' ? 'light' : 'dark';
+    root.querySelectorAll('.xb-ebook-shell, .xb-ebook-screen').forEach((node) => {
+        node.classList.toggle('theme-light', theme === 'light');
+        node.classList.toggle('theme-dark', theme !== 'light');
+    });
+    const themeToggle = root.querySelector('#xb-theme-toggle');
+    if (!themeToggle) return;
+    const title = theme === 'light' ? '切换为深色视觉' : '切换为白底黑字';
+    themeToggle.textContent = theme === 'light' ? '深色' : '浅色';
+    themeToggle.setAttribute('title', title);
+    themeToggle.setAttribute('aria-label', title);
 }
 
 function updateOpenKeyList(list = [], key = '', open = false) {
@@ -94,7 +109,24 @@ export function bindEbookEvents(options = {}) {
     root.querySelector('#xb-close')?.addEventListener('click', () => postToHost('xb-ebook:close'));
     root.querySelector('#xb-library-link')?.addEventListener('click', () => void bookController.showLibrary());
     root.querySelector('#xb-library-new-book')?.addEventListener('click', () => void bookController.createNewBook());
-    root.querySelector('#xb-library-open-current')?.addEventListener('click', () => void bookController.showBookEntry());
+    root.querySelector('#xb-library-delete-book')?.addEventListener('click', () => {
+        state.isDeleteBookOpen = true;
+        render();
+    });
+    root.querySelector('#xb-delete-book-close')?.addEventListener('click', () => {
+        state.isDeleteBookOpen = false;
+        render();
+    });
+    root.querySelector('#xb-delete-book-overlay')?.addEventListener('click', (event) => {
+        if (event.target !== event.currentTarget) return;
+        state.isDeleteBookOpen = false;
+        render();
+    });
+    root.querySelectorAll('[data-delete-book-id]').forEach((button) => {
+        button.addEventListener('click', () => {
+            void bookController.removeBook(button.dataset.deleteBookId || '');
+        });
+    });
     root.querySelector('#xb-entry-link')?.addEventListener('click', () => void bookController.showBookEntry());
     root.querySelector('#xb-studio-link')?.addEventListener('click', () => void bookController.showStudio());
     root.querySelector('#xb-studio-empty-link')?.addEventListener('click', () => void bookController.showStudio());
@@ -106,6 +138,15 @@ export function bindEbookEvents(options = {}) {
     });
     root.querySelector('#xb-save')?.addEventListener('click', () => void bookController.saveCurrentFile());
     root.querySelector('#xb-agent-close')?.addEventListener('click', () => postToHost('xb-ebook:close'));
+    root.querySelector('#xb-theme-toggle')?.addEventListener('click', () => {
+        state.colorTheme = state.colorTheme === 'light' ? 'dark' : 'light';
+        try {
+            globalThis.localStorage?.setItem(EBOOK_THEME_STORAGE_KEY, state.colorTheme);
+        } catch {
+            // Theme choice is purely cosmetic; ignore storage failures.
+        }
+        applyColorTheme(root, state);
+    });
     root.querySelector('#xb-agent-open-settings')?.addEventListener('click', () => {
         state.isSettingsOpen = true;
         state.configFormSyncPending = true;
@@ -130,7 +171,23 @@ export function bindEbookEvents(options = {}) {
         button.addEventListener('click', () => void bookController.selectBook(button.dataset.bookId || ''));
     });
     root.querySelectorAll('.xb-library-book').forEach((button) => {
-        button.addEventListener('click', () => void bookController.selectBook(button.dataset.bookId || ''));
+        button.addEventListener('click', () => {
+            const bookId = button.dataset.bookId || '';
+            if (!bookId) return;
+            void bookController.selectBook(bookId);
+        });
+    });
+    root.querySelectorAll('[data-studio-layout]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const layout = String(button.dataset.studioLayout || 'balanced');
+            state.studioLayout = ['focus-editor', 'focus-agent'].includes(layout) ? layout : 'balanced';
+            const shell = root.querySelector('.xb-studio-shell');
+            shell?.classList.remove('balanced', 'focus-editor', 'focus-agent');
+            shell?.classList.add(state.studioLayout);
+            root.querySelectorAll('[data-studio-layout]').forEach((item) => {
+                item.classList.toggle('is-active', item.dataset.studioLayout === state.studioLayout);
+            });
+        });
     });
     root.querySelectorAll('[data-entry-action]').forEach((button) => {
         button.addEventListener('click', () => {
