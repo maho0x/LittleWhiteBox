@@ -7,6 +7,14 @@
 </head>
 <body>
     <div id="xb-ebook-root"></div>
-    <script type="module" src="./dist/ebook-app.js"></script>
+    <script>
+    (function() {
+        var v = new URLSearchParams(location.search).get('v') || '';
+        var s = document.createElement('script');
+        s.type = 'module';
+        s.src = './dist/ebook-app.js' + (v ? '?v=' + v : '');
+        document.head.appendChild(s);
+    })();
+</script>
 </body>
 </html>

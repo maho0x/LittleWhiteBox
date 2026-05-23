@@ -11,6 +11,20 @@ const OVERLAY_ID = 'xiaobaix-ebook-overlay';
 const IFRAME_ID = 'xiaobaix-ebook-iframe';
 const HTML_PATH = `${extensionFolderPath}/modules/ebook/ebook.html`;
 
+let manifestVersion = '';
+
+async function loadManifestVersion() {
+    if (manifestVersion) return manifestVersion;
+    try {
+        const response = await fetch(`${extensionFolderPath}/manifest.json`);
+        const manifest = await response.json();
+        manifestVersion = manifest.version || '';
+    } catch {
+        // Version is cosmetic; ignore load failures.
+    }
+    return manifestVersion;
+}
+
 let frameReady = false;
 let pendingMessages = [];
 let messageHandlerInstalled = false;
@@ -105,7 +119,7 @@ function revealEbookSettings() {
     return true;
 }
 
-function createOverlay() {
+async function createOverlay() {
     const overlay = document.createElement('div');
     overlay.id = OVERLAY_ID;
     overlay.style.cssText = `
@@ -138,9 +152,10 @@ function createOverlay() {
         background: #fff9ed;
     `;
 
+    const version = await loadManifestVersion();
     const iframe = document.createElement('iframe');
     iframe.id = IFRAME_ID;
-    iframe.src = HTML_PATH;
+    iframe.src = version ? `${HTML_PATH}?v=${version}` : HTML_PATH;
     iframe.style.cssText = `
         display: block;
         width: 100%;
@@ -157,12 +172,12 @@ function createOverlay() {
     return overlay;
 }
 
-function openEbook() {
+async function openEbook() {
     pendingOpenSettings = false;
     if (document.getElementById(OVERLAY_ID)) return;
     frameReady = false;
     pendingMessages = [];
-    createOverlay();
+    await createOverlay();
     installMessageHandler();
 }
 
@@ -171,8 +186,7 @@ function openEbookSettings() {
     if (!document.getElementById(OVERLAY_ID)) {
         frameReady = false;
         pendingMessages = [];
-        createOverlay();
-        installMessageHandler();
+        createOverlay().then(() => installMessageHandler());
     }
     if (frameReady) {
         revealEbookSettings();
