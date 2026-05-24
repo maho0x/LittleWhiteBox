@@ -4,8 +4,36 @@ import { formatDraftMetrics } from './text-metrics.js';
 
 const messageActionFeedbackTimers = new Map();
 
+function scheduleFrame(callback) {
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(callback);
+        return;
+    }
+    const timer = setTimeout(callback, 16);
+    timer?.unref?.();
+}
+
+function isEbookMobile() {
+    try {
+        const mobileTypes = ['mobile', 'tablet'];
+        const platformType = globalThis.Bowser?.parse?.(globalThis.navigator?.userAgent || '')?.platform?.type;
+        if (mobileTypes.includes(platformType)) return true;
+    } catch {
+        // Fall back to media queries.
+    }
+    try {
+        return !!(
+            globalThis.matchMedia?.('(pointer: coarse)')?.matches
+            && globalThis.matchMedia?.('(max-width: 900px)')?.matches
+        );
+    } catch {
+        return false;
+    }
+}
+
 function isSendShortcut(event) {
     return event.key === 'Enter'
+        && !isEbookMobile()
         && !event.isComposing
         && !event.shiftKey
         && !event.ctrlKey
@@ -26,7 +54,9 @@ function updateEditorMeta(root, state, bookController) {
 function updateComposeHint(root) {
     const hint = root.querySelector('#xb-compose-hint');
     if (!hint) return;
-    hint.textContent = 'Enter 发送 · Shift+Enter 换行';
+    hint.textContent = isEbookMobile()
+        ? 'Enter 换行 · 点击发送'
+        : 'Enter 发送 · Shift+Enter 换行';
 }
 
 function applyColorTheme(root, state) {
@@ -184,7 +214,9 @@ export function bindEbookEvents(options = {}) {
         button.addEventListener('click', () => void bookController.renameCurrentBook());
     });
     root.querySelector('#xb-save')?.addEventListener('click', () => void bookController.saveCurrentFile());
-    root.querySelector('#xb-agent-close, #xb-agent-close-mobile')?.addEventListener('click', () => postToHost('xb-ebook:close'));
+    root.querySelectorAll('#xb-agent-close, #xb-agent-close-mobile').forEach((button) => {
+        button.addEventListener('click', () => postToHost('xb-ebook:close'));
+    });
     root.querySelectorAll('#xb-theme-toggle, [data-theme-toggle]').forEach((button) => {
         button.addEventListener('click', () => {
             state.colorTheme = state.colorTheme === 'light' ? 'dark' : 'light';
@@ -465,6 +497,7 @@ export function bindEbookEvents(options = {}) {
 
     // 上下导航按钮（抄小白助手）
     let agentScrollHideTimer = null;
+    let agentScrollTicking = false;
     const agentMain = root.querySelector('.xb-agent-main');
     const scrollTopBtn = root.querySelector('#xb-agent-scroll-top');
     const scrollBottomBtn = root.querySelector('#xb-agent-scroll-bottom');
@@ -474,7 +507,7 @@ export function bindEbookEvents(options = {}) {
         if (!container) return;
         const apply = () => { container.scrollTop = container.scrollHeight; };
         apply();
-        requestAnimationFrame(() => { apply(); requestAnimationFrame(apply); });
+        scheduleFrame(() => { apply(); scheduleFrame(apply); });
     }
 
     function updateAgentScrollButtonsVisibility() {
@@ -492,20 +525,41 @@ export function bindEbookEvents(options = {}) {
     function scheduleHideScrollHelpers() {
         if (agentScrollHideTimer) clearTimeout(agentScrollHideTimer);
         agentScrollHideTimer = setTimeout(() => { hideScrollHelpers(); agentScrollHideTimer = null; }, 1500);
+        agentScrollHideTimer?.unref?.();
+    }
+
+    function handleAgentScroll() {
+        if (!agentMain) return;
+        const threshold = 48;
+        state.agentAutoScroll = agentMain.scrollHeight - agentMain.scrollTop - agentMain.clientHeight <= threshold;
+        if (agentScrollTicking) return;
+        agentScrollTicking = true;
+        scheduleFrame(() => {
+            updateAgentScrollButtonsVisibility();
+            showScrollHelpers();
+            scheduleHideScrollHelpers();
+            agentScrollTicking = false;
+        });
     }
 
     agentMain?.addEventListener('scroll', () => {
+        handleAgentScroll();
+    });
+
+    scrollTopBtn?.addEventListener('click', () => {
+        state.agentAutoScroll = false;
+        agentMain?.scrollTo({ top: 0, behavior: 'smooth' });
         showScrollHelpers();
         updateAgentScrollButtonsVisibility();
         scheduleHideScrollHelpers();
     });
 
-    scrollTopBtn?.addEventListener('click', () => {
-        agentMain?.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-
     scrollBottomBtn?.addEventListener('click', () => {
+        state.agentAutoScroll = true;
         scrollAgentToBottom(agentMain);
+        showScrollHelpers();
+        updateAgentScrollButtonsVisibility();
+        scheduleHideScrollHelpers();
     });
 
     updateAgentScrollButtonsVisibility();

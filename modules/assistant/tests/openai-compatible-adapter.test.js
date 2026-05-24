@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { OpenAICompatibleAdapter } from '../../agent-core/adapters/openai-compatible.js';
+import {
+    OpenAICompatibleAdapter,
+    buildNativeMessages,
+} from '../../agent-core/adapters/openai-compatible.js';
 
 function createSseResponse(events = [], delimiter = '\n\n') {
     const payload = events.map((event) => `data: ${JSON.stringify(event)}${delimiter}`).join('') + `data: [DONE]${delimiter}`;
@@ -17,6 +20,89 @@ function createSseResponse(events = [], delimiter = '\n\n') {
         text: async () => payload,
     };
 }
+
+test('openai-compatible adapter sanitizes malformed replay tool calls before sending', () => {
+    const messages = buildNativeMessages({
+        messages: [
+            {
+                role: 'user',
+                content: '继续。',
+            },
+            {
+                role: 'assistant',
+                content: '我需要读文件。',
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '我需要读文件。',
+                        tool_calls: [
+                            null,
+                            {
+                                id: 'bad-call',
+                                type: 'function',
+                                function: null,
+                            },
+                            {
+                                id: 'call-1',
+                                type: 'function',
+                                index: 0,
+                                function: {
+                                    name: 'Read',
+                                    arguments: { path: 'book/state.md' },
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call-1',
+                content: '{}',
+            },
+        ],
+    }, 'compat-model');
+
+    assert.deepEqual(messages[1].tool_calls, [{
+        id: 'call-1',
+        type: 'function',
+        function: {
+            name: 'Read',
+            arguments: '{"path":"book/state.md"}',
+        },
+    }]);
+});
+
+test('openai-compatible adapter ignores a replay message with no valid tool calls', () => {
+    const messages = buildNativeMessages({
+        messages: [
+            {
+                role: 'user',
+                content: '继续。',
+            },
+            {
+                role: 'assistant',
+                content: '我需要读文件。',
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '我需要读文件。',
+                        tool_calls: [
+                            null,
+                            {
+                                id: 'bad-call',
+                                type: 'function',
+                                function: null,
+                            },
+                        ],
+                    },
+                },
+            },
+        ],
+    });
+
+    assert.equal(Object.hasOwn(messages[1], 'tool_calls'), false);
+});
 
 test('openai-compatible adapter omits tool fields for pure text requests', async () => {
     const adapter = new OpenAICompatibleAdapter({
@@ -52,6 +138,72 @@ test('openai-compatible adapter omits tool fields for pure text requests', async
     assert.equal(result.text, '纯文本完成。');
     assert.equal(Object.hasOwn(requestBody, 'tools'), false);
     assert.equal(Object.hasOwn(requestBody, 'tool_choice'), false);
+});
+
+test('openai-compatible adapter ignores malformed non-streaming native tool calls', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/openai-compatible',
+        model: 'compat-test',
+    });
+
+    adapter.client.chat.completions.create = async () => ({
+        choices: [{
+            finish_reason: 'tool_calls',
+            message: {
+                role: 'assistant',
+                content: '我先读文件。',
+                tool_calls: [
+                    null,
+                    {
+                        id: 'bad-call',
+                        type: 'function',
+                        function: null,
+                    },
+                    {
+                        id: 'call-1',
+                        type: 'function',
+                        function: {
+                            name: 'Read',
+                            arguments: { path: 'book/state.md' },
+                        },
+                    },
+                ],
+            },
+        }],
+        model: 'compat-test',
+    });
+
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: '读一下状态。' }],
+        tools: [{
+            type: 'function',
+            function: {
+                name: 'Read',
+                description: 'Read file.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        path: { type: 'string' },
+                    },
+                },
+            },
+        }],
+    });
+
+    assert.deepEqual(result.toolCalls, [{
+        id: 'call-1',
+        name: 'Read',
+        arguments: '{"path":"book/state.md"}',
+    }]);
+    assert.deepEqual(result.providerPayload.openaiCompatibleMessage.tool_calls, [{
+        id: 'call-1',
+        type: 'function',
+        function: {
+            name: 'Read',
+            arguments: '{"path":"book/state.md"}',
+        },
+    }]);
 });
 
 test('openai-compatible adapter keeps streaming enabled in reasoning mode and preserves raw assistant payload', async () => {
@@ -137,6 +289,87 @@ test('openai-compatible adapter keeps streaming enabled in reasoning mode and pr
                 }],
             },
         });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('openai-compatible adapter does not persist null function tool-call deltas', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/openai-compatible',
+        model: 'compat-test',
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => createSseResponse([
+        {
+            model: 'compat-test',
+            choices: [{
+                index: 0,
+                delta: {
+                    role: 'assistant',
+                    content: '我先读文件。',
+                    tool_calls: [{
+                        index: 0,
+                        id: 'call-1',
+                        type: 'function',
+                        function: null,
+                    }],
+                },
+                finish_reason: null,
+            }],
+        },
+        {
+            model: 'compat-test',
+            choices: [{
+                index: 0,
+                delta: {
+                    tool_calls: [{
+                        index: 0,
+                        function: {
+                            name: 'Read',
+                            arguments: '{"path":"book/state.md"}',
+                        },
+                    }],
+                },
+                finish_reason: 'tool_calls',
+            }],
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '读一下状态。' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Read',
+                    description: 'Read file.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            path: { type: 'string' },
+                        },
+                    },
+                },
+            }],
+            onStreamProgress: () => {},
+        });
+
+        assert.deepEqual(result.toolCalls, [{
+            id: 'call-1',
+            name: 'Read',
+            arguments: '{"path":"book/state.md"}',
+        }]);
+        assert.deepEqual(result.providerPayload.openaiCompatibleMessage.tool_calls, [{
+            id: 'call-1',
+            type: 'function',
+            function: {
+                name: 'Read',
+                arguments: '{"path":"book/state.md"}',
+            },
+        }]);
     } finally {
         globalThis.fetch = originalFetch;
     }

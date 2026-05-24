@@ -73,7 +73,7 @@ function formatCharacterSource() {
 async function formatSummarySource() {
     try {
         const module = await import('../../story-summary/story-summary.js');
-        const text = module.getStorySummaryForEna?.() || '';
+        const text = module.getStorySummaryMemoryText?.() || module.getStorySummaryForEna?.() || '';
         return [
             '# 剧情总结',
             '',

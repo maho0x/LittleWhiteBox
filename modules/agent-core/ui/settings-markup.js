@@ -112,13 +112,6 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <button id="xb-assistant-delegate-pull-models" type="button" class="secondary" ${isBusy ? 'disabled' : ''}>拉取模型</button>
                 </div>
                 <div class="xb-assistant-inline-status" id="xb-assistant-delegate-model-pull-status" aria-live="polite" hidden></div>
-                <label>
-                    <span>Tavily API Key</span>
-                    <div class="xb-assistant-inline-input">
-                        <input id="xb-assistant-delegate-tavily-api-key" type="password" />
-                        <button id="xb-assistant-delegate-toggle-tavily-key" type="button" class="secondary ghost">显示</button>
-                    </div>
-                </label>
                 <label id="xb-assistant-delegate-tool-mode-wrap">
                     <span>Tool 调用格式</span>
                     <select id="xb-assistant-delegate-tool-mode"></select>
@@ -187,7 +180,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
             </div>
             <div class="xb-assistant-inline-status" id="xb-assistant-model-pull-status" aria-live="polite" hidden></div>
             <label>
-                <span>Tavily API Key</span>
+                <span>Tavily API Key（全局）</span>
                 <div class="xb-assistant-inline-input">
                     <input id="xb-assistant-tavily-api-key" type="password" />
                     <button id="xb-assistant-toggle-tavily-key" type="button" class="secondary ghost">显示</button>

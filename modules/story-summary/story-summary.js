@@ -1642,6 +1642,92 @@ function buildSummaryExportPackage(store) {
     };
 }
 
+function pushSection(lines, title, items) {
+    if (!items.length) return;
+    if (lines.length) lines.push("");
+    lines.push(`## ${title}`, "", ...items);
+}
+
+function formatSummaryCharacterName(item) {
+    return String(typeof item === "string" ? item : item?.name || "").trim();
+}
+
+function formatSummaryProgress(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "0%";
+    return `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`;
+}
+
+function formatStorySummaryMemoryText(store) {
+    const json = cloneSummaryJsonForPortability(store?.json || {});
+    const lines = [];
+
+    pushSection(lines, "关键词", (json.keywords || [])
+        .map((item) => {
+            const text = String(item?.text || "").trim();
+            if (!text) return "";
+            const weight = String(item?.weight || "").trim();
+            return `- ${text}${weight ? `（${weight}）` : ""}`;
+        })
+        .filter(Boolean));
+
+    pushSection(lines, "事件时间线", (json.events || [])
+        .map((event, index) => {
+            const title = String(event?.title || "").trim() || `事件 ${index + 1}`;
+            const timeLabel = String(event?.timeLabel || "").trim();
+            const summary = stripFloorMarker(event?.summary);
+            const participants = Array.isArray(event?.participants)
+                ? event.participants.map((name) => String(name || "").trim()).filter(Boolean)
+                : [];
+            const meta = [
+                timeLabel ? `时间：${timeLabel}` : "",
+                participants.length ? `参与者：${participants.join("、")}` : "",
+                event?.type ? `类型：${event.type}` : "",
+                event?.weight ? `权重：${event.weight}` : "",
+            ].filter(Boolean).join("；");
+            return [
+                `### ${title}`,
+                meta,
+                summary,
+            ].filter(Boolean).join("\n");
+        })
+        .filter(Boolean));
+
+    pushSection(lines, "主要角色", (json.characters?.main || [])
+        .map(formatSummaryCharacterName)
+        .filter(Boolean)
+        .map((name) => `- ${name}`));
+
+    pushSection(lines, "角色弧光", (json.arcs || [])
+        .map((arc) => {
+            const name = String(arc?.name || "").trim();
+            if (!name) return "";
+            const trajectory = String(arc?.trajectory || "").trim();
+            const moments = Array.isArray(arc?.moments)
+                ? arc.moments.map((moment) => String(moment?.text || "").trim()).filter(Boolean)
+                : [];
+            return [
+                `### ${name}`,
+                trajectory ? `${trajectory}（进度：${formatSummaryProgress(arc?.progress)}）` : `进度：${formatSummaryProgress(arc?.progress)}`,
+                ...moments.map((moment) => `- ${moment}`),
+            ].filter(Boolean).join("\n");
+        })
+        .filter(Boolean));
+
+    pushSection(lines, "事实图谱", (json.facts || [])
+        .map((fact) => {
+            const subject = String(fact?.s || "").trim();
+            const predicate = String(fact?.p || "").trim();
+            const object = String(fact?.o || "").trim();
+            if (!subject || !predicate || !object) return "";
+            const trend = String(fact?.trend || "").trim();
+            return `- ${subject}｜${predicate}｜${object}${trend ? `（趋势：${trend}）` : ""}`;
+        })
+        .filter(Boolean));
+
+    return lines.join("\n").trim();
+}
+
 function stampImportedSummaryJson(json, boundary) {
     if (!json || typeof json !== "object" || !Number.isFinite(boundary) || boundary < 0) {
         return;
@@ -1765,7 +1851,12 @@ async function importSummaryMemoryPackage(rawText) {
 // Compatibility export for ena-planner.
 // Returns a compact plain-text snapshot of story-summary memory.
 export function getStorySummaryForEna() {
-    return _lastBuiltPromptText;
+    const promptText = String(_lastBuiltPromptText || "").trim();
+    return promptText || getStorySummaryMemoryText();
+}
+
+export function getStorySummaryMemoryText() {
+    return formatStorySummaryMemoryText(getSummaryStore());
 }
 
 function parseRelationTargetFromPredicate(predicate) {

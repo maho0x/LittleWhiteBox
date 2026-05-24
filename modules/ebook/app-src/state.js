@@ -35,6 +35,7 @@ export function createEbookState() {
         archivedTurnCount: 0,
         isBusy: false,
         activeController: null,
+        agentAutoScroll: true,
         drawStatus: {
             provider: 'disabled',
             enabled: false,

@@ -163,5 +163,14 @@ export async function streamHostChatCompletion(payload = {}, onEvent, options = 
         throw new Error(normalizeHostFailureMessage(text, `酒馆后端流式生成失败：HTTP ${response.status}`));
     }
 
-    await readSseEventsFromResponse(response, onEvent);
+    await readSseEventsFromResponse(response, (event) => {
+        if (event?.error) {
+            const message = normalizeHostFailureMessage(
+                event.error?.message || event.message || JSON.stringify(event.error),
+                '酒馆后端流式生成失败',
+            );
+            throw new Error(message);
+        }
+        onEvent(event);
+    });
 }

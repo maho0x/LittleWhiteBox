@@ -3,7 +3,7 @@ import { isTrustedMessage, postToIframe } from '../../core/iframe-messaging.js';
 import { buildEbookFrameConfig, saveEbookAgentConfig } from './host/assistant-config.js';
 import { buildImportMaterial } from './host/import-materials.js';
 import { getDisplayPreviewForSlot } from '../draw/shared/gallery-cache.js';
-import { synthesizeAndPlay, stopCurrent as stopCurrentVoice } from '../fourth-wall/fw-voice-runtime.js';
+import { synthesizeAndPlay } from '../fourth-wall/fw-voice-runtime.js';
 
 const SOURCE_HOST = 'xb-ebook-host';
 const SOURCE_APP = 'xb-ebook-app';
@@ -16,7 +16,7 @@ let manifestVersion = '';
 async function loadManifestVersion() {
     if (manifestVersion) return manifestVersion;
     try {
-        const response = await fetch(`${extensionFolderPath}/manifest.json`);
+        const response = await fetch(`${extensionFolderPath}/manifest.json`, { cache: 'no-store' });
         const manifest = await response.json();
         manifestVersion = manifest.version || '';
     } catch {
@@ -177,8 +177,8 @@ async function openEbook() {
     if (document.getElementById(OVERLAY_ID)) return;
     frameReady = false;
     pendingMessages = [];
-    await createOverlay();
     installMessageHandler();
+    await createOverlay();
 }
 
 function openEbookSettings() {
@@ -186,7 +186,8 @@ function openEbookSettings() {
     if (!document.getElementById(OVERLAY_ID)) {
         frameReady = false;
         pendingMessages = [];
-        createOverlay().then(() => installMessageHandler());
+        installMessageHandler();
+        void createOverlay();
     }
     if (frameReady) {
         revealEbookSettings();
@@ -217,10 +218,7 @@ function postTtsState(playbackId = '', state = '', info = {}) {
 
 function stopEbookTtsPlayback(playbackId = '') {
     const active = activeTtsPlayback;
-    if (!active) {
-        try { stopCurrentVoice(); } catch {}
-        return false;
-    }
+    if (!active) return false;
     if (playbackId && active.playbackId !== playbackId) return false;
     try {
         active.stop?.();

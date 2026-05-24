@@ -30,6 +30,62 @@ function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function stringifyToolArguments(value) {
+    if (typeof value === 'string') return value;
+    if (value === undefined || value === null) return '{}';
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return '{}';
+    }
+}
+
+function normalizeToolCallForReplay(toolCall, index = 0, fallbackPrefix = 'openai-tool') {
+    if (!isPlainObject(toolCall)) return null;
+    const toolFunction = isPlainObject(toolCall.function) ? toolCall.function : null;
+    const name = String(toolFunction?.name || '').trim();
+    if (!name) return null;
+
+    const normalized = cloneJson(toolCall) || {};
+    delete normalized.index;
+    normalized.id = String(normalized.id || `${fallbackPrefix}-${index + 1}`);
+    normalized.type = 'function';
+    normalized.function = {
+        ...(cloneJson(toolFunction) || {}),
+        name,
+        arguments: stringifyToolArguments(toolFunction.arguments),
+    };
+    return normalized;
+}
+
+function normalizeToolCallsForReplay(toolCalls = [], fallbackPrefix = 'openai-tool') {
+    return (Array.isArray(toolCalls) ? toolCalls : [])
+        .map((toolCall, index) => normalizeToolCallForReplay(toolCall, index, fallbackPrefix))
+        .filter(Boolean);
+}
+
+function sanitizeOpenAICompatibleMessage(message) {
+    if (!isPlainObject(message)) return null;
+    const cloned = cloneJson(message) || {};
+    if (Array.isArray(cloned.tool_calls)) {
+        const normalizedToolCalls = normalizeToolCallsForReplay(cloned.tool_calls);
+        if (normalizedToolCalls.length) {
+            cloned.tool_calls = normalizedToolCalls;
+        } else {
+            delete cloned.tool_calls;
+        }
+    }
+    return cloned;
+}
+
+export function buildToolCallResultsFromOpenAI(toolCalls = [], fallbackPrefix = 'openai-tool') {
+    return normalizeToolCallsForReplay(toolCalls, fallbackPrefix).map((item, index) => ({
+        id: item.id || `${fallbackPrefix}-${Date.now()}-${index + 1}`,
+        name: item.function.name,
+        arguments: item.function.arguments,
+    }));
+}
+
 export function flattenTextContent(content) {
     if (typeof content === 'string') return content;
     if (!Array.isArray(content)) return '';
@@ -159,10 +215,7 @@ function normalizeOpenAICompatibleMessage(message) {
     if (!preserved || typeof preserved !== 'object' || Array.isArray(preserved)) {
         return null;
     }
-    const cloned = cloneJson(preserved);
-    return cloned && typeof cloned === 'object' && !Array.isArray(cloned)
-        ? cloned
-        : null;
+    return sanitizeOpenAICompatibleMessage(preserved);
 }
 
 function getLastUserMessageIndex(messages = []) {
@@ -175,7 +228,7 @@ function getLastUserMessageIndex(messages = []) {
 }
 
 function hasReplayableToolCalls(message) {
-    if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
+    if (normalizeToolCallsForReplay(message?.tool_calls).length > 0) {
         return true;
     }
     const preserved = normalizeOpenAICompatibleMessage(message);
@@ -289,11 +342,11 @@ export function buildReplayableAssistantMessage(message = {}, choice = {}) {
         replayableMessage.role = 'assistant';
     }
 
-    return replayableMessage;
+    return sanitizeOpenAICompatibleMessage(replayableMessage) || { role: 'assistant' };
 }
 
 export function buildProviderPayload(message, choice = {}) {
-    const preserved = cloneJson(buildReplayableAssistantMessage(message, choice));
+    const preserved = sanitizeOpenAICompatibleMessage(buildReplayableAssistantMessage(message, choice));
     if (!preserved || typeof preserved !== 'object' || Array.isArray(preserved)) {
         return undefined;
     }
@@ -329,14 +382,10 @@ export function buildNativeMessages(task, model = '') {
         }
 
         if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
-            baseMessage.tool_calls = message.tool_calls.map((toolCall) => ({
-                id: toolCall.id,
-                type: 'function',
-                function: {
-                    name: toolCall.function?.name || '',
-                    arguments: toolCall.function?.arguments || '{}',
-                },
-            }));
+            const normalizedToolCalls = normalizeToolCallsForReplay(message.tool_calls);
+            if (normalizedToolCalls.length) {
+                baseMessage.tool_calls = normalizedToolCalls;
+            }
         }
 
         return ensureReasoningContentForToolCalls(baseMessage, model);
@@ -479,6 +528,7 @@ function appendStreamToolCalls(target, toolCalls = []) {
 
         Object.entries(toolCallDelta || {}).forEach(([key, value]) => {
             if (key === 'index') return;
+            if (key === 'function' && (value === null || value === undefined)) return;
             if (key === 'function' && isPlainObject(value)) {
                 nextToolCall.function = isPlainObject(nextToolCall.function)
                     ? { ...nextToolCall.function }
@@ -514,6 +564,7 @@ export function accumulateStreamedAssistantSnapshot(target, choice = {}) {
 }
 
 export function applyToolCallDelta(snapshot, toolCallDelta = {}) {
+    if (!snapshot || !isPlainObject(toolCallDelta)) return;
     const index = Number(toolCallDelta.index ?? 0);
     const current = snapshot.toolCalls[index] || {
         id: '',
@@ -523,13 +574,14 @@ export function applyToolCallDelta(snapshot, toolCallDelta = {}) {
             arguments: '',
         },
     };
+    const toolFunction = isPlainObject(toolCallDelta.function) ? toolCallDelta.function : {};
     snapshot.toolCalls[index] = {
         ...current,
         id: toolCallDelta.id || current.id,
         type: toolCallDelta.type || current.type,
         function: {
-            name: toolCallDelta.function?.name || current.function?.name || '',
-            arguments: `${current.function?.arguments || ''}${toolCallDelta.function?.arguments || ''}`,
+            name: toolFunction.name || current.function?.name || '',
+            arguments: `${current.function?.arguments || ''}${toolFunction.arguments || ''}`,
         },
     };
 }
@@ -654,11 +706,7 @@ export class OpenAICompatibleAdapter {
         });
 
         const providerPayload = buildProviderPayload(assistantSnapshot);
-        const standardToolCalls = snapshot.toolCalls.map((item) => ({
-            id: item.id || `openai-tool-${Date.now()}`,
-            name: item.function?.name || '',
-            arguments: item.function?.arguments || '{}',
-        })).filter((item) => item.name);
+        const standardToolCalls = buildToolCallResultsFromOpenAI(snapshot.toolCalls);
         const thinkTagged = extractThinkTaggedContent(snapshot.content);
         const thoughts = extractThoughtsFromMessage(assistantSnapshot, {});
         thinkTagged.thoughts.forEach((item) => thoughts.push(item));
@@ -760,11 +808,7 @@ export class OpenAICompatibleAdapter {
                 buildReplayableAssistantMessage(finalMessage, finalChoice || {}),
             );
             providerPayload = buildProviderPayload(replayableFinalMessage);
-            const standardToolCalls = snapshot.toolCalls.map((item) => ({
-                id: item.id || `openai-tool-${Date.now()}`,
-                name: item.function?.name || '',
-                arguments: item.function?.arguments || '{}',
-            })).filter((item) => item.name);
+            const standardToolCalls = buildToolCallResultsFromOpenAI(snapshot.toolCalls);
             const thinkTagged = extractThinkTaggedContent(snapshot.content);
             const thoughts = extractThoughtsFromMessage(replayableFinalMessage, finalChoice || {});
             thinkTagged.thoughts.forEach((item) => thoughts.push(item));
@@ -794,11 +838,7 @@ export class OpenAICompatibleAdapter {
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
         const thoughts = extractThoughtsFromMessage(message, choice);
-        const standardToolCalls = (message.tool_calls || []).map((item) => ({
-            id: item.id || `openai-tool-${Date.now()}`,
-            name: item.function?.name || '',
-            arguments: item.function?.arguments || '{}',
-        })).filter((item) => item.name);
+        const standardToolCalls = buildToolCallResultsFromOpenAI(message.tool_calls || []);
         const contentText = flattenTextContent(message.content);
         const thinkTagged = extractThinkTaggedContent(contentText);
         thinkTagged.thoughts.forEach((item) => thoughts.push(item));

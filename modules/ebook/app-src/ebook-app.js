@@ -158,13 +158,19 @@ export function createEbookApp(options = {}) {
         };
     }
 
-    function restoreScrollState(root, snapshot, defaultSelector = null) {
+    function restoreScrollState(root, snapshot, defaultSelector = null, options = {}) {
         const selector = snapshot?.selector || defaultSelector;
         if (!selector) return;
         const node = root?.querySelector?.(selector);
         if (!node) return;
-        if (!snapshot) {
+        if (options.forceBottom) {
             node.scrollTop = node.scrollHeight;
+            return;
+        }
+        if (!snapshot) {
+            if (options.defaultToBottom !== false) {
+                node.scrollTop = node.scrollHeight;
+            }
             return;
         }
         node.scrollTop = snapshot.nearBottom
@@ -172,12 +178,47 @@ export function createEbookApp(options = {}) {
             : Math.min(snapshot.scrollTop, node.scrollHeight);
     }
 
+    function captureFocusState(root) {
+        const active = document.activeElement;
+        if (!active || !root?.contains?.(active)) return null;
+        const id = String(active.id || '').trim();
+        if (!id) return null;
+        return {
+            id,
+            selectionStart: Number.isFinite(active.selectionStart) ? active.selectionStart : null,
+            selectionEnd: Number.isFinite(active.selectionEnd) ? active.selectionEnd : null,
+        };
+    }
+
+    function restoreFocusState(root, snapshot) {
+        if (!snapshot?.id) return;
+        const node = document.getElementById(snapshot.id);
+        if (!node || !root?.contains?.(node)) return;
+        try {
+            node.focus({ preventScroll: true });
+        } catch {
+            node.focus?.();
+        }
+        if (
+            Number.isFinite(snapshot.selectionStart)
+            && Number.isFinite(snapshot.selectionEnd)
+            && typeof node.setSelectionRange === 'function'
+        ) {
+            try {
+                node.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+            } catch {
+                // Not all focused elements expose a text selection.
+            }
+        }
+    }
+
     function render() {
         const root = document.getElementById(rootId);
         if (!root) return;
         const agentScroll = captureScrollState(root, '.xb-agent-main');
         const settingsScroll = captureScrollState(root, '.xb-ebook-settings-body');
-        const wasSettingsOpen = state.isSettingsOpen;
+        const focusState = captureFocusState(root);
+        const wasSettingsOpen = !!root.querySelector('.xb-ebook-settings-body');
         const providerConfig = getActiveProviderConfig();
         // Dynamic values are escaped by renderer helpers before interpolation.
         // eslint-disable-next-line no-unsanitized/property
@@ -208,16 +249,24 @@ export function createEbookApp(options = {}) {
             clearConversation: conversationStore.clearConversation,
             showToast,
         });
-        if (!wasSettingsOpen || !state.isSettingsOpen) {
-            restoreScrollState(root, agentScroll, '.xb-agent-main');
-        }
+        restoreScrollState(root, agentScroll, '.xb-agent-main', {
+            forceBottom: state.agentAutoScroll !== false,
+            defaultToBottom: state.agentAutoScroll !== false,
+        });
         if (state.isSettingsOpen) {
             const settingsBody = root.querySelector('.xb-ebook-settings-body');
-            if (settingsBody && !wasSettingsOpen) {
-                settingsBody.scrollTop = 0;
+            if (settingsBody) {
+                if (wasSettingsOpen && settingsScroll) {
+                    restoreScrollState(root, settingsScroll, '.xb-ebook-settings-body', {
+                        defaultToBottom: false,
+                    });
+                } else {
+                    settingsBody.scrollTop = 0;
+                }
             }
-        } else {
-            restoreScrollState(root, settingsScroll);
+        }
+        if (wasSettingsOpen === state.isSettingsOpen) {
+            restoreFocusState(root, focusState);
         }
     }
 

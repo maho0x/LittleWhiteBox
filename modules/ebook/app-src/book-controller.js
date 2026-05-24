@@ -383,7 +383,7 @@ export function createBookController(deps = {}) {
         const book = await getBook(bookId);
         if (!book) return;
         if (isEditorDirty() && !confirm('当前文件还没保存，确定切换书籍吗？')) return;
-        await stopReaderTts({ renderAfter: false });
+        void stopReaderTts({ renderAfter: false });
         await setSelectedBookId(book.id);
         state.book = book;
         state.selectedPath = '';
@@ -398,7 +398,7 @@ export function createBookController(deps = {}) {
         if (isEditorDirty() && !confirm('当前文件还没保存，确定切换文件吗？')) return;
         const file = state.files.find((item) => item.path === path);
         if (!file) return;
-        await stopReaderTts({ renderAfter: false });
+        void stopReaderTts({ renderAfter: false });
         state.selectedPath = file.path;
         state.viewMode = 'studio';
         state.editorContent = file.content;
@@ -409,7 +409,7 @@ export function createBookController(deps = {}) {
     async function showBookEntry() {
         if (!state.book) return;
         if (isEditorDirty() && !confirm('当前文件还没保存，确定回到书本入口吗？')) return;
-        await stopReaderTts({ renderAfter: false });
+        void stopReaderTts({ renderAfter: false });
         state.viewMode = 'book-entry';
         render();
     }
@@ -417,7 +417,7 @@ export function createBookController(deps = {}) {
     async function showStudio() {
         if (!state.book) return;
         if (isEditorDirty() && state.viewMode !== 'studio' && !confirm('当前文件还没保存，确定进入创作台吗？')) return;
-        await stopReaderTts({ renderAfter: false });
+        void stopReaderTts({ renderAfter: false });
         state.viewMode = 'studio';
         render();
     }
@@ -437,7 +437,7 @@ export function createBookController(deps = {}) {
     async function selectReaderChapter(path = '') {
         const chapter = state.files.find((file) => file.path === path && /^book\/chapters\/.+\.md$/.test(file.path));
         if (!chapter) return;
-        await stopReaderTts({ renderAfter: false });
+        void stopReaderTts({ renderAfter: false });
         state.readerPath = chapter.path;
         state.viewMode = 'reader';
         render();
@@ -445,7 +445,7 @@ export function createBookController(deps = {}) {
 
     async function showLibrary() {
         if (isEditorDirty() && !confirm('当前文件还没保存，确定回到书架吗？')) return;
-        await stopReaderTts({ renderAfter: false });
+        void stopReaderTts({ renderAfter: false });
         state.viewMode = 'library';
         render();
     }
@@ -667,7 +667,7 @@ export function createBookController(deps = {}) {
         const title = prompt('新书名', '新书稿');
         if (title === null) return;
         if (isEditorDirty() && !confirm('当前文件还没保存，确定新建书籍吗？')) return;
-        await stopReaderTts({ renderAfter: false });
+        void stopReaderTts({ renderAfter: false });
         state.book = await createBook(title);
         state.selectedPath = DEFAULT_DRAFT_PATH;
         state.readerPath = DEFAULT_DRAFT_PATH;
@@ -754,7 +754,7 @@ export function createBookController(deps = {}) {
         const deletingActiveBook = activeBookId === id;
         try {
             if (deletingActiveBook) {
-                await stopReaderTts({ renderAfter: false });
+                void stopReaderTts({ renderAfter: false });
             }
             await deleteBook(id);
             if (deletingActiveBook) {

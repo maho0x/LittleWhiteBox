@@ -34,6 +34,8 @@ export async function saveEbookAgentConfig(patch = {}, options = {}) {
         ...normalizedCurrent,
         workspaceFileName: normalizedCurrent.workspaceFileName || '',
         jsApiPermission: normalizeJsApiPermission(patch.jsApiPermission ?? normalizedCurrent.jsApiPermission),
+        tavilyApiKey: patch.tavilyApiKey ?? normalizedCurrent.tavilyApiKey,
+        tavilyBaseUrl: patch.tavilyBaseUrl ?? normalizedCurrent.tavilyBaseUrl,
         currentPresetName: normalizePresetName(patch.currentPresetName || normalizedCurrent.currentPresetName),
         delegatePresetName: normalizePresetName(patch.delegatePresetName || normalizedCurrent.delegatePresetName || patch.currentPresetName || normalizedCurrent.currentPresetName),
         delegateConfig: patch.delegateConfig && typeof patch.delegateConfig === 'object'

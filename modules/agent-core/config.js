@@ -62,8 +62,6 @@ export function buildDefaultPreset() {
         provider: DEFAULT_PROVIDER,
         modelConfigs: cloneDefaultModelConfigs(),
         permissionMode: DEFAULT_PERMISSION_MODE,
-        tavilyApiKey: '',
-        tavilyBaseUrl: DEFAULT_TAVILY_BASE_URL,
     };
 }
 
@@ -72,8 +70,6 @@ export function buildDefaultDelegateConfig(sourcePreset = buildDefaultPreset()) 
     return {
         provider: normalizeProvider(preset.provider),
         modelConfigs: normalizeModelConfigs(preset.modelConfigs || {}),
-        tavilyApiKey: normalizeTavilyApiKey(preset.tavilyApiKey),
-        tavilyBaseUrl: normalizeTavilyBaseUrl(preset.tavilyBaseUrl),
     };
 }
 
@@ -132,8 +128,6 @@ function normalizePresets(input = {}, legacyPresetName) {
             provider: normalizeProvider(rawPreset.provider),
             modelConfigs: normalizeModelConfigs(rawPreset.modelConfigs || {}),
             permissionMode: normalizePermissionMode(rawPreset.permissionMode),
-            tavilyApiKey: normalizeTavilyApiKey(rawPreset.tavilyApiKey),
-            tavilyBaseUrl: normalizeTavilyBaseUrl(rawPreset.tavilyBaseUrl),
         };
     });
 
@@ -162,8 +156,64 @@ function normalizeDelegateConfig(input = {}, fallbackPreset = buildDefaultPreset
     return {
         provider: normalizeProvider(source.provider || fallback.provider),
         modelConfigs: normalizeModelConfigs(source.modelConfigs || fallback.modelConfigs),
-        tavilyApiKey: normalizeTavilyApiKey(source.tavilyApiKey ?? fallback.tavilyApiKey),
-        tavilyBaseUrl: normalizeTavilyBaseUrl(source.tavilyBaseUrl ?? fallback.tavilyBaseUrl),
+    };
+}
+
+function resolveLegacyTavilyValue(input = {}, legacyPresetName, currentPresetName, fieldName, normalizeValue) {
+    const direct = normalizeValue(input?.[fieldName]);
+    if (direct) return direct;
+
+    const presetSource = buildPresetSource(input, legacyPresetName);
+    const checkedPresetNames = [
+        currentPresetName,
+        legacyPresetName,
+        input?.currentPresetName,
+        input?.delegatePresetName,
+        ...Object.keys(presetSource || {}),
+    ].map(normalizePresetName);
+    const seen = new Set();
+    for (const presetName of checkedPresetNames) {
+        if (seen.has(presetName)) continue;
+        seen.add(presetName);
+        const value = normalizeValue(presetSource?.[presetName]?.[fieldName]);
+        if (value) return value;
+    }
+
+    return normalizeValue(input?.delegateConfig?.[fieldName]);
+}
+
+function resolveLegacyTavilyBaseUrl(input = {}, legacyPresetName, currentPresetName) {
+    const normalizeRaw = (value) => String(value || '').trim();
+    if (normalizeRaw(input?.tavilyBaseUrl)) {
+        return normalizeTavilyBaseUrl(input.tavilyBaseUrl);
+    }
+
+    const presetSource = buildPresetSource(input, legacyPresetName);
+    const checkedPresetNames = [
+        currentPresetName,
+        legacyPresetName,
+        input?.currentPresetName,
+        input?.delegatePresetName,
+        ...Object.keys(presetSource || {}),
+    ].map(normalizePresetName);
+    const seen = new Set();
+    for (const presetName of checkedPresetNames) {
+        if (seen.has(presetName)) continue;
+        seen.add(presetName);
+        const value = presetSource?.[presetName]?.tavilyBaseUrl;
+        if (normalizeRaw(value)) return normalizeTavilyBaseUrl(value);
+    }
+
+    if (normalizeRaw(input?.delegateConfig?.tavilyBaseUrl)) {
+        return normalizeTavilyBaseUrl(input.delegateConfig.tavilyBaseUrl);
+    }
+    return DEFAULT_TAVILY_BASE_URL;
+}
+
+function resolveGlobalTavilySettings(input = {}, legacyPresetName, currentPresetName) {
+    return {
+        tavilyApiKey: resolveLegacyTavilyValue(input, legacyPresetName, currentPresetName, 'tavilyApiKey', normalizeTavilyApiKey),
+        tavilyBaseUrl: resolveLegacyTavilyBaseUrl(input, legacyPresetName, currentPresetName),
     };
 }
 
@@ -178,6 +228,7 @@ export function normalizeAgentSettings(saved = {}, options = {}) {
     const delegatePresetName = resolveDelegatePresetName(presets, saved.delegatePresetName, currentPresetName);
     const delegateFallbackPreset = presets[delegatePresetName] || presets[currentPresetName] || buildDefaultPreset();
     const delegateConfig = normalizeDelegateConfig(saved.delegateConfig, delegateFallbackPreset);
+    const tavilySettings = resolveGlobalTavilySettings(saved, legacyPresetName, currentPresetName);
 
     return {
         enabled: !!saved.enabled,
@@ -187,8 +238,8 @@ export function normalizeAgentSettings(saved = {}, options = {}) {
         delegatePresetName,
         delegateConfig,
         presets,
-        tavilyApiKey: normalizeTavilyApiKey((presets[currentPresetName] || {}).tavilyApiKey),
-        tavilyBaseUrl: normalizeTavilyBaseUrl((presets[currentPresetName] || {}).tavilyBaseUrl),
+        tavilyApiKey: tavilySettings.tavilyApiKey,
+        tavilyBaseUrl: tavilySettings.tavilyBaseUrl,
         updatedAt: Number(saved.updatedAt) || 0,
         configVersion: Number(saved.configVersion) || 0,
     };
@@ -202,6 +253,7 @@ export function normalizeAgentConfig(config = {}) {
     const currentPreset = presets[currentPresetName] || buildDefaultPreset();
     const delegateFallbackPreset = presets[delegatePresetName] || currentPreset;
     const delegateConfig = normalizeDelegateConfig(config.delegateConfig, delegateFallbackPreset);
+    const tavilySettings = resolveGlobalTavilySettings(config, legacyPresetName, currentPresetName);
 
     return {
         workspaceFileName: String(config.workspaceFileName || ''),
@@ -215,8 +267,8 @@ export function normalizeAgentConfig(config = {}) {
         provider: currentPreset.provider,
         modelConfigs: currentPreset.modelConfigs,
         permissionMode: normalizePermissionMode(currentPreset.permissionMode),
-        tavilyApiKey: normalizeTavilyApiKey(currentPreset.tavilyApiKey),
-        tavilyBaseUrl: normalizeTavilyBaseUrl(currentPreset.tavilyBaseUrl),
+        tavilyApiKey: tavilySettings.tavilyApiKey,
+        tavilyBaseUrl: tavilySettings.tavilyBaseUrl,
     };
 }
 

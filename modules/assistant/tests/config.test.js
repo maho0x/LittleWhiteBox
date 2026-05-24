@@ -96,14 +96,14 @@ test('assistant delegate config can override provider details directly', () => {
     assert.equal(providerConfig.toolMode, 'tagged-json');
 });
 
-test('assistant config preserves Tavily settings for main and delegate runs', () => {
+test('assistant config uses one global Tavily setting for main and delegate runs', () => {
     const config = normalizeAgentConfig({
+        tavilyApiKey: 'global-tavily-key',
+        tavilyBaseUrl: 'https://search.global.example/',
         currentPresetName: '主助手',
         presets: {
             主助手: {
                 provider: 'openai-compatible',
-                tavilyApiKey: 'main-tavily-key',
-                tavilyBaseUrl: 'https://search.main.example',
                 modelConfigs: {
                     'openai-compatible': {
                         baseUrl: 'https://main.example/v1',
@@ -115,8 +115,6 @@ test('assistant config preserves Tavily settings for main and delegate runs', ()
         },
         delegateConfig: {
             provider: 'google',
-            tavilyApiKey: 'delegate-tavily-key',
-            tavilyBaseUrl: 'https://search.delegate.example/',
             modelConfigs: {
                 google: {
                     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -127,8 +125,33 @@ test('assistant config preserves Tavily settings for main and delegate runs', ()
         },
     });
 
-    assert.equal(resolveActiveProviderConfig(config).tavilyApiKey, 'main-tavily-key');
-    assert.equal(resolveActiveProviderConfig(config).tavilyBaseUrl, 'https://search.main.example');
-    assert.equal(resolveActiveProviderConfig(config, { role: 'delegate' }).tavilyApiKey, 'delegate-tavily-key');
-    assert.equal(resolveActiveProviderConfig(config, { role: 'delegate' }).tavilyBaseUrl, 'https://search.delegate.example');
+    assert.equal(resolveActiveProviderConfig(config).tavilyApiKey, 'global-tavily-key');
+    assert.equal(resolveActiveProviderConfig(config).tavilyBaseUrl, 'https://search.global.example');
+    assert.equal(resolveActiveProviderConfig(config, { role: 'delegate' }).tavilyApiKey, 'global-tavily-key');
+    assert.equal(resolveActiveProviderConfig(config, { role: 'delegate' }).tavilyBaseUrl, 'https://search.global.example');
+});
+
+test('assistant config lifts legacy preset Tavily setting into the global field', () => {
+    const config = normalizeAgentConfig({
+        currentPresetName: '主助手',
+        presets: {
+            主助手: {
+                provider: 'openai-compatible',
+                tavilyApiKey: 'legacy-preset-tavily-key',
+                tavilyBaseUrl: 'https://legacy.search.example/',
+                modelConfigs: {
+                    'openai-compatible': {
+                        baseUrl: 'https://main.example/v1',
+                        model: 'main-model',
+                        apiKey: 'main-key',
+                    },
+                },
+            },
+        },
+    });
+
+    assert.equal(config.presets['主助手'].tavilyApiKey, undefined);
+    assert.equal(config.tavilyApiKey, 'legacy-preset-tavily-key');
+    assert.equal(resolveActiveProviderConfig(config, { role: 'delegate' }).tavilyApiKey, 'legacy-preset-tavily-key');
+    assert.equal(resolveActiveProviderConfig(config).tavilyBaseUrl, 'https://legacy.search.example');
 });

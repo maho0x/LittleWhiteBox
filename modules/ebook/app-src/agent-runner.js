@@ -1,7 +1,6 @@
 import { buildCurrentPlansContextText } from '../../agent-core/current-plans.js';
 import { createDelegateRunner } from '../../agent-core/runtime/delegate-runner.js';
 import {
-    buildProviderAssistantToolCallMessage,
     buildProviderMessagesFromHistory,
     filterThoughtsForTurn,
     hasVisibleText,
@@ -10,6 +9,7 @@ import {
     normalizeToolCalls,
     resolveResultToolCalls,
 } from '../../agent-core/runtime/protocol.js';
+import { createStreamingMessageController } from '../../agent-core/runtime/streaming-messages.js';
 import { buildTavilySearchTracePayload, isTavilyConfigured } from '../../agent-core/tavily-search.js';
 import { upsertBookFile } from '../shared/ebook-db.js';
 import {
@@ -183,10 +183,17 @@ export function createEbookAgentRunner(deps = {}) {
             currentPlansText,
             historySummary: state.historySummary,
         });
+        const extraSystemMessages = [
+            String(options.lightBrakeText || '').trim(),
+            String(options.finalAnswerReminderText || '').trim(),
+        ]
+            .filter(Boolean)
+            .map((content) => ({ role: 'system', content }));
         const history = buildEbookProviderMessagesFromHistory(state.messages);
         return [
             { role: 'system', content: EBOOK_SYSTEM_PROMPT },
             { role: 'system', content: contextPrompt },
+            ...extraSystemMessages,
             ...history,
         ];
     }
@@ -259,6 +266,7 @@ export function createEbookAgentRunner(deps = {}) {
         const runBookId = runBook.id;
         state.isBusy = true;
         state.status = 'AI 正在阅读作品...';
+        state.agentAutoScroll = true;
         state.toolTrace = [];
         state.liveToolTurn = null;
         state.editingMessageIndex = -1;
@@ -273,21 +281,6 @@ export function createEbookAgentRunner(deps = {}) {
         state.activeController = controller;
         const providerConfig = getActiveProviderConfig();
         let streamingAssistantMessage = null;
-        let streamRenderScheduled = false;
-
-        function scheduleStreamRender() {
-            if (streamRenderScheduled) return;
-            streamRenderScheduled = true;
-            const flush = () => {
-                streamRenderScheduled = false;
-                render();
-            };
-            if (typeof requestAnimationFrame === 'function') {
-                requestAnimationFrame(flush);
-                return;
-            }
-            setTimeout(flush, 16);
-        }
 
         function removeStreamingAssistantMessage(message = streamingAssistantMessage) {
             if (!message) return;
@@ -308,18 +301,25 @@ export function createEbookAgentRunner(deps = {}) {
             });
         }
 
+        const {
+            createStreamingAssistantMessage,
+            finalizeStreamingAssistantMessage,
+            scheduleStreamRender,
+            updateStreamingAssistantMessage: updateStreamingMessage,
+        } = createStreamingMessageController({
+            state,
+            render,
+            persistSession: () => {
+                void persistConversation?.(runBookId);
+            },
+            filterThoughtsForCurrentTurn,
+        });
+
         try {
             const adapter = createAdapter(providerConfig);
-            await compactionController.ensureContextBudget(adapter, controller.signal);
-            let messages = buildMessagesForRun('');
             if (isEditorDirty() && state.selectedPath) {
                 await upsertBookFile(runBookId, state.selectedPath, state.editorContent);
                 await refreshBooksAndFiles();
-            }
-            try {
-                messages = buildMessagesForRun(await buildCurrentPlansContext(runBookId), { book: runBook });
-            } catch {
-                messages = buildMessagesForRun('', { book: runBook });
             }
             const runtime = createBookToolRuntime({
                 getBookId: () => runBookId,
@@ -335,6 +335,63 @@ export function createEbookAgentRunner(deps = {}) {
             let finalAnswerReminderSent = false;
             let pendingToolResponses = null;
             let pendingFinalAnswerReminderText = '';
+            const providerMessageOptions = {
+                finalAnswerReminderText: '',
+            };
+            const toolErrorLightBrake = {
+                key: '',
+                count: 0,
+                message: '',
+            };
+
+            function recordToolErrorForLightBrake(toolName = '', errorCode = '') {
+                const name = String(toolName || '').trim();
+                const code = String(errorCode || 'tool_failed').trim() || 'tool_failed';
+                if (!name) return;
+                const nextKey = `${name}::${code}`;
+                if (toolErrorLightBrake.key === nextKey) {
+                    toolErrorLightBrake.count += 1;
+                } else {
+                    toolErrorLightBrake.key = nextKey;
+                    toolErrorLightBrake.count = 1;
+                }
+                if (toolErrorLightBrake.count >= 3) {
+                    toolErrorLightBrake.message = [
+                        `[工具失败提示] ${name} 已连续 ${toolErrorLightBrake.count} 次因为 ${code} 失败。`,
+                        '不要继续原样重复同一个工具调用；先换路径、换参数、用 LS / Glob / Grep / Read 重新定位，或直接告诉用户当前阻塞点。',
+                    ].join('\n');
+                }
+            }
+
+            function resetToolErrorLightBrake() {
+                toolErrorLightBrake.key = '';
+                toolErrorLightBrake.count = 0;
+                toolErrorLightBrake.message = '';
+            }
+
+            function recordToolResultForLightBrake(toolCall = {}, toolResult = {}) {
+                if (toolResult && typeof toolResult === 'object' && toolResult.ok === false) {
+                    recordToolErrorForLightBrake(toolCall.name, toolResult.error || toolResult.message || 'tool_failed');
+                    return;
+                }
+                resetToolErrorLightBrake();
+            }
+
+            async function buildReplayMessages() {
+                let currentPlansText = '';
+                try {
+                    currentPlansText = await buildCurrentPlansContext(runBookId);
+                } catch {
+                    currentPlansText = '';
+                }
+                const messages = buildMessagesForRun(currentPlansText, {
+                    book: runBook,
+                    lightBrakeText: toolErrorLightBrake.message,
+                    finalAnswerReminderText: providerMessageOptions.finalAnswerReminderText,
+                });
+                providerMessageOptions.finalAnswerReminderText = '';
+                return messages;
+            }
 
             function dropStreamingAssistantMessage() {
                 removeStreamingAssistantMessage(streamingAssistantMessage);
@@ -345,53 +402,77 @@ export function createEbookAgentRunner(deps = {}) {
                 const hasThoughts = Array.isArray(snapshot.thoughts);
                 if (!hasText && !hasThoughts) return;
                 if (!streamingAssistantMessage) {
-                    streamingAssistantMessage = {
-                        role: 'assistant',
-                        content: '',
-                        thoughts: [],
-                        streaming: true,
-                    };
-                    state.messages.push(streamingAssistantMessage);
+                    streamingAssistantMessage = createStreamingAssistantMessage();
                 }
-                if (hasText) {
-                    streamingAssistantMessage.content = snapshot.text;
-                }
-                if (hasThoughts) {
-                    streamingAssistantMessage.thoughts = filterThoughtsForCurrentTurn(
-                        mergeThoughtBlocks(snapshot.thoughts),
-                        streamingAssistantMessage,
-                    );
-                }
+                updateStreamingMessage(streamingAssistantMessage, {
+                    ...(hasText ? { content: snapshot.text } : {}),
+                    ...(hasThoughts ? { thoughts: mergeThoughtBlocks(snapshot.thoughts) } : {}),
+                });
                 scheduleStreamRender();
             }
 
             for (let round = 1; round <= MAX_TOOL_ROUNDS; round += 1) {
                 state.status = round === 1 ? 'AI 正在思考...' : `AI 正在处理工具结果（${round}/${MAX_TOOL_ROUNDS}）...`;
                 render();
-                const requestTask = {
-                    systemPrompt: EBOOK_SYSTEM_PROMPT,
-                    tools,
-                    toolChoice: 'auto',
-                    temperature: providerConfig.temperature,
-                    maxTokens: providerConfig.maxTokens,
-                    reasoning: {
-                        enabled: providerConfig.reasoningEnabled,
-                        effort: providerConfig.reasoningEffort,
-                    },
-                    signal: controller.signal,
-                    onStreamProgress: updateStreamingAssistantMessage,
-                };
+                let result;
+                try {
+                    const requestTask = {
+                        systemPrompt: EBOOK_SYSTEM_PROMPT,
+                        tools,
+                        toolChoice: 'auto',
+                        temperature: providerConfig.temperature,
+                        maxTokens: providerConfig.maxTokens,
+                        reasoning: {
+                            enabled: providerConfig.reasoningEnabled,
+                            effort: providerConfig.reasoningEffort,
+                        },
+                        signal: controller.signal,
+                        onStreamProgress: updateStreamingAssistantMessage,
+                    };
 
-                if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && adapter?.supportsSessionToolLoop) {
-                    requestTask.toolResponses = pendingToolResponses;
-                } else if (pendingFinalAnswerReminderText && adapter?.supportsSessionToolLoop) {
-                    requestTask.finalAnswerReminderText = pendingFinalAnswerReminderText;
-                    pendingFinalAnswerReminderText = '';
-                } else {
-                    requestTask.messages = messages;
+                    if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && adapter?.supportsSessionToolLoop) {
+                        requestTask.toolResponses = pendingToolResponses;
+                    } else if (pendingFinalAnswerReminderText && adapter?.supportsSessionToolLoop) {
+                        requestTask.finalAnswerReminderText = pendingFinalAnswerReminderText;
+                        pendingFinalAnswerReminderText = '';
+                    } else {
+                        await compactionController.ensureContextBudget(adapter, controller.signal);
+                        requestTask.messages = await buildReplayMessages();
+                    }
+
+                    console.info('[Ebook][ModelRequest] round:start', {
+                        round,
+                        provider: String(providerConfig?.provider || ''),
+                        model: String(providerConfig?.model || ''),
+                        toolMode: String(providerConfig?.toolMode || ''),
+                        usesSessionToolLoop: !!adapter?.supportsSessionToolLoop,
+                        usesToolResponses: Array.isArray(requestTask.toolResponses) && requestTask.toolResponses.length > 0,
+                        toolResponseCount: Array.isArray(requestTask.toolResponses) ? requestTask.toolResponses.length : 0,
+                        usesFinalAnswerReminder: !!requestTask.finalAnswerReminderText,
+                        messageCount: Array.isArray(requestTask.messages) ? requestTask.messages.length : 0,
+                    });
+                    result = await adapter.chat(requestTask);
+                    console.info('[Ebook][ModelRequest] round:result', {
+                        round,
+                        provider: String(providerConfig?.provider || ''),
+                        finishReason: String(result?.finishReason || ''),
+                        textLength: typeof result?.text === 'string' ? result.text.length : 0,
+                        toolCallCount: Array.isArray(result?.toolCalls) ? result.toolCalls.length : 0,
+                        hasProviderPayload: !!(result?.providerPayload && typeof result.providerPayload === 'object'),
+                    });
+                } catch (error) {
+                    console.error('[Ebook][ModelRequest] round:error', {
+                        round,
+                        provider: String(providerConfig?.provider || ''),
+                        model: String(providerConfig?.model || ''),
+                        message: error instanceof Error ? error.message : String(error || ''),
+                    });
+                    if (streamingAssistantMessage) {
+                        finalizeStreamingAssistantMessage(streamingAssistantMessage);
+                        streamingAssistantMessage = null;
+                    }
+                    throw error;
                 }
-
-                const result = await adapter.chat(requestTask);
 
                 const toolCalls = resolveResultToolCalls(result, providerConfig, {
                     fallbackPrefix: 'ebook-tool',
@@ -405,11 +486,6 @@ export function createEbookAgentRunner(deps = {}) {
                         streamingAssistantMessage,
                     );
                     dropStreamingAssistantMessage();
-                    const assistantToolMessage = buildProviderAssistantToolCallMessage(result, toolCalls, {
-                        content: visibleText,
-                        fallbackPrefix: 'ebook-tool',
-                    });
-                    messages.push(assistantToolMessage);
                     const storedAssistantToolMessage = buildStoredAssistantToolCallMessage({
                         ...result,
                         text: visibleText,
@@ -455,17 +531,13 @@ export function createEbookAgentRunner(deps = {}) {
                             toolResult,
                             toolDisplay: isDelegateTool ? buildToolDisplayFromTrace(traceEntry) : null,
                         });
-                        messages.push({
-                            role: 'tool',
-                            tool_call_id: toolMessage.toolCallId,
-                            content: toolMessage.content,
-                        });
                         storedToolMessages.push(toolMessage);
                         toolResponses.push({
                             id: toolCall.id,
                             name: toolCall.name,
                             response: toolResult,
                         });
+                        recordToolResultForLightBrake(toolCall, toolResult);
                         await refreshBooksAndFiles();
                         render();
                     }
@@ -487,12 +559,12 @@ export function createEbookAgentRunner(deps = {}) {
                     if (adapter?.supportsSessionToolLoop) {
                         pendingFinalAnswerReminderText = reminder;
                     } else {
-                        messages.push({ role: 'system', content: reminder });
+                        providerMessageOptions.finalAnswerReminderText = reminder;
                     }
                     continue;
                 }
 
-                const text = String(result?.text || '').trim();
+                const text = String(result?.text || streamingAssistantMessage?.content || '').trim();
                 if (!text) {
                     dropStreamingAssistantMessage();
                     throw new Error('模型没有返回有效结论。');
@@ -507,7 +579,7 @@ export function createEbookAgentRunner(deps = {}) {
                     providerPayload: result.providerPayload,
                 };
                 if (streamingAssistantMessage) {
-                    Object.assign(streamingAssistantMessage, finalMessage, { streaming: false });
+                    finalizeStreamingAssistantMessage(streamingAssistantMessage, finalMessage);
                     streamingAssistantMessage = null;
                 } else {
                     state.messages.push(finalMessage);
@@ -519,7 +591,13 @@ export function createEbookAgentRunner(deps = {}) {
             }
             throw new Error('工具轮次达到上限，已停止。');
         } catch (error) {
-            removeStreamingAssistantMessage(streamingAssistantMessage || state.messages.find((message) => message?.streaming));
+            if (streamingAssistantMessage) {
+                finalizeStreamingAssistantMessage(streamingAssistantMessage);
+                streamingAssistantMessage = null;
+            } else {
+                const staleStreamingMessage = state.messages.find((message) => message?.streaming);
+                if (staleStreamingMessage) finalizeStreamingAssistantMessage(staleStreamingMessage);
+            }
             const message = isAbortError(error) ? '已取消本次操作。' : `AI 操作失败：${error?.message || error}`;
             state.messages.push({ role: 'assistant', content: message, error: true });
             state.status = '就绪';

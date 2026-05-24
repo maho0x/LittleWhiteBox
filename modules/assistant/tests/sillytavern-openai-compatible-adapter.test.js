@@ -324,3 +324,73 @@ test('sillytavern OpenAI-compatible tagged-json mode does not send native tools 
         globalThis.fetch = originalFetch;
     }
 });
+
+test('sillytavern OpenAI-compatible retries malformed native tool host failures as tagged-json', async () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'compat-model',
+        toolMode: 'native',
+    });
+
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+        const body = JSON.parse(String(options.body || '{}'));
+        requests.push({
+            url: String(url),
+            body,
+        });
+        if (requests.length === 1) {
+            return createJsonResponse({
+                error: {
+                    message: "Cannot read properties of null (reading 'function')",
+                    type: 'badresponsestatuscode',
+                    code: 'badresponsestatuscode',
+                },
+            }, false, 500);
+        }
+        return createJsonResponse({
+            model: 'compat-model',
+            choices: [{
+                finish_reason: 'tool_calls',
+                message: {
+                    role: 'assistant',
+                    content: '<tool_call>{"name":"Read","arguments":{"path":"book/state.md"}}</tool_call>',
+                },
+            }],
+        });
+    };
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '读状态' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Read',
+                    description: 'Read file.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            path: { type: 'string' },
+                        },
+                    },
+                },
+            }],
+        });
+
+        assert.equal(requests.length, 2);
+        assert.equal(requests[0].body.tools.length, 1);
+        assert.equal(Object.hasOwn(requests[1].body, 'tools'), false);
+        assert.equal(Object.hasOwn(requests[1].body, 'tool_choice'), false);
+        assert.equal(requests[1].body.messages[0].content.includes('<tool_call>{"name":"工具名","arguments":{...}}</tool_call>'), true);
+        assert.deepEqual(result.toolCalls, [{
+            id: 'tool-call-1',
+            name: 'Read',
+            arguments: '{"path":"book/state.md"}',
+        }]);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

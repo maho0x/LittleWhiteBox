@@ -3599,6 +3599,8 @@ async function handleIframeMessage(event) {
                 ...current,
                 workspaceFileName: normalizeWorkspaceName(patch.workspaceFileName || current.workspaceFileName),
                 jsApiPermission: normalizeJsApiPermission(patch.jsApiPermission ?? current.jsApiPermission),
+                tavilyApiKey: patch.tavilyApiKey ?? current.tavilyApiKey,
+                tavilyBaseUrl: patch.tavilyBaseUrl ?? current.tavilyBaseUrl,
                 currentPresetName: normalizePresetName(patch.currentPresetName || current.currentPresetName),
                 delegatePresetName: normalizePresetName(patch.delegatePresetName || current.delegatePresetName || patch.currentPresetName || current.currentPresetName),
                 delegateConfig: patch.delegateConfig && typeof patch.delegateConfig === 'object'

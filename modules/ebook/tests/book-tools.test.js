@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 const dbModule = await import('../shared/ebook-db.js');
 const toolsModule = await import('../shared/book-tools.js');
+const bookTemplatesModule = await import('../shared/book-templates.js');
 const controllerModule = await import('../app-src/book-controller.js');
 const conversationStoreModule = await import('../app-src/conversation-store.js');
 const compactionModule = await import('../app-src/history-compaction.js');
@@ -33,6 +34,7 @@ const {
     createBookToolRuntime,
     getEbookToolDefinitions,
 } = toolsModule;
+const { DEFAULT_BOOK_FILES } = bookTemplatesModule;
 const { createBookController, formatDrawProgress } = controllerModule;
 const { createEbookConversationStore } = conversationStoreModule;
 const {
@@ -159,6 +161,18 @@ test('Book context budget defaults stay aligned with assistant', () => {
     assert.equal(EBOOK_SUMMARY_TRIGGER_TOKENS, 158000);
     assert.equal(EBOOK_DEFAULT_PRESERVED_TURNS, 2);
     assert.equal(EBOOK_MIN_PRESERVED_TURNS, 1);
+});
+
+test('Default outline template pushes volume-level planning before chapter drafting', () => {
+    const outline = DEFAULT_BOOK_FILES.find((file) => file.path === 'book/outline.md')?.content || '';
+
+    assert.match(outline, /大纲推进原则/);
+    assert.match(outline, /大概有几卷/);
+    assert.match(outline, /当前卷必须有可执行的卷内细纲/);
+    assert.match(outline, /卷内细纲制定好后，直接推进写完卷内章节/);
+    assert.match(outline, /## 当前卷细纲/);
+    assert.match(outline, /章节功能表/);
+    assert.match(outline, /章末位移/);
 });
 
 test('Book context prompt continuously injects core story files', () => {
@@ -306,13 +320,23 @@ test('Book action prompts rely on injected core story files', () => {
     assert.match(startBookPrompt, /只问最核心的 3 到 5 个问题/);
     assert.match(spinePrompt, /书脊/);
     assert.match(spinePrompt, /不要直接写完整大纲/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /长篇推进要有卷级心智/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /当前卷缺少可执行细纲/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /不要每章都问用户/);
     assert.match(outlinePrompt, /\[作品核心设定\]/);
     assert.match(outlinePrompt, /不要硬写完整大纲/);
-    assert.match(outlinePrompt, /不一次性生成全书细纲/);
+    assert.match(outlinePrompt, /不要只写“下一章”/);
+    assert.match(outlinePrompt, /不一次性生成全书每章细纲/);
+    assert.match(outlinePrompt, /当前卷要写出可执行的卷内细纲/);
+    assert.match(outlinePrompt, /章节功能表/);
     assert.match(outlinePrompt, /按卷或事件集团推进/);
+    assert.match(outlinePrompt, /少问多执行/);
     assert.match(outlinePrompt, /按需读取对应资料/);
     assert.match(nextChapterPrompt, /\[作品核心设定\]/);
     assert.match(nextChapterPrompt, /不要直接硬写长正文/);
+    assert.match(nextChapterPrompt, /当前卷没有可执行的卷内细纲/);
+    assert.match(nextChapterPrompt, /不要变成写一章问一章/);
+    assert.match(nextChapterPrompt, /直接按章节功能表推进下一章/);
     assert.match(nextChapterPrompt, /只读取目标章节或相邻章节/);
     assert.match(openingOptionsPrompt, /不要直接写入文件/);
     assert.match(openingOptionsPrompt, /给 2 到 3 个不同开场方案/);
@@ -1175,6 +1199,22 @@ test('Reader renders a mobile table-of-contents drawer', () => {
     });
     assert.match(activeHtml, /class="[^"]*xb-reader-tts-toggle[^"]*is-active[^"]*" id="xb-reader-tts-toggle"/);
     assert.match(activeHtml, /id="xb-reader-tts-toggle"[^>]*>■<\/button>/);
+    assert.doesNotMatch(activeHtml, /id="xb-reader-tts-toggle"[^>]*disabled/);
+
+    const activeDisabledStatusHtml = renderEbookShell({
+        state: {
+            ...state,
+            readerTtsStatus: { enabled: false, ready: false },
+            readerTtsPlayback: {
+                status: 'playing',
+                playbackId: 'reader-playback-2',
+                chapterPath: 'book/chapters/001.md',
+                error: '',
+            },
+        },
+    });
+    assert.match(activeDisabledStatusHtml, /id="xb-reader-tts-toggle"[^>]*>■<\/button>/);
+    assert.doesNotMatch(activeDisabledStatusHtml, /id="xb-reader-tts-toggle"[^>]*disabled/);
 });
 
 test('Book entry uses concise studio and reader descriptions', () => {
@@ -1603,6 +1643,54 @@ test('Reader TTS plays the active chapter text and stops when switching chapters
     assert.equal(stopRequest.payload.playbackId, playRequest.payload.playbackId);
     assert.equal(state.readerPath, 'book/chapters/002.md');
     assert.equal(state.readerTtsPlayback.status, 'idle');
+});
+
+test('Reader chapter switching does not wait for the host stop request before navigating', async () => {
+    await resetDb();
+    const book = await createBook('朗读切章不卡顿测试');
+    await upsertBookFile(book.id, 'book/chapters/001.md', '第一章。');
+    await upsertBookFile(book.id, 'book/chapters/002.md', '第二章。');
+    const state = {
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'reader',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        readerTtsStatus: { enabled: true, ready: true },
+        readerTtsPlayback: {
+            status: 'playing',
+            playbackId: 'reader-playback-slow-stop',
+            chapterPath: 'book/chapters/001.md',
+            error: '',
+        },
+        toast: '',
+    };
+    let releaseStop = null;
+    const stopPending = new Promise((resolve) => {
+        releaseStop = resolve;
+    });
+    const controller = createBookController({
+        state,
+        render() {},
+        async requestHost(type) {
+            if (type === 'xb-ebook:tts-stop') return stopPending;
+            throw new Error(`unexpected_request:${type}`);
+        },
+        showToast() {},
+    });
+
+    const switchPromise = controller.selectReaderChapter('book/chapters/002.md');
+
+    assert.equal(state.readerPath, 'book/chapters/002.md');
+    assert.equal(state.viewMode, 'reader');
+    assert.equal(state.readerTtsPlayback.status, 'idle');
+
+    releaseStop({ ok: true });
+    await switchPromise;
 });
 
 test('Deleting a book removes persisted conversation rows and stale selection metadata', async () => {
@@ -2128,6 +2216,229 @@ test('Book thought auto-open does not persist as a manual fold state', () => {
     assert.deepEqual(state.openThoughtKeys, []);
 });
 
+test('Book bind events wires both desktop and mobile agent close buttons', () => {
+    const closeEvents = [];
+    const desktopClose = {
+        addEventListener(eventName, handler) {
+            closeEvents.push({ target: 'desktop', eventName, handler });
+        },
+    };
+    const mobileClose = {
+        addEventListener(eventName, handler) {
+            closeEvents.push({ target: 'mobile', eventName, handler });
+        },
+    };
+    const root = {
+        querySelector() {
+            return null;
+        },
+        querySelectorAll(selector) {
+            if (selector === '#xb-agent-close, #xb-agent-close-mobile') return [desktopClose, mobileClose];
+            return [];
+        },
+    };
+    const postedTypes = [];
+
+    bindEbookEvents({
+        root,
+        state: {},
+        render() {},
+        postToHost(type) {
+            postedTypes.push(type);
+        },
+        bookController: {},
+        agentRunner: {},
+        persistConversation() {},
+        clearConversation() {},
+        showToast() {},
+    });
+
+    assert.equal(closeEvents.length, 2);
+    assert.deepEqual(closeEvents.map((item) => item.target), ['desktop', 'mobile']);
+
+    closeEvents[0].handler();
+    closeEvents[1].handler();
+
+    assert.deepEqual(postedTypes, ['xb-ebook:close', 'xb-ebook:close']);
+});
+
+test('Book agent composer keeps Enter as newline on mobile and send on desktop', () => {
+    const previousMatchMedia = globalThis.matchMedia;
+    const previousBowser = globalThis.Bowser;
+    const listeners = {};
+    const input = {
+        addEventListener(eventName, handler) {
+            listeners[`input:${eventName}`] = handler;
+        },
+        value: '',
+    };
+    const hint = {
+        textContent: '',
+    };
+    let submitCount = 0;
+    const form = {
+        addEventListener(eventName, handler) {
+            listeners[`form:${eventName}`] = handler;
+        },
+        requestSubmit() {
+            submitCount += 1;
+        },
+    };
+    const root = {
+        querySelector(selector) {
+            if (selector === '#xb-agent-input') return input;
+            if (selector === '#xb-agent-form') return form;
+            if (selector === '#xb-compose-hint') return hint;
+            return null;
+        },
+        querySelectorAll() {
+            return [];
+        },
+    };
+
+    try {
+        globalThis.Bowser = undefined;
+        globalThis.matchMedia = (query) => ({
+            matches: String(query).includes('pointer: coarse') || String(query).includes('max-width: 900px'),
+        });
+        bindEbookEvents({
+            root,
+            state: { isBusy: false },
+            render() {},
+            postToHost() {},
+            bookController: {},
+            agentRunner: {
+                cancelActiveRun() {},
+                runAgent() {},
+            },
+            persistConversation() {},
+            clearConversation() {},
+            showToast() {},
+        });
+
+        let prevented = false;
+        listeners['input:keydown']({
+            key: 'Enter',
+            isComposing: false,
+            shiftKey: false,
+            ctrlKey: false,
+            altKey: false,
+            metaKey: false,
+            preventDefault() {
+                prevented = true;
+            },
+        });
+
+        assert.equal(prevented, false);
+        assert.equal(submitCount, 0);
+        assert.equal(hint.textContent, 'Enter 换行 · 点击发送');
+
+        globalThis.matchMedia = () => ({ matches: false });
+        submitCount = 0;
+        prevented = false;
+        listeners['input:keydown']({
+            key: 'Enter',
+            isComposing: false,
+            shiftKey: false,
+            ctrlKey: false,
+            altKey: false,
+            metaKey: false,
+            preventDefault() {
+                prevented = true;
+            },
+        });
+
+        assert.equal(prevented, true);
+        assert.equal(submitCount, 1);
+    } finally {
+        globalThis.matchMedia = previousMatchMedia;
+        globalThis.Bowser = previousBowser;
+    }
+});
+
+test('Book agent chat scroll toggles auto-scroll like assistant', () => {
+    const listeners = {};
+    const makeClassList = () => ({
+        values: new Set(),
+        add(name) {
+            this.values.add(name);
+        },
+        remove(name) {
+            this.values.delete(name);
+        },
+        toggle(name, force) {
+            if (force) this.values.add(name);
+            else this.values.delete(name);
+        },
+    });
+    const agentMain = {
+        scrollTop: 680,
+        scrollHeight: 1000,
+        clientHeight: 300,
+        addEventListener(eventName, handler) {
+            listeners[`main:${eventName}`] = handler;
+        },
+        scrollTo({ top }) {
+            this.scrollTop = top;
+        },
+    };
+    const topButton = {
+        classList: makeClassList(),
+        addEventListener(eventName, handler) {
+            listeners[`top:${eventName}`] = handler;
+        },
+    };
+    const bottomButton = {
+        classList: makeClassList(),
+        addEventListener(eventName, handler) {
+            listeners[`bottom:${eventName}`] = handler;
+        },
+    };
+    const helpers = {
+        classList: makeClassList(),
+    };
+    const state = { agentAutoScroll: true };
+    const root = {
+        querySelector(selector) {
+            if (selector === '.xb-agent-main') return agentMain;
+            if (selector === '#xb-agent-scroll-top') return topButton;
+            if (selector === '#xb-agent-scroll-bottom') return bottomButton;
+            if (selector === '#xb-agent-scroll-helpers') return helpers;
+            return null;
+        },
+        querySelectorAll() {
+            return [];
+        },
+    };
+
+    bindEbookEvents({
+        root,
+        state,
+        render() {},
+        postToHost() {},
+        bookController: {},
+        agentRunner: {},
+        persistConversation() {},
+        clearConversation() {},
+        showToast() {},
+    });
+
+    listeners['main:scroll']();
+    assert.equal(state.agentAutoScroll, true);
+
+    agentMain.scrollTop = 120;
+    listeners['main:scroll']();
+    assert.equal(state.agentAutoScroll, false);
+
+    listeners['top:click']();
+    assert.equal(state.agentAutoScroll, false);
+    assert.equal(agentMain.scrollTop, 0);
+
+    listeners['bottom:click']();
+    assert.equal(state.agentAutoScroll, true);
+    assert.equal(agentMain.scrollTop, agentMain.scrollHeight);
+});
+
 test('Book renderer keeps streaming assistant thoughts expanded before final delivery', async () => {
     await resetDb();
     const book = await createBook('流式思考展开测试');
@@ -2410,11 +2721,12 @@ test('Ebook settings open as an in-app shared config panel instead of jumping to
     assert.match(html, /id="xb-assistant-delegate-provider"/);
     assert.match(html, /id="xb-assistant-delegate-base-url"/);
     assert.match(html, /id="xb-assistant-delegate-model"/);
-    assert.match(html, /id="xb-assistant-delegate-tavily-api-key"/);
     assert.match(html, /id="xb-assistant-delegate-tool-mode"/);
     assert.match(html, /id="xb-assistant-delegate-pull-models"/);
     assert.match(html, /id="xb-assistant-save"/);
+    assert.match(html, /Tavily API Key（全局）/);
     assert.doesNotMatch(html, /id="xb-assistant-tavily-base-url"/);
+    assert.doesNotMatch(html, /id="xb-assistant-delegate-tavily-api-key"/);
     assert.doesNotMatch(html, /id="xb-assistant-delegate-tavily-base-url"/);
     assert.doesNotMatch(html, /斜杠命令权限/);
     assert.doesNotMatch(html, /JavaScript API 权限/);
@@ -2884,6 +3196,152 @@ test('Book agent keeps streamed thoughts in the final assistant message', async 
     });
     assert.match(html, /data-thought-key="thought-message:1"/);
     assert.doesNotMatch(html, /data-thought-key="thought-message:1"[^>]* open/);
+});
+
+test('Book agent keeps streamed text when a model request fails', async () => {
+    await resetDb();
+    const book = await createBook('流式错误测试');
+    const state = {
+        config: {},
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: '',
+        viewMode: 'studio',
+        editorContent: '',
+        savedContent: '',
+        messages: [],
+        toolTrace: [],
+        historySummary: '',
+        archivedTurnCount: 0,
+        isBusy: false,
+        activeController: null,
+        status: '就绪',
+        toast: '',
+    };
+    const runner = createEbookAgentRunner({
+        state,
+        async refreshBooksAndFiles() {
+            state.files = await listBookFiles(book.id);
+        },
+        render() {},
+        showToast() {},
+        persistConversation() {},
+        isEditorDirty() {
+            return false;
+        },
+        getActiveProviderConfig() {
+            return {
+                provider: 'openai-compatible',
+                model: 'test-model',
+                temperature: 0.2,
+                maxTokens: 1000,
+                reasoningEnabled: false,
+                reasoningEffort: 'medium',
+            };
+        },
+        createAdapter() {
+            return {
+                async chat(task) {
+                    task.onStreamProgress?.({
+                        text: '已经流出来的半截内容。',
+                        thoughts: [{ label: '思考块', text: '先组织答案。' }],
+                    });
+                    throw new Error('Connection error.');
+                },
+            };
+        },
+    });
+
+    await runner.runAgent('开始聊一个会报错的问题。');
+
+    assert.deepEqual(state.messages.map((message) => message.role), ['user', 'assistant', 'assistant']);
+    assert.equal(state.messages[1].streaming, false);
+    assert.equal(state.messages[1].content, '已经流出来的半截内容。');
+    assert.equal(state.messages[1].thoughts[0].text, '先组织答案。');
+    assert.equal(state.messages[2].error, true);
+    assert.match(state.messages[2].content, /AI 操作失败：Connection error\./);
+});
+
+test('Book agent injects a light brake after repeated tool failures', async () => {
+    await resetDb();
+    const book = await createBook('工具刹车测试');
+    const state = {
+        config: {},
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: '',
+        viewMode: 'studio',
+        editorContent: '',
+        savedContent: '',
+        messages: [],
+        toolTrace: [],
+        historySummary: '',
+        archivedTurnCount: 0,
+        isBusy: false,
+        activeController: null,
+        status: '就绪',
+        toast: '',
+    };
+    let round = 0;
+    let sawLightBrake = false;
+    const runner = createEbookAgentRunner({
+        state,
+        async refreshBooksAndFiles() {
+            state.files = await listBookFiles(book.id);
+        },
+        render() {},
+        showToast() {},
+        persistConversation() {},
+        isEditorDirty() {
+            return false;
+        },
+        getActiveProviderConfig() {
+            return {
+                provider: 'test',
+                temperature: 0.2,
+                maxTokens: 1000,
+                reasoningEnabled: false,
+                reasoningEffort: 'medium',
+            };
+        },
+        createAdapter() {
+            return {
+                async chat(task) {
+                    round += 1;
+                    if (round <= 3) {
+                        return {
+                            text: '',
+                            toolCalls: [{
+                                id: `read-missing-${round}`,
+                                name: EBOOK_TOOL_NAMES.READ,
+                                arguments: '{"filePath":"book/chapters/missing.md","limit":2}',
+                            }],
+                        };
+                    }
+                    sawLightBrake = task.messages.some((message) => (
+                        message.role === 'system'
+                        && /工具失败提示/.test(message.content)
+                        && /Read/.test(message.content)
+                        && /book_file_not_found/.test(message.content)
+                    ));
+                    return {
+                        text: '已停止重复读取不存在的章节。',
+                        toolCalls: [],
+                    };
+                },
+            };
+        },
+    });
+
+    await runner.runAgent('故意连续读不存在的章节。');
+
+    assert.equal(sawLightBrake, true);
+    assert.equal(state.messages.at(-1).content, '已停止重复读取不存在的章节。');
+    assert.equal(state.messages.filter((message) => message.role === 'tool' && /book_file_not_found/.test(message.content)).length, 3);
 });
 
 test('Book agent reroll trims to the previous user message without duplicating it', async () => {

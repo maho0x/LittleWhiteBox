@@ -983,7 +983,8 @@ function renderReaderShell(options = {}) {
     const ttsPlayback = state.readerTtsPlayback || {};
     const ttsActive = ['loading', 'playing'].includes(String(ttsPlayback.status || ''));
     const ttsReady = !!ttsStatus.enabled && !!ttsStatus.ready;
-    const ttsDisabledAttr = hasChapters && ttsReady ? '' : 'disabled';
+    const ttsCanClick = ttsActive || (hasChapters && ttsReady);
+    const ttsDisabledAttr = ttsCanClick ? '' : 'disabled';
     const ttsTitle = ttsActive
         ? '停止朗读'
         : !hasChapters
