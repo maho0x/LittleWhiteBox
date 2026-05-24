@@ -478,6 +478,7 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             border-right: 1px solid rgba(255, 255, 255, 0.03);
             border-radius: 0;
             background: transparent;
+            cursor: pointer;
             text-align: center;
             transition: flex 0.62s var(--xb-fluid), background 0.3s ease;
         }
@@ -920,6 +921,14 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         .xb-agent-memory {
             padding: 0 0 12px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+        }
+        .xb-agent-history-gate {
+            align-self: center;
+            color: var(--xb-text-muted);
+            font-size: 12px;
+            line-height: 1;
+            opacity: 0.75;
+            padding: 2px 0;
         }
         .xb-actions-panel {
             border: 1px solid rgba(255, 255, 255, 0.055);
@@ -2051,10 +2060,13 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             border-color: rgba(235, 231, 221, 0.12);
             background: #242834;
         }
-        .theme-dark .xb-library-book,
-        .theme-dark .xb-entry-action {
+        .theme-dark .xb-library-book {
             border-color: rgba(235, 231, 221, 0.08);
             background: #242834;
+        }
+        .theme-dark .xb-entry-action {
+            border-color: rgba(235, 231, 221, 0.08);
+            background: transparent;
         }
         .theme-dark .xb-library-book:hover:not(:disabled) {
             border-color: rgba(235, 231, 221, 0.16);
@@ -2063,12 +2075,11 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         .theme-dark .xb-portal-theme {
             color: var(--xb-text-main);
         }
-        .theme-dark .xb-entry-action.is-studio:hover,
-        .theme-dark .xb-entry-action.is-reader:hover {
-            background: #2b3040;
+        .theme-dark .xb-entry-action.is-studio:hover {
+            background: radial-gradient(circle at center, rgba(166, 171, 200, 0.08), transparent 58%);
         }
-        .theme-dark .xb-entry-action:hover strong {
-            transform: none;
+        .theme-dark .xb-entry-action.is-reader:hover {
+            background: radial-gradient(circle at center, rgba(233, 231, 227, 0.065), transparent 58%);
         }
         .theme-dark .xb-portal-close,
         .theme-dark .xb-portal-theme {
@@ -2163,10 +2174,13 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         }
         .theme-light .xb-entry-action {
             border-color: rgba(87, 70, 48, 0.12);
-            background: #fffdf8;
+            background: transparent;
         }
-        .theme-light .xb-entry-action:hover:not(:disabled) {
-            background: #f7fbfa;
+        .theme-light .xb-entry-action.is-studio:hover:not(:disabled) {
+            background: radial-gradient(circle at center, rgba(166, 171, 200, 0.12), transparent 58%);
+        }
+        .theme-light .xb-entry-action.is-reader:hover:not(:disabled) {
+            background: radial-gradient(circle at center, rgba(87, 70, 48, 0.06), transparent 58%);
         }
         .theme-light .xb-portal-close,
         .theme-light .xb-portal-theme {
@@ -2949,7 +2963,7 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             }
         }
 
-        @media (hover: none), (pointer: coarse) {
+        @media (max-width: 900px) {
             .xb-entry-action strong {
                 color: var(--xb-text-main);
                 transform: none;

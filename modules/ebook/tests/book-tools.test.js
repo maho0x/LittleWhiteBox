@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 const dbModule = await import('../shared/ebook-db.js');
 const toolsModule = await import('../shared/book-tools.js');
@@ -10,6 +11,7 @@ const conversationStoreModule = await import('../app-src/conversation-store.js')
 const compactionModule = await import('../app-src/history-compaction.js');
 const promptsModule = await import('../app-src/prompts.js');
 const agentRunnerModule = await import('../app-src/agent-runner.js');
+const ebookAppModule = await import('../app-src/ebook-app.js');
 const rendererModule = await import('../app-src/renderer.js');
 const uiBindingsModule = await import('../app-src/ui-bindings.js');
 const messageMarkdownModule = await import('../../agent-core/ui/message-markdown.js');
@@ -53,7 +55,8 @@ const {
     buildDelegateBookContextPrompt,
 } = promptsModule;
 const { buildEbookProviderMessagesFromHistory, createEbookAgentRunner } = agentRunnerModule;
-const { renderEbookShell } = rendererModule;
+const { captureScrollState, restoreScrollState } = ebookAppModule;
+const { countMessageWindowUnits, renderEbookShell } = rendererModule;
 const { bindEbookEvents } = uiBindingsModule;
 const { HTML_PREVIEW_SANDBOX, renderMarkdownToHtml } = messageMarkdownModule;
 
@@ -1240,6 +1243,36 @@ test('Book entry uses concise studio and reader descriptions', () => {
     assert.doesNotMatch(html, /这里不放 AI/);
 });
 
+test('Book entry keeps desktop portal actions hover-highlight only', () => {
+    const styles = readFileSync(new URL('../app-src/styles.js', import.meta.url), 'utf8');
+
+    assert.doesNotMatch(
+        styles,
+        /\.theme-dark\s+\.xb-library-book,\s*\.theme-dark\s+\.xb-entry-action\s*\{/,
+        'entry actions must not inherit the always-lit book-card background on desktop',
+    );
+    assert.match(
+        styles,
+        /\.theme-dark\s+\.xb-entry-action\s*\{[^}]*background:\s*transparent;/s,
+        'dark desktop entry actions should stay muted until hover',
+    );
+    assert.match(
+        styles,
+        /\.theme-light\s+\.xb-entry-action\s*\{[^}]*background:\s*transparent;/s,
+        'light desktop entry actions should stay muted until hover',
+    );
+    assert.doesNotMatch(
+        styles,
+        /@media\s*\(hover:\s*none\),\s*\(pointer:\s*coarse\)\s*\{[\s\S]*\.xb-entry-action/,
+        'touch-only active styling should not be broad enough to hit desktop touch hardware',
+    );
+    assert.match(
+        styles,
+        /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*\.theme-dark\s+\.xb-entry-action\.is-studio\s*\{[\s\S]*#2b3040/,
+        'small-screen entry actions should remain visibly active for touch users',
+    );
+});
+
 test('Book controller initialization does not request draw status before frame ready', async () => {
     await resetDb();
     const state = {
@@ -1901,6 +1934,60 @@ test('Book renderer shows thoughts while keeping tool batches folded', async () 
     assert.match(html, /第一章节奏正常/);
 });
 
+test('Book renderer keeps only the recent agent history mounted by default', async () => {
+    await resetDb();
+    const book = await createBook('UI窗口测试');
+    const messages = Array.from({ length: 9 }, (_, index) => ({
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: `窗口消息_${index}`,
+    }));
+    const state = {
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: '',
+        viewMode: 'studio',
+        editorContent: '',
+        savedContent: '',
+        messages,
+        toolTrace: [],
+        openToolTurnKeys: [],
+        openThoughtKeys: [],
+        historySummary: '',
+        isBusy: false,
+        status: '就绪',
+        toast: '',
+    };
+
+    const html = renderEbookShell({
+        state,
+        providerConfig: { provider: 'test', model: 'demo' },
+        providerLabel: '测试',
+        dirty: false,
+    });
+
+    assert.match(html, /较早记录 4 条/);
+    assert.doesNotMatch(html, /窗口消息_0/);
+    assert.doesNotMatch(html, /窗口消息_3/);
+    assert.match(html, /窗口消息_4/);
+    assert.match(html, /窗口消息_8/);
+    assert.equal(state.messages.length, 9);
+});
+
+test('Book message window counts consecutive tool rounds as one mounted unit', () => {
+    const messages = [
+        { role: 'user', content: '跑工具。' },
+        { role: 'assistant', toolCalls: [{ id: 'a', name: EBOOK_TOOL_NAMES.READ, arguments: '{}' }] },
+        { role: 'tool', toolCallId: 'a', toolName: EBOOK_TOOL_NAMES.READ, content: '{}' },
+        { role: 'assistant', toolCalls: [{ id: 'b', name: EBOOK_TOOL_NAMES.GREP, arguments: '{}' }] },
+        { role: 'tool', toolCallId: 'b', toolName: EBOOK_TOOL_NAMES.GREP, content: '{}' },
+        { role: 'assistant', content: '完成。' },
+    ];
+
+    assert.equal(countMessageWindowUnits(messages), 3);
+});
+
 test('Book renderer keeps the active tool turn expanded while the run is still in progress', async () => {
     await resetDb();
     const book = await createBook('运行中展开测试');
@@ -2445,6 +2532,151 @@ test('Book agent chat scroll toggles auto-scroll like assistant', () => {
     assert.equal(agentMain.scrollTop, agentMain.scrollHeight);
 });
 
+test('Book agent chat disables streaming auto-scroll on manual upward intent', () => {
+    const listeners = {};
+    const agentMain = {
+        scrollTop: 680,
+        scrollHeight: 1000,
+        clientHeight: 300,
+        addEventListener(eventName, handler) {
+            listeners[`main:${eventName}`] = handler;
+        },
+    };
+    const inertButton = {
+        classList: { toggle() {} },
+        addEventListener() {},
+    };
+    const state = { agentAutoScroll: true };
+    const root = {
+        querySelector(selector) {
+            if (selector === '.xb-agent-main') return agentMain;
+            if (selector === '#xb-agent-scroll-top') return inertButton;
+            if (selector === '#xb-agent-scroll-bottom') return inertButton;
+            if (selector === '#xb-agent-scroll-helpers') return { classList: { add() {}, remove() {} } };
+            return null;
+        },
+        querySelectorAll() {
+            return [];
+        },
+    };
+
+    bindEbookEvents({
+        root,
+        state,
+        render() {},
+        postToHost() {},
+        bookController: {},
+        agentRunner: {},
+        persistConversation() {},
+        clearConversation() {},
+        showToast() {},
+    });
+
+    listeners['main:wheel']({ deltaY: -24 });
+    assert.equal(state.agentAutoScroll, false);
+
+    agentMain.scrollTop = 656;
+    listeners['main:scroll']();
+    assert.equal(state.agentAutoScroll, false);
+
+    agentMain.scrollTop = 700;
+    listeners['main:scroll']();
+    assert.equal(state.agentAutoScroll, true);
+
+    state.agentAutoScroll = true;
+    listeners['main:wheel']({ deltaY: 24 });
+    assert.equal(state.agentAutoScroll, true);
+
+    listeners['main:touchstart']({ touches: [{ clientY: 120 }] });
+    listeners['main:touchmove']({ touches: [{ clientY: 136 }] });
+    assert.equal(state.agentAutoScroll, false);
+});
+
+test('Book agent chat loads older mounted history when scrolled to the top', () => {
+    const listeners = {};
+    const agentMain = {
+        scrollTop: 0,
+        scrollHeight: 1000,
+        clientHeight: 300,
+        addEventListener(eventName, handler) {
+            listeners[`main:${eventName}`] = handler;
+        },
+    };
+    const inertButton = {
+        classList: { toggle() {} },
+        addEventListener() {},
+    };
+    const state = {
+        agentAutoScroll: true,
+        uiMessageWindowLimit: 5,
+        messages: Array.from({ length: 9 }, (_, index) => ({
+            role: index % 2 === 0 ? 'user' : 'assistant',
+            content: `消息_${index}`,
+        })),
+    };
+    let renderCount = 0;
+    const root = {
+        querySelector(selector) {
+            if (selector === '.xb-agent-main') return agentMain;
+            if (selector === '#xb-agent-scroll-top') return inertButton;
+            if (selector === '#xb-agent-scroll-bottom') return inertButton;
+            if (selector === '#xb-agent-scroll-helpers') return { classList: { add() {}, remove() {} } };
+            return null;
+        },
+        querySelectorAll() {
+            return [];
+        },
+    };
+
+    bindEbookEvents({
+        root,
+        state,
+        render() {
+            renderCount += 1;
+        },
+        postToHost() {},
+        bookController: {},
+        agentRunner: {},
+        persistConversation() {},
+        clearConversation() {},
+        showToast() {},
+    });
+
+    listeners['main:scroll']();
+
+    assert.equal(state.uiMessageWindowLimit, 9);
+    assert.equal(state.agentAutoScroll, false);
+    assert.equal(renderCount, 1);
+});
+
+test('Book app preserves manual agent scroll even when previous position was near bottom', () => {
+    const agentMain = {
+        scrollTop: 680,
+        scrollHeight: 1000,
+        clientHeight: 300,
+    };
+    const root = {
+        querySelector(selector) {
+            return selector === '.xb-agent-main' ? agentMain : null;
+        },
+    };
+    const snapshot = captureScrollState(root, '.xb-agent-main');
+    assert.equal(snapshot.nearBottom, true);
+
+    agentMain.scrollTop = 0;
+    agentMain.scrollHeight = 1200;
+    restoreScrollState(root, snapshot, '.xb-agent-main', {
+        defaultToBottom: false,
+        preserveScrollTop: true,
+    });
+    assert.equal(agentMain.scrollTop, 680);
+
+    restoreScrollState(root, snapshot, '.xb-agent-main', {
+        forceBottom: true,
+    });
+    assert.equal(agentMain.scrollTop, 1200);
+});
+
 test('Book renderer keeps streaming assistant thoughts expanded before final delivery', async () => {
     await resetDb();
     const book = await createBook('流式思考展开测试');
@@ -2486,7 +2718,7 @@ test('Book renderer keeps streaming assistant thoughts expanded before final del
     assert.match(html, /<details class="xb-thought-details" data-thought-key="thought-message:1" data-auto-open-thought="true" open>/);
 });
 
-test('Book renderer keeps the active conversation window visible before compaction', async () => {
+test('Book renderer keeps recent conversation mounted before compaction without dropping history', async () => {
     await resetDb();
     const book = await createBook('聊天显示窗口测试');
     const messages = Array.from({ length: 10 }, (_, index) => ({
@@ -2518,8 +2750,11 @@ test('Book renderer keeps the active conversation window visible before compacti
         dirty: false,
     });
 
-    assert.match(html, /第 1 条创作对话/);
+    assert.match(html, /较早记录 5 条/);
+    assert.doesNotMatch(html, /第 1 条创作对话/);
+    assert.match(html, /第 6 条创作对话/);
     assert.match(html, /第 10 条创作对话/);
+    assert.equal(state.messages.length, 10);
 });
 
 test('Book renderer keeps assistant actions on error bubbles so failed turns can reroll', async () => {
@@ -3449,6 +3684,7 @@ test('Book history compaction writes creative record and releases archived turns
         historySummary: '旧记录：男主叫沈照。',
         status: '就绪',
         archivedTurnCount: 0,
+        uiMessageWindowLimit: 100,
     };
     let persisted = false;
     let summarySource = '';
@@ -3486,6 +3722,7 @@ test('Book history compaction writes creative record and releases archived turns
     assert.match(state.historySummary, /沈照与林栖/);
     assert.equal(state.messages.length, 2);
     assert.equal(state.messages[0].content, '继续写下一章。');
+    assert.equal(state.uiMessageWindowLimit, 5);
 });
 
 test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
@@ -3493,6 +3730,8 @@ test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
     assert.match(EBOOK_SYSTEM_PROMPT, /## 工具层级/);
     assert.match(EBOOK_SYSTEM_PROMPT, /## 选择策略/);
     assert.match(EBOOK_SYSTEM_PROMPT, /工具返回错误时/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /小范围且能稳定匹配原文时用 apply_patch/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /大段重写或整章重写用 Write/);
     assert.match(EBOOK_SYSTEM_PROMPT, /RenameBook/);
     assert.match(EBOOK_SYSTEM_PROMPT, /DelegateRun/);
     assert.match(EBOOK_SYSTEM_PROMPT, /\[ebook-image:slotId\]/);
@@ -3514,6 +3753,7 @@ test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
     const applyPatch = getEbookToolDefinitions()
         .find((definition) => definition.function?.name === EBOOK_TOOL_NAMES.APPLY_PATCH);
     assert.match(String(applyPatch.function.description), /\*\*\* Update File: book\/example\.md/);
+    assert.match(String(applyPatch.function.description), /不适合大段正文或整章重写/);
     assert.match(String(applyPatch.function.description), /\*\*\* Move to: book\/\.\.\./);
     assert.match(String(applyPatch.function.description), /Hunk headers support plain `@@`/);
     assert.match(String(applyPatch.function.parameters.properties.patchText.description), /Update\/Add\/Delete File: book\/\.\.\./);
@@ -3552,6 +3792,8 @@ test('Book tool definitions teach exact parameters like assistant tools', () => 
 
     const write = definitions.get(EBOOK_TOOL_NAMES.WRITE);
     assert.match(String(write.description), /参数名是 `filePath` 和 `content`/);
+    assert.match(String(write.description), /大段正文、整节、整章重写/);
+    assert.match(String(write.description), /保留原文时要把完整内容写回/);
     assert.equal(Object.hasOwn(write.parameters.properties, 'path'), false);
     assert.match(String(write.parameters.properties.filePath.description), /目标文件路径/);
 
