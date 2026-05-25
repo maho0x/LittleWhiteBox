@@ -1,11 +1,9 @@
-import { parseApplyPatch } from '../../agent-core/tools/apply-patch.js';
-import { buildPatchFailureResult, runPatchValidationAndApply } from '../../agent-core/tools/apply-patch-execution.js';
+import { applyTextEdits } from '../../agent-core/tools/text-edit.js';
 import {
     assertBookDirectoryPath,
     assertBookFilePath,
     getBookPathError,
     normalizeBookDirectoryPath,
-    normalizeBookFilePath,
     normalizeBookPath,
 } from './book-paths.js';
 import {
@@ -120,67 +118,6 @@ function buildSearchRegExp(pattern = '', useRegex = true) {
         return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     }
     return new RegExp(text, 'i');
-}
-
-function clonePatchState(files = []) {
-    return files.map((file) => ({
-        path: file.path,
-        publicPath: file.path,
-        content: typeof file.content === 'string' ? file.content : '',
-        createdAt: Number(file.createdAt) || 0,
-    }));
-}
-
-function findPatchFile(files = [], targetPath = '') {
-    const normalized = normalizeBookFilePath(targetPath);
-    return files.find((file) => file.path === normalized) || null;
-}
-
-function removePatchFile(files = [], targetPath = '') {
-    const normalized = assertBookFilePath(targetPath);
-    const file = findPatchFile(files, normalized);
-    if (!file) throw new Error('book_file_not_found');
-    return {
-        nextState: files.filter((item) => item.path !== normalized),
-        file,
-    };
-}
-
-function writePatchFile(files = [], targetPath = '', content = '') {
-    const normalized = assertBookFilePath(targetPath);
-    const current = findPatchFile(files, normalized);
-    const nextFile = {
-        path: normalized,
-        publicPath: normalized,
-        content: typeof content === 'string' ? content : String(content ?? ''),
-        createdAt: Number(current?.createdAt) || Date.now(),
-    };
-    const nextState = current
-        ? files.map((item) => item.path === normalized ? nextFile : item)
-        : [...files, nextFile];
-    return { nextState, file: nextFile };
-}
-
-function movePatchFile(files = [], fromPath = '', toPath = '', options = {}) {
-    const from = assertBookFilePath(fromPath);
-    const to = assertBookFilePath(toPath);
-    const current = findPatchFile(files, from);
-    if (!current) throw new Error('book_file_not_found');
-    const existing = findPatchFile(files, to);
-    if (existing && !options.overwrite) throw new Error('book_destination_exists');
-    const moved = {
-        ...current,
-        path: to,
-        publicPath: to,
-    };
-    const nextState = files
-        .filter((item) => item.path !== from && item.path !== to)
-        .concat(moved);
-    return {
-        nextState,
-        file: moved,
-        fromFile: current,
-    };
 }
 
 export function createBookFileToolHandlers(options = {}) {
@@ -325,32 +262,52 @@ export function createBookFileToolHandlers(options = {}) {
         };
     }
 
-    async function executeApplyPatch(args = {}) {
+    async function executeEdit(args = {}) {
         assertWritable();
-        try {
-            const parsed = parseApplyPatch(args.patchText || '');
-            const files = clonePatchState(await getFiles());
-            const result = runPatchValidationAndApply(parsed, files, {
-                cloneState: clonePatchState,
-                normalizePath: normalizeBookFilePath,
-                getPathError: (path) => getBookPathError(path),
-                findFile: findPatchFile,
-                addFile: writePatchFile,
-                removeFile: removePatchFile,
-                moveFile: movePatchFile,
-                writeFile: writePatchFile,
-            });
-            await replaceBookFiles(await currentBookId(), result.nextState);
-            await onFilesChanged?.();
-            const publicResult = { ...result };
-            delete publicResult.nextState;
-            return {
-                ...publicResult,
-                summary: publicResult.summary.replaceAll('local', 'book'),
-            };
-        } catch (error) {
-            return buildPatchFailureResult(error);
+        const path = assertBookFilePath(args.filePath);
+        const edits = Array.isArray(args.edits) ? args.edits : [];
+        const file = await getBookFile(await currentBookId(), path);
+        if (!file) {
+            const canCreate = edits.length === 1 && String(edits[0]?.oldString ?? '') === '';
+            if (!canCreate) {
+                return {
+                    ok: false,
+                    path,
+                    error: 'file_not_found',
+                    message: 'File does not exist',
+                    results: [{
+                        ok: false,
+                        error: 'file_not_found',
+                        message: 'File does not exist',
+                    }],
+                    summary: `未找到 ${path}。`,
+                };
+            }
         }
+
+        const result = applyTextEdits(file?.content || '', edits);
+        const appliedCount = result.results.filter((item) => item.ok).length;
+        const failedCount = result.results.length - appliedCount;
+        if (appliedCount > 0) {
+            await upsertBookFile(await currentBookId(), path, result.content || '');
+            await onFilesChanged?.();
+        }
+        return {
+            ok: result.ok,
+            partial: result.partial,
+            path,
+            error: result.ok ? undefined : result.results.find((item) => !item.ok)?.error,
+            message: result.ok ? undefined : result.results.find((item) => !item.ok)?.message,
+            editCount: result.results.length,
+            appliedCount,
+            failedCount,
+            results: result.results,
+            summary: result.ok
+                ? `已修改 ${path}，应用 ${appliedCount} 项。`
+                : result.partial
+                    ? `已部分修改 ${path}：成功 ${appliedCount} 项，失败 ${failedCount} 项。`
+                    : `未修改 ${path}：${result.results[0]?.message || result.results[0]?.error || 'Edit failed'}。`,
+        };
     }
 
     async function executeDelete(args = {}) {
@@ -416,7 +373,7 @@ export function createBookFileToolHandlers(options = {}) {
         executeGrep,
         executeRead,
         executeWrite,
-        executeApplyPatch,
+        executeEdit,
         executeDelete,
         executeMove,
     };

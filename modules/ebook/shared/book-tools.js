@@ -86,8 +86,8 @@ export function createBookToolRuntime(options = {}) {
                 });
             case EBOOK_TOOL_NAMES.WRITE:
                 return await fileTools.executeWrite(args);
-            case EBOOK_TOOL_NAMES.APPLY_PATCH:
-                return await fileTools.executeApplyPatch(args);
+            case EBOOK_TOOL_NAMES.EDIT:
+                return await fileTools.executeEdit(args);
             case EBOOK_TOOL_NAMES.DELETE:
                 return await fileTools.executeDelete(args);
             case EBOOK_TOOL_NAMES.MOVE:

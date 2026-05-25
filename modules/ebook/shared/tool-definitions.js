@@ -7,7 +7,7 @@ export const EBOOK_TOOL_NAMES = Object.freeze({
     READ: 'Read',
     WEB_SEARCH: TAVILY_TOOL_NAME,
     WRITE: 'Write',
-    APPLY_PATCH: 'apply_patch',
+    EDIT: 'Edit',
     DELETE: 'Delete',
     MOVE: 'Move',
     PLAN_CREATE: 'PlanCreate',
@@ -167,24 +167,34 @@ export function getEbookToolDefinitions(options = {}) {
             {
                 type: 'function',
                 function: {
-                    name: EBOOK_TOOL_NAMES.APPLY_PATCH,
+                    name: EBOOK_TOOL_NAMES.EDIT,
                     description: [
-                        '用结构化补丁精准修改当前书稿文件。',
-                        '适合小范围局部修订、多文件小改、新增、删除或重命名书稿文件。',
-                        '不适合大段正文或整章重写；这类改动先 Read，再用 Write 写回完整文件更稳。',
-                        'Patch format uses structured headers such as `*** Begin Patch`, `*** Update File: book/example.md`, `@@`, and `*** End Patch`.',
-                        'File operation headers support `*** Add File: book/...`, `*** Update File: book/...`, and `*** Delete File: book/...`; renames use `*** Move to: book/...` after an update header.',
-                        'Hunk headers support plain `@@`, anchored `@@ existing line`, and standard unified diff ranges like `@@ -1,3 +1,3 @@`.',
-                        'Hunk body lines must start with a space for context, `-` for removed old lines, or `+` for added new lines; add-file content lines must start with `+`.',
-                        '补丁头里的文件路径必须写成 `book/...`。',
-                        '修订章节时只在能用当前原文稳定锚定小范围修改时使用它。',
+                        '用原文片段替换的方式修改当前书稿里的一个文件。',
+                        '适合句内、小段、多处局部修订；一个调用只改一个文件，多处修改写进 edits 数组。',
+                        '每个 oldString 默认必须在文件中唯一；多处命中时会返回行号和上下文，需要扩大 oldString 或设置 replaceAll。',
+                        'edits 会按顺序执行；不要让后一个 oldString 匹配前一个 newString 刚写入的新内容。',
+                        '大段正文、整节、整章重写或新建完整文件用 Write。',
                     ].join('\n'),
                     parameters: {
                         type: 'object',
                         properties: {
-                            patchText: { type: 'string', description: '完整 apply_patch body，包括 `*** Begin Patch`、一个或多个 `*** Update/Add/Delete File: book/...` 文件操作、hunk，以及 `*** End Patch`。' },
+                            filePath: { type: 'string', description: '目标文件路径，例如 `book/chapters/001.md`、`book/characters.md`。' },
+                            edits: {
+                                type: 'array',
+                                description: '按顺序执行的文本替换列表。',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        oldString: { type: 'string', description: '要替换的原文片段。默认必须唯一；需要创建新文件时传空字符串。' },
+                                        newString: { type: 'string', description: '替换后的文本。' },
+                                        replaceAll: { type: 'boolean', description: '是否替换所有匹配。默认 false。' },
+                                    },
+                                    required: ['oldString', 'newString'],
+                                    additionalProperties: false,
+                                },
+                            },
                         },
-                        required: ['patchText'],
+                        required: ['filePath', 'edits'],
                         additionalProperties: false,
                     },
                 },
@@ -390,8 +400,8 @@ export function describeEbookToolCall(name = '', args = {}) {
             return `联网查资料 ${args.query || ''}`.trim();
         case EBOOK_TOOL_NAMES.WRITE:
             return `写入 ${args.filePath || args.path || ''}`.trim();
-        case EBOOK_TOOL_NAMES.APPLY_PATCH:
-            return '修订作品文件';
+        case EBOOK_TOOL_NAMES.EDIT:
+            return `修订 ${args.filePath || ''}`.trim();
         case EBOOK_TOOL_NAMES.DELETE:
             return `删除 ${args.path || ''}`.trim();
         case EBOOK_TOOL_NAMES.MOVE:

@@ -16,6 +16,7 @@ const rendererModule = await import('../app-src/renderer.js');
 const uiBindingsModule = await import('../app-src/ui-bindings.js');
 const messageMarkdownModule = await import('../../agent-core/ui/message-markdown.js');
 const lightBrakeModule = await import('../../agent-core/runtime/light-brake.js');
+const textEditModule = await import('../../agent-core/tools/text-edit.js');
 
 const {
     default: db,
@@ -61,11 +62,108 @@ const { countMessageWindowUnits, renderEbookShell } = rendererModule;
 const { bindEbookEvents } = uiBindingsModule;
 const { HTML_PREVIEW_SANDBOX, renderMarkdownToHtml } = messageMarkdownModule;
 const { createLightBrakeController } = lightBrakeModule;
+const { applyTextEdits } = textEditModule;
 
 async function resetDb() {
     await db.delete();
     await db.open();
 }
+
+test('Shared applyTextEdits replaces short and multiline text fragments', () => {
+    const result = applyTextEdits('她低头看杯子。\n杯沿还有水痕。\n她笑了。', [
+        { oldString: '低头看', newString: '慢慢低头看' },
+        { oldString: '杯沿还有水痕。\n她笑了。', newString: '杯沿那点水痕还没干。\n她笑了一下。' },
+    ]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.content, '她慢慢低头看杯子。\n杯沿那点水痕还没干。\n她笑了一下。');
+    assert.deepEqual(result.results.map((item) => item.replacements), [1, 1]);
+});
+
+test('Shared applyTextEdits reports multiple matches with line contexts unless replaceAll is set', () => {
+    const content = [
+        '他看着窗外那些珍稀动物，心里发沉。',
+        '园里养着几只珍稀动物，每天有人喂食。',
+        '保护这些珍稀动物是他们的职责。',
+    ].join('\n');
+    const failed = applyTextEdits(content, [
+        { oldString: '珍稀动物', newString: '怪物' },
+    ]);
+
+    assert.equal(failed.ok, false);
+    assert.equal(failed.results[0].error, 'multiple_matches');
+    assert.equal(failed.results[0].matches.length, 3);
+    assert.equal(failed.results[0].matches[0].line, 1);
+    assert.match(failed.results[0].matches[1].context, /园里养着/);
+
+    const replaced = applyTextEdits(content, [
+        { oldString: '珍稀动物', newString: '怪物', replaceAll: true },
+    ]);
+    assert.equal(replaced.ok, true);
+    assert.equal((replaced.content.match(/怪物/g) || []).length, 3);
+});
+
+test('Shared applyTextEdits protects later edits from matching newly inserted text', () => {
+    const result = applyTextEdits('他走过来。', [
+        { oldString: '他', newString: '他慢慢' },
+        { oldString: '慢慢', newString: '缓缓' },
+    ]);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.partial, true);
+    assert.equal(result.content, '他慢慢走过来。');
+    assert.equal(result.results[1].error, 'old_string_matches_previous_new_string');
+});
+
+test('Shared applyTextEdits reports not found, no changes, and adapts common punctuation', () => {
+    const missing = applyTextEdits('她说：“回来，快点。”', [
+        { oldString: '不存在', newString: '存在' },
+    ]);
+    assert.equal(missing.results[0].error, 'not_found');
+
+    const noChange = applyTextEdits('原文', [
+        { oldString: '原文', newString: '原文' },
+    ]);
+    assert.equal(noChange.results[0].error, 'no_changes');
+
+    const smart = applyTextEdits('她说：“回来，快点。”', [
+        { oldString: '"回来,快点."', newString: '"别走,等我."' },
+    ]);
+    assert.equal(smart.ok, true);
+    assert.equal(smart.content, '她说：“别走，等我。”');
+});
+
+test('Shared applyTextEdits guards against matching style-adapted inserted text', () => {
+    const result = applyTextEdits('她说：“回来，快点。”', [
+        { oldString: '"回来,快点."', newString: '"别走,等我."' },
+        { oldString: '别走，', newString: '留下，' },
+    ]);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.partial, true);
+    assert.equal(result.content, '她说：“别走，等我。”');
+    assert.equal(result.results[1].error, 'old_string_matches_previous_new_string');
+});
+
+test('Shared applyTextEdits guards against equivalent punctuation in edit chains', () => {
+    const result = applyTextEdits('她说：“回来，快点。”', [
+        { oldString: '"回来,快点."', newString: '"别走,等我."' },
+        { oldString: '别走,', newString: '留下,' },
+    ]);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.partial, true);
+    assert.equal(result.content, '她说：“别走，等我。”');
+    assert.equal(result.results[1].error, 'old_string_matches_previous_new_string');
+});
+
+test('Shared applyTextEdits returns original content for empty edits', () => {
+    const result = applyTextEdits('原文', []);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.content, '原文');
+    assert.equal(result.results[0].error, 'invalid_edits');
+});
 
 test('Book tools reject paths outside the current book namespace', async () => {
     await resetDb();
@@ -356,21 +454,26 @@ test('Delegate book tool profile is read-only and excludes orchestration tools',
     assert.equal(names.includes(EBOOK_TOOL_NAMES.READ), true);
     assert.equal(names.includes(EBOOK_TOOL_NAMES.GREP), true);
     assert.equal(names.includes(EBOOK_TOOL_NAMES.WRITE), false);
-    assert.equal(names.includes(EBOOK_TOOL_NAMES.APPLY_PATCH), false);
+    assert.equal(names.includes(EBOOK_TOOL_NAMES.EDIT), false);
+    assert.equal(names.includes('apply_patch'), false);
     assert.equal(names.includes(EBOOK_TOOL_NAMES.PLAN_CREATE), false);
     assert.equal(names.includes(EBOOK_TOOL_NAMES.DELEGATE_RUN), false);
 });
 
-test('Book tool definitions expose filePath consistently for Read and Write', () => {
+test('Book tool definitions expose filePath consistently for Read, Write, and Edit', () => {
     const definitions = getEbookToolDefinitions();
     const readDefinition = definitions.find((definition) => definition.function.name === EBOOK_TOOL_NAMES.READ);
     const writeDefinition = definitions.find((definition) => definition.function.name === EBOOK_TOOL_NAMES.WRITE);
+    const editDefinition = definitions.find((definition) => definition.function.name === EBOOK_TOOL_NAMES.EDIT);
 
     assert.equal(Object.hasOwn(readDefinition.function.parameters.properties, 'filePath'), true);
     assert.equal(Object.hasOwn(readDefinition.function.parameters.properties, 'path'), false);
     assert.equal(Object.hasOwn(writeDefinition.function.parameters.properties, 'filePath'), true);
     assert.equal(Object.hasOwn(writeDefinition.function.parameters.properties, 'path'), false);
     assert.deepEqual(writeDefinition.function.parameters.required, ['filePath', 'content']);
+    assert.equal(Object.hasOwn(editDefinition.function.parameters.properties, 'filePath'), true);
+    assert.equal(Object.hasOwn(editDefinition.function.parameters.properties, 'path'), false);
+    assert.deepEqual(editDefinition.function.parameters.required, ['filePath', 'edits']);
 });
 
 test('Book agent automatically passes review context into DelegateRun', async () => {
@@ -612,28 +715,67 @@ test('Book plans are isolated by book id', async () => {
     assert.equal(secondList.count, 0);
 });
 
-test('Book apply_patch edits only book files', async () => {
+test('Book Edit edits only book files', async () => {
     await resetDb();
-    const book = await createBook('补丁测试');
-    await upsertBookFile(book.id, 'book/chapters/001.md', '# 第 1 章\n\n旧内容\n');
+    const book = await createBook('文本编辑测试');
+    await upsertBookFile(book.id, 'book/chapters/001.md', '# 第 1 章\n\n旧内容一\n旧内容二\n');
     const runtime = createBookToolRuntime({ bookId: book.id });
 
-    const result = await runtime.execute(EBOOK_TOOL_NAMES.APPLY_PATCH, {
-        patchText: [
-            '*** Begin Patch',
-            '*** Update File: book/chapters/001.md',
-            '@@',
-            ' # 第 1 章',
-            ' ',
-            '-旧内容',
-            '+新内容',
-            '*** End Patch',
-        ].join('\n'),
+    const result = await runtime.execute(EBOOK_TOOL_NAMES.EDIT, {
+        filePath: 'book/chapters/001.md',
+        edits: [
+            { oldString: '旧内容一', newString: '新内容一' },
+            { oldString: '旧内容二', newString: '新内容二' },
+        ],
     });
 
     assert.equal(result.ok, true);
+    assert.equal(result.appliedCount, 2);
     const read = await runtime.execute(EBOOK_TOOL_NAMES.READ, { filePath: 'book/chapters/001.md' });
-    assert.match(read.content, /新内容/);
+    assert.match(read.content, /新内容一/);
+    assert.match(read.content, /新内容二/);
+});
+
+test('Book Edit creates missing files only with an empty oldString', async () => {
+    await resetDb();
+    const book = await createBook('文本编辑新建测试');
+    const runtime = createBookToolRuntime({ bookId: book.id });
+
+    const missing = await runtime.execute(EBOOK_TOOL_NAMES.EDIT, {
+        filePath: 'book/notes/missing.md',
+        edits: [{ oldString: '旧内容', newString: '新内容' }],
+    });
+    assert.equal(missing.ok, false);
+    assert.equal(missing.error, 'file_not_found');
+
+    const created = await runtime.execute(EBOOK_TOOL_NAMES.EDIT, {
+        filePath: 'book/notes/new.md',
+        edits: [{ oldString: '', newString: '# 新文件\n' }],
+    });
+    assert.equal(created.ok, true);
+    assert.equal((await getBookFile(book.id, 'book/notes/new.md')).content, '# 新文件\n');
+});
+
+test('Book Edit persists partial successes and reports failed edits', async () => {
+    await resetDb();
+    const book = await createBook('文本编辑部分成功测试');
+    await upsertBookFile(book.id, 'book/chapters/001.md', '甲乙丙');
+    const runtime = createBookToolRuntime({ bookId: book.id });
+
+    const result = await runtime.execute(EBOOK_TOOL_NAMES.EDIT, {
+        filePath: 'book/chapters/001.md',
+        edits: [
+            { oldString: '甲', newString: '甲甲' },
+            { oldString: '不存在', newString: '存在' },
+        ],
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.partial, true);
+    assert.equal(result.appliedCount, 1);
+    assert.equal(result.failedCount, 1);
+    assert.equal(result.results[1].error, 'not_found');
+    assert.equal((await getBookFile(book.id, 'book/chapters/001.md')).content, '甲甲乙丙');
 });
 
 test('Book Delete removes a single file and returns a deleted count', async () => {
@@ -3975,12 +4117,12 @@ test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
     assert.match(EBOOK_SYSTEM_PROMPT, /## 工具层级/);
     assert.match(EBOOK_SYSTEM_PROMPT, /## 选择策略/);
     assert.match(EBOOK_SYSTEM_PROMPT, /工具返回错误时/);
-    assert.match(EBOOK_SYSTEM_PROMPT, /小范围且能稳定匹配原文时用 apply_patch/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /小范围、句内、多处局部修订用 Edit/);
     assert.match(EBOOK_SYSTEM_PROMPT, /大段重写或整章重写用 Write/);
     assert.match(EBOOK_SYSTEM_PROMPT, /RenameBook/);
     assert.match(EBOOK_SYSTEM_PROMPT, /DelegateRun/);
     assert.match(EBOOK_SYSTEM_PROMPT, /\[ebook-image:slotId\]/);
-    assert.doesNotMatch(EBOOK_SYSTEM_PROMPT, /## 工具参数速记|## apply_patch 格式/);
+    assert.doesNotMatch(EBOOK_SYSTEM_PROMPT, /apply_patch|## 工具参数速记|## apply_patch 格式/);
     assert.doesNotMatch(EBOOK_SYSTEM_PROMPT, /\*\*\* Update File: book\/example\.md/);
     assert.doesNotMatch(EBOOK_SYSTEM_PROMPT, /web_search|Tavily|联网查资料/);
     assert.doesNotMatch(EBOOK_SYSTEM_PROMPT, /不要尝试 `local/);
@@ -3995,13 +4137,16 @@ test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
         .find((definition) => definition.function?.name === EBOOK_TOOL_NAMES.PLAN_CREATE);
     assert.equal(planCreate.function.parameters.properties.blockedBy.type, 'array');
 
-    const applyPatch = getEbookToolDefinitions()
-        .find((definition) => definition.function?.name === EBOOK_TOOL_NAMES.APPLY_PATCH);
-    assert.match(String(applyPatch.function.description), /\*\*\* Update File: book\/example\.md/);
-    assert.match(String(applyPatch.function.description), /不适合大段正文或整章重写/);
-    assert.match(String(applyPatch.function.description), /\*\*\* Move to: book\/\.\.\./);
-    assert.match(String(applyPatch.function.description), /Hunk headers support plain `@@`/);
-    assert.match(String(applyPatch.function.parameters.properties.patchText.description), /Update\/Add\/Delete File: book\/\.\.\./);
+    const definitions = getEbookToolDefinitions();
+    const edit = definitions.find((definition) => definition.function?.name === EBOOK_TOOL_NAMES.EDIT);
+    assert.match(String(edit.function.description), /句内、小段、多处局部修订/);
+    assert.match(String(edit.function.description), /replaceAll/);
+    assert.equal(Object.hasOwn(edit.function.parameters.properties, 'filePath'), true);
+    assert.equal(Object.hasOwn(edit.function.parameters.properties, 'edits'), true);
+    assert.equal(
+        definitions.some((definition) => definition.function?.name === 'apply_patch'),
+        false,
+    );
 
     const webSearchDefinitions = getEbookToolDefinitions({ webSearchEnabled: true });
     const webSearch = webSearchDefinitions.find((definition) => definition.function?.name === EBOOK_TOOL_NAMES.WEB_SEARCH);
@@ -4041,6 +4186,14 @@ test('Book tool definitions teach exact parameters like assistant tools', () => 
     assert.match(String(write.description), /保留原文时要把完整内容写回/);
     assert.equal(Object.hasOwn(write.parameters.properties, 'path'), false);
     assert.match(String(write.parameters.properties.filePath.description), /目标文件路径/);
+
+    const edit = definitions.get(EBOOK_TOOL_NAMES.EDIT);
+    assert.match(String(edit.description), /一个调用只改一个文件/);
+    assert.match(String(edit.description), /edits 数组/);
+    assert.equal(Object.hasOwn(edit.parameters.properties, 'path'), false);
+    assert.match(String(edit.parameters.properties.filePath.description), /目标文件路径/);
+    assert.equal(edit.parameters.properties.edits.items.required.includes('oldString'), true);
+    assert.equal(edit.parameters.properties.edits.items.required.includes('newString'), true);
 
     const deleteTool = definitions.get(EBOOK_TOOL_NAMES.DELETE);
     assert.match(String(deleteTool.description), /删除目录时路径要以 `\/` 结尾/);
