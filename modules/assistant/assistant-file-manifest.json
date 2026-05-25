@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-25T06:35:31.844Z",
+  "generatedAt": "2026-05-25T13:39:21.955Z",
   "version": 2,
   "files": [
     {
@@ -42,7 +42,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/constants.js",
       "relativePath": "core/constants.js",
       "extension": ".js",
-      "sizeBytes": 201
+      "sizeBytes": 506
     },
     {
       "source": "littlewhitebox",
@@ -105,7 +105,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/index.js",
       "relativePath": "index.js",
       "extension": ".js",
-      "sizeBytes": 45586
+      "sizeBytes": 45622
     },
     {
       "source": "littlewhitebox",
@@ -196,7 +196,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/openai-compatible.js",
       "relativePath": "modules/agent-core/adapters/openai-compatible.js",
       "extension": ".js",
-      "sizeBytes": 32411
+      "sizeBytes": 32302
     },
     {
       "source": "littlewhitebox",
@@ -224,7 +224,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/sillytavern-openai-compatible.js",
       "relativePath": "modules/agent-core/adapters/sillytavern-openai-compatible.js",
       "extension": ".js",
-      "sizeBytes": 7010
+      "sizeBytes": 6988
     },
     {
       "source": "littlewhitebox",
@@ -518,7 +518,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/tooling.js",
       "relativePath": "modules/assistant/app-src/tooling.js",
       "extension": ".js",
-      "sizeBytes": 67032
+      "sizeBytes": 69899
     },
     {
       "source": "littlewhitebox",
@@ -588,7 +588,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-file-manifest.json",
       "relativePath": "modules/assistant/assistant-file-manifest.json",
       "extension": ".json",
-      "sizeBytes": 176289
+      "sizeBytes": 176580
     },
     {
       "source": "littlewhitebox",
@@ -833,7 +833,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/openai-compatible-adapter.test.js",
       "relativePath": "modules/assistant/tests/openai-compatible-adapter.test.js",
       "extension": ".js",
-      "sizeBytes": 34394
+      "sizeBytes": 34903
     },
     {
       "source": "littlewhitebox",
@@ -861,7 +861,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/tooling.test.js",
       "relativePath": "modules/assistant/tests/tooling.test.js",
       "extension": ".js",
-      "sizeBytes": 13843
+      "sizeBytes": 15067
     },
     {
       "source": "littlewhitebox",

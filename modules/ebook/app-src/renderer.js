@@ -261,6 +261,112 @@ function parseToolContent(content = '') {
     }
 }
 
+function isPlanToolName(name = '') {
+    return ['PlanCreate', 'PlanUpdate', 'PlanList', 'PlanGet'].includes(String(name || ''));
+}
+
+function formatPlanStatusLabel(status = '') {
+    switch (String(status || '').trim()) {
+        case 'pending':
+            return '待办';
+        case 'in_progress':
+            return '进行中';
+        case 'blocked':
+            return '阻塞';
+        case 'completed':
+            return '已完成';
+        case 'failed':
+            return '失败';
+        case 'cancelled':
+            return '已取消';
+        default:
+            return status || '未知';
+    }
+}
+
+function formatPlanMark(status = '') {
+    const normalized = String(status || '').trim();
+    if (normalized === 'completed') return '✓';
+    if (normalized === 'failed' || normalized === 'cancelled') return '×';
+    return '';
+}
+
+function formatPlanSummary(parsed = {}, toolName = '') {
+    const plan = parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null;
+    const plans = Array.isArray(parsed.plans) ? parsed.plans : [];
+    if (parsed.ok === false) {
+        return parsed.error ? `计划工具失败：${parsed.error}` : '计划工具失败';
+    }
+    if (toolName === 'PlanList') {
+        return `计划列表：${Number(parsed.count) || plans.length || 0} 项`;
+    }
+    if (toolName === 'PlanGet') {
+        return plan ? `计划：${plan.title || plan.id || ''}`.trim() : '计划不存在';
+    }
+    if (toolName === 'PlanCreate') {
+        return `计划已创建：${plan?.title || plan?.id || ''}`.trim();
+    }
+    if (toolName === 'PlanUpdate') {
+        return `计划已更新：${plan?.title || plan?.id || ''}`.trim();
+    }
+    return parsed.summary || '计划已返回';
+}
+
+function renderPlanItem(plan = {}) {
+    const title = String(plan.title || plan.id || '未命名计划').trim();
+    const status = String(plan.status || '').trim();
+    const meta = [
+        status ? `状态：${formatPlanStatusLabel(status)}` : '',
+        plan.priority ? `优先级：${plan.priority}` : '',
+        Array.isArray(plan.blockedBy) && plan.blockedBy.length ? `依赖：${plan.blockedBy.join('、')}` : '',
+    ].filter(Boolean).join('，');
+    const detail = [
+        meta,
+        plan.result ? `结果：${trimInlineText(plan.result, 180)}` : '',
+        plan.error ? `错误：${trimInlineText(plan.error, 180)}` : '',
+    ].filter(Boolean).join('\n');
+    return `
+        <div class="xb-tool-plan-item">
+            <span class="xb-tool-plan-box">${escapeHtml(formatPlanMark(status))}</span>
+            <p>
+                <strong>${escapeHtml(title)}${plan.id ? ` <em>${escapeHtml(plan.id)}</em>` : ''}</strong>
+                ${detail ? `<small>${escapeHtml(detail)}</small>` : ''}
+            </p>
+        </div>
+    `;
+}
+
+function renderPlanToolBody(toolMessage = {}, parsed = parseToolContent(toolMessage.content)) {
+    if (!isPlanToolName(toolMessage.toolName)) return '';
+    const plan = parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null;
+    const plans = Array.isArray(parsed.plans) ? parsed.plans : [];
+    const blockers = Array.isArray(parsed.blockers)
+        ? parsed.blockers.filter((item) => item && typeof item === 'object')
+        : [];
+    const items = plans.length ? plans : (plan ? [plan] : []);
+    const hasPlanPayload = plan || plans.length || blockers.length || parsed.ok === false || parsed.summary || parsed.message || parsed.error;
+    if (!hasPlanPayload) return '';
+    const blockerItems = blockers.map((item) => ({
+        id: item.id,
+        title: item.title || item.id,
+        status: item.status || 'blocked',
+    }));
+    const summary = formatPlanSummary(parsed, toolMessage.toolName);
+    return `
+        <div class="xb-tool-plan">
+            <small>${escapeHtml(summary || '计划已返回')}</small>
+            ${items.length ? `<div class="xb-tool-plan-list">${items.map(renderPlanItem).join('')}</div>` : ''}
+            ${blockerItems.length ? `
+                <div class="xb-tool-plan-blockers">
+                    <span>阻塞项</span>
+                    <div class="xb-tool-plan-list">${blockerItems.map(renderPlanItem).join('')}</div>
+                </div>
+            ` : ''}
+            ${parsed.ok === false && parsed.message ? `<small>${escapeHtml(parsed.message)}</small>` : ''}
+        </div>
+    `;
+}
+
 function formatToolSummary(message = {}) {
     const parsed = parseToolContent(message.content);
     return trimInlineText(
@@ -334,6 +440,7 @@ function renderLiveToolTraceItem(item = {}) {
 
 function renderStoredToolMessage(toolMessage = {}) {
     const parsed = parseToolContent(toolMessage.content);
+    const planBody = renderPlanToolBody(toolMessage, parsed);
     const display = toolMessage.toolDisplay && typeof toolMessage.toolDisplay === 'object'
         ? toolMessage.toolDisplay
         : null;
@@ -341,7 +448,18 @@ function renderStoredToolMessage(toolMessage = {}) {
         return `
             <div class="xb-tool ${parsed.ok === false ? 'is-error' : ''}">
                 <div class="xb-tool-plain-title">${escapeHtml(toolMessage.toolName || '工具结果')}</div>
-                <small>${escapeHtml(formatToolSummary(toolMessage))}</small>
+                ${planBody || `<small>${escapeHtml(formatToolSummary(toolMessage))}</small>`}
+            </div>
+        `;
+    }
+    if (planBody) {
+        return `
+            <div class="xb-tool ${parsed.ok === false ? 'is-error' : 'is-resolved'}">
+                <div class="xb-tool-head">
+                    <span>${escapeHtml(display.title || toolMessage.toolName || '工具结果')}</span>
+                    <em>${escapeHtml(display.status === 'running' ? '运行中' : '已返回')}</em>
+                </div>
+                ${planBody}
             </div>
         `;
     }

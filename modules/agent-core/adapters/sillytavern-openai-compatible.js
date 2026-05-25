@@ -15,6 +15,7 @@ import {
     extractThinkTaggedContent,
     extractThoughtsFromMessage,
     flattenTextContent,
+    stripTaggedToolCallsForDisplay,
 } from './openai-compatible.js';
 
 function emitStreamProgress(task, payload) {
@@ -31,9 +32,7 @@ function cleanTextForToolMode(content, standardToolCalls = []) {
         thinkTagged,
         cleanedText: standardToolCalls.length
             ? thinkTagged.cleaned
-            : thinkTagged.cleaned
-                .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-                .trim(),
+            : stripTaggedToolCallsForDisplay(thinkTagged.cleaned),
     };
 }
 

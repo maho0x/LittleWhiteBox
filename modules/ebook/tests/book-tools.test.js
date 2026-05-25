@@ -2338,6 +2338,125 @@ test('Book renderer defers stored tool round details while keeping folded previe
     assert.match(openHtml, /UNIQUE_LAZY_THOUGHT/);
 });
 
+test('Book renderer shows plan update results as checklist items', async () => {
+    await resetDb();
+    const book = await createBook('计划工具显示测试');
+    const state = {
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: '',
+        viewMode: 'studio',
+        editorContent: '',
+        savedContent: '',
+        messages: [
+            { role: 'user', content: '继续完成计划。' },
+            {
+                role: 'assistant',
+                content: '',
+                toolCalls: [{
+                    id: 'call-plan-update',
+                    name: EBOOK_TOOL_NAMES.PLAN_UPDATE,
+                    arguments: '{"id":"plan-1","status":"completed"}',
+                }],
+            },
+            {
+                role: 'tool',
+                toolCallId: 'call-plan-update',
+                toolName: EBOOK_TOOL_NAMES.PLAN_UPDATE,
+                content: JSON.stringify({
+                    ok: true,
+                    plan: {
+                        id: 'plan-1',
+                        title: '完成第一章细纲',
+                        status: 'completed',
+                        priority: 'high',
+                        owner: 'assistant',
+                        result: '已完成。',
+                    },
+                    blockers: [],
+                }),
+            },
+            { role: 'assistant', content: '计划已更新。' },
+        ],
+        toolTrace: [],
+        openToolTurnKeys: [],
+        activeTurnStartIndex: -1,
+        openThoughtKeys: [],
+        historySummary: '',
+        isBusy: false,
+        status: '就绪',
+        toast: '',
+    };
+
+    const html = renderEbookShell({
+        state,
+        providerConfig: { provider: 'test', model: 'demo' },
+        providerLabel: '测试',
+        dirty: false,
+    });
+
+    assert.match(html, /xb-tool-plan-item/);
+    assert.match(html, /完成第一章细纲/);
+    assert.match(html, /状态：已完成/);
+    assert.match(html, /✓/);
+    assert.doesNotMatch(html, /&quot;plan&quot;/);
+});
+
+test('Book renderer falls back for malformed plan tool results', async () => {
+    await resetDb();
+    const book = await createBook('计划工具异常显示测试');
+    const state = {
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: '',
+        viewMode: 'studio',
+        editorContent: '',
+        savedContent: '',
+        messages: [
+            { role: 'user', content: '更新计划。' },
+            {
+                role: 'assistant',
+                content: '',
+                toolCalls: [{
+                    id: 'call-plan-malformed',
+                    name: EBOOK_TOOL_NAMES.PLAN_UPDATE,
+                    arguments: '{"id":"plan-1","status":"completed"}',
+                }],
+            },
+            {
+                role: 'tool',
+                toolCallId: 'call-plan-malformed',
+                toolName: EBOOK_TOOL_NAMES.PLAN_UPDATE,
+                content: 'not-json-plan-result',
+            },
+            { role: 'assistant', content: '继续。' },
+        ],
+        toolTrace: [],
+        openToolTurnKeys: [],
+        activeTurnStartIndex: -1,
+        openThoughtKeys: [],
+        historySummary: '',
+        isBusy: false,
+        status: '就绪',
+        toast: '',
+    };
+
+    const html = renderEbookShell({
+        state,
+        providerConfig: { provider: 'test', model: 'demo' },
+        providerLabel: '测试',
+        dirty: false,
+    });
+
+    assert.match(html, /not-json-plan-result/);
+    assert.doesNotMatch(html, /xb-tool-plan-item/);
+    assert.doesNotMatch(html, /计划已更新：/);
+});
+
 test('Book tool turn auto-open does not persist as a manual fold state', () => {
     const state = {
         isBusy: true,

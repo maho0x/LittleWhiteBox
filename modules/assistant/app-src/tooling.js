@@ -623,6 +623,11 @@ function formatPreviewList(items = [], formatter) {
     return lines;
 }
 
+function truncateInlineText(value = '', limit = 220) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
+
 export function describeToolCall(name, args = {}) {
     switch (name) {
         case TOOL_NAMES.LS:
@@ -692,6 +697,73 @@ function formatPlanLine(plan = {}) {
     return `- ${title}${plan.id ? ` (${plan.id})` : ''}${meta ? `：${meta}` : ''}`;
 }
 
+function formatPlanStatusLabel(status = '') {
+    switch (String(status || '').trim()) {
+        case 'pending':
+            return '待办';
+        case 'in_progress':
+            return '进行中';
+        case 'blocked':
+            return '阻塞';
+        case 'completed':
+            return '已完成';
+        case 'failed':
+            return '失败';
+        case 'cancelled':
+            return '已取消';
+        default:
+            return status || '未知';
+    }
+}
+
+function formatPlanCheckbox(status = '') {
+    const normalized = String(status || '').trim();
+    if (normalized === 'completed') return '☑';
+    if (normalized === 'failed' || normalized === 'cancelled') return '☒';
+    return '☐';
+}
+
+function formatPlanChecklistItem(plan = {}) {
+    const title = String(plan.title || plan.id || '未命名计划').trim();
+    const status = String(plan.status || '').trim();
+    const meta = [
+        status ? `状态：${formatPlanStatusLabel(status)}` : '',
+        plan.priority ? `优先级：${plan.priority}` : '',
+        plan.owner ? `负责人：${plan.owner}` : '',
+        Array.isArray(plan.blockedBy) && plan.blockedBy.length ? `依赖：${plan.blockedBy.join('、')}` : '',
+    ].filter(Boolean).join('，');
+    const lines = [`${formatPlanCheckbox(status)} ${title}${plan.id ? ` (${plan.id})` : ''}`];
+    if (meta) lines.push(`   ${meta}`);
+    if (plan.detail) lines.push(`   说明：${truncateInlineText(plan.detail, 220)}`);
+    if (Array.isArray(plan.notes) && plan.notes.length) {
+        lines.push(`   备注：${plan.notes.map((item) => truncateInlineText(item, 120)).filter(Boolean).join('；')}`);
+    }
+    if (plan.result) lines.push(`   结果：${truncateInlineText(plan.result, 220)}`);
+    if (plan.error) lines.push(`   错误：${truncateInlineText(plan.error, 220)}`);
+    return lines.join('\n');
+}
+
+function formatPlanChecklist(plans = []) {
+    return (Array.isArray(plans) ? plans : [])
+        .filter((plan) => plan && typeof plan === 'object')
+        .map(formatPlanChecklistItem)
+        .join('\n\n');
+}
+
+function formatPlanBlockers(blockers = []) {
+    const items = (Array.isArray(blockers) ? blockers : [])
+        .filter((item) => item && typeof item === 'object');
+    if (!items.length) return '';
+    return [
+        '阻塞项：',
+        ...items.map((item) => formatPlanChecklistItem({
+            id: item.id,
+            title: item.title || item.id,
+            status: item.status || 'blocked',
+        })),
+    ].join('\n');
+}
+
 function formatPlanToolResult(message, parsed = {}) {
     if (![
         TOOL_NAMES.PLAN_CREATE,
@@ -713,7 +785,7 @@ function formatPlanToolResult(message, parsed = {}) {
         }
         return {
             summary: lines.filter(Boolean).join('\n'),
-            details: JSON.stringify(parsed, null, 2),
+            details: formatPlanBlockers(blockers) || parsed.message || '',
         };
     }
     if (message.toolName === TOOL_NAMES.PLAN_CREATE) {
@@ -724,7 +796,7 @@ function formatPlanToolResult(message, parsed = {}) {
                 plan?.status ? `状态：${plan.status}` : '',
                 blockers.length ? `阻塞项：${blockers.map((item) => item.title || item.id).filter(Boolean).join('、')}` : '',
             ].filter(Boolean).join('\n'),
-            details: JSON.stringify(plan || parsed, null, 2),
+            details: [plan ? formatPlanChecklistItem(plan) : '', formatPlanBlockers(blockers)].filter(Boolean).join('\n\n'),
         };
     }
     if (message.toolName === TOOL_NAMES.PLAN_UPDATE) {
@@ -734,7 +806,7 @@ function formatPlanToolResult(message, parsed = {}) {
                 plan?.status ? `状态：${plan.status}` : '',
                 blockers.length ? `阻塞项：${blockers.map((item) => item.title || item.id).filter(Boolean).join('、')}` : '',
             ].filter(Boolean).join('\n'),
-            details: JSON.stringify(plan || parsed, null, 2),
+            details: [plan ? formatPlanChecklistItem(plan) : '', formatPlanBlockers(blockers)].filter(Boolean).join('\n\n'),
         };
     }
     if (message.toolName === TOOL_NAMES.PLAN_LIST) {
@@ -749,13 +821,13 @@ function formatPlanToolResult(message, parsed = {}) {
         }
         return {
             summary: lines.join('\n'),
-            details: plans.map(formatPlanLine).join('\n'),
+            details: formatPlanChecklist(plans),
         };
     }
     if (message.toolName === TOOL_NAMES.PLAN_GET) {
         return {
             summary: plan ? formatPlanLine(plan).replace(/^- /, '') : '计划不存在',
-            details: JSON.stringify(parsed, null, 2),
+            details: plan ? formatPlanChecklistItem(plan) : '',
         };
     }
     return null;

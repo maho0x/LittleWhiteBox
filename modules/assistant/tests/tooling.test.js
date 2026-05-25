@@ -209,6 +209,40 @@ test('formatToolResultDisplay summarizes plan tool results', () => {
 
     assert.match(display.summary, /计划已创建：检查 PLAN 工具/);
     assert.match(display.summary, /id：plan-1/);
+    assert.match(display.details, /☐ 检查 PLAN 工具 \(plan-1\)/);
+    assert.match(display.details, /状态：待办/);
+    assert.doesNotMatch(display.details, /^\s*\{/);
+});
+
+test('formatToolResultDisplay renders plan lists as checklist details', () => {
+    const display = formatToolResultDisplay({
+        toolName: TOOL_NAMES.PLAN_LIST,
+        content: JSON.stringify({
+            ok: true,
+            count: 2,
+            plans: [
+                {
+                    id: 'plan-done',
+                    title: '完成工具展示',
+                    status: 'completed',
+                    priority: 'normal',
+                    owner: 'assistant',
+                },
+                {
+                    id: 'plan-next',
+                    title: '继续验证',
+                    status: 'pending',
+                    priority: 'high',
+                    owner: 'assistant',
+                },
+            ],
+        }),
+    });
+
+    assert.match(display.summary, /当前会话计划：2 项/);
+    assert.match(display.details, /☑ 完成工具展示 \(plan-done\)/);
+    assert.match(display.details, /☐ 继续验证 \(plan-next\)/);
+    assert.doesNotMatch(display.details, /"plans"/);
 });
 
 test('formatToolResultDisplay summarizes delegate tool results', () => {

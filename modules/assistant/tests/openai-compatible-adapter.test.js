@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     OpenAICompatibleAdapter,
     buildNativeMessages,
+    stripTaggedToolCallsForDisplay,
 } from '../../agent-core/adapters/openai-compatible.js';
 
 function createSseResponse(events = [], delimiter = '\n\n') {
@@ -20,6 +21,17 @@ function createSseResponse(events = [], delimiter = '\n\n') {
         text: async () => payload,
     };
 }
+
+test('openai-compatible adapter hides incomplete tagged tool blocks from display text', () => {
+    assert.equal(
+        stripTaggedToolCallsForDisplay('我先查一下。\n<tool_call>{"name":"Read","arguments":{"filePath":"book/state.md"}'),
+        '我先查一下。',
+    );
+    assert.equal(
+        stripTaggedToolCallsForDisplay('前置说明\n<tool_call>{"name":"Read","arguments":{}}</tool_call>\n<tool_call>{"name":"Grep"'),
+        '前置说明',
+    );
+});
 
 test('openai-compatible adapter sanitizes malformed replay tool calls before sending', () => {
     const messages = buildNativeMessages({

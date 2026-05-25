@@ -111,6 +111,13 @@ export function extractThinkTaggedContent(text = '') {
     };
 }
 
+export function stripTaggedToolCallsForDisplay(text = '') {
+    return String(text || '')
+        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+        .replace(/<tool_call>[\s\S]*$/g, '')
+        .trim();
+}
+
 function collectThoughtsFromUnknown(thoughts, value, label) {
     if (!value) return;
     if (typeof value === 'string') {
@@ -696,9 +703,7 @@ export class OpenAICompatibleAdapter {
             const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
             const cleanedText = standardToolCalls.length
                 ? thinkTagged.cleaned
-                : thinkTagged.cleaned
-                    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-                    .trim();
+                : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
             emitStreamProgress(task, {
                 text: cleanedText,
                 thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
@@ -714,9 +719,7 @@ export class OpenAICompatibleAdapter {
         const toolCalls = [...standardToolCalls, ...taggedToolCalls];
         const cleanedText = standardToolCalls.length
             ? thinkTagged.cleaned
-            : thinkTagged.cleaned
-                .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-                .trim();
+            : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
 
         return {
             text: cleanedText,
@@ -790,9 +793,7 @@ export class OpenAICompatibleAdapter {
                 const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
                 const cleanedText = standardToolCalls.length
                     ? thinkTagged.cleaned
-                    : thinkTagged.cleaned
-                        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-                        .trim();
+                    : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
                 emitStreamProgress(task, {
                     text: cleanedText,
                     thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
@@ -816,9 +817,7 @@ export class OpenAICompatibleAdapter {
             const toolCalls = [...standardToolCalls, ...taggedToolCalls];
             const cleanedText = standardToolCalls.length
                 ? thinkTagged.cleaned
-                : thinkTagged.cleaned
-                    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-                    .trim();
+                : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
 
             return {
                 text: cleanedText,
@@ -846,9 +845,7 @@ export class OpenAICompatibleAdapter {
         const toolCalls = [...standardToolCalls, ...taggedToolCalls];
         const cleanedText = standardToolCalls.length
             ? thinkTagged.cleaned
-            : thinkTagged.cleaned
-                .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-                .trim();
+            : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
         const replayableMessage = buildReplayableAssistantMessage(message, choice);
 
         return {

@@ -1361,6 +1361,60 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             font-size: 12px;
             line-height: 1.55;
         }
+        .xb-tool-plan {
+            display: grid;
+            gap: 8px;
+        }
+        .xb-tool-plan-list {
+            display: grid;
+            gap: 7px;
+        }
+        .xb-tool-plan-item {
+            display: grid;
+            grid-template-columns: 18px minmax(0, 1fr);
+            gap: 8px;
+            align-items: start;
+        }
+        .xb-tool-plan-box {
+            width: 14px;
+            height: 14px;
+            margin-top: 2px;
+            border: 1px solid rgba(143, 183, 202, 0.55);
+            border-radius: 4px;
+            color: var(--xb-cyan);
+            font: 700 11px/13px var(--xb-font-ui);
+            text-align: center;
+        }
+        .xb-tool-plan-item p {
+            min-width: 0;
+            margin: 0;
+            display: grid;
+            gap: 2px;
+        }
+        .xb-tool-plan-item strong {
+            color: var(--xb-text-main);
+            font: 600 12px/1.45 var(--xb-font-ui);
+            overflow-wrap: anywhere;
+        }
+        .xb-tool-plan-item em {
+            color: var(--xb-text-dim);
+            font-style: normal;
+            font-weight: 500;
+        }
+        .xb-tool-plan-item small {
+            white-space: pre-wrap;
+        }
+        .xb-tool-plan-blockers {
+            display: grid;
+            gap: 6px;
+            padding-top: 7px;
+            border-top: 1px solid rgba(255, 255, 255, 0.055);
+        }
+        .xb-tool-plan-blockers > span {
+            color: var(--xb-text-dim);
+            font-size: 11px;
+            font-weight: 700;
+        }
         .xb-tool.is-error { border-left-color: var(--xb-danger); }
         .xb-agent-scroll-helpers {
             position: absolute;
