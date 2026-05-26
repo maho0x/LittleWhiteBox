@@ -276,16 +276,21 @@ test('Default outline template pushes volume-level planning before chapter draft
     const outline = DEFAULT_BOOK_FILES.find((file) => file.path === 'book/outline.md')?.content || '';
     const volume = DEFAULT_BOOK_FILES.find((file) => file.path === 'book/volumes/001.md')?.content || '';
 
-    assert.match(outline, /第一轮：作品入口（三项收集）/);
-    assert.match(outline, /类型\/题材入口/);
-    assert.match(outline, /情绪\/读者体验入口/);
-    assert.match(outline, /关系\/设定张力入口/);
+    assert.match(outline, /第一轮：开书定位（读者承诺）/);
+    assert.match(outline, /类型\/题材承诺/);
+    assert.match(outline, /读者体验承诺/);
+    assert.match(outline, /核心看点\/张力源/);
+    assert.match(outline, /尺度与边界/);
     assert.match(outline, /文风、节奏、尺度、冲突密度、日常比例、性场景功能和审稿优先级/);
-    assert.match(outline, /## 作品入口/);
+    assert.match(outline, /## 开书定位/);
+    assert.match(outline, /## 故事脊柱/);
     assert(
-        outline.indexOf('## 作品入口') < outline.indexOf('## 书脊'),
-        '作品入口 should appear before 书脊',
+        outline.indexOf('## 开书定位') < outline.indexOf('## 故事脊柱'),
+        '开书定位 should appear before 故事脊柱',
     );
+    assert.match(outline, /怎么写好这本书（执行方案确认）/);
+    assert.match(outline, /必须先向用户说明“我准备怎样写好这本书”/);
+    assert.match(outline, /这一步是卷细纲的前置条件/);
     assert.match(outline, /大纲推进原则/);
     assert.match(outline, /大概有几卷/);
     assert.match(outline, /当前卷必须有可执行的卷内细纲/);
@@ -293,10 +298,19 @@ test('Default outline template pushes volume-level planning before chapter draft
     assert.match(outline, /## 卷细纲索引/);
     assert.doesNotMatch(outline, /## 当前卷推进草图/);
     assert.match(volume, /# 第一卷细纲/);
+    assert.match(volume, /先确认 style\.md 里已经有“怎么写好这本书”的执行方案/);
     assert.match(volume, /卷内推进草图/);
     assert.match(volume, /章节表是地图，不是工单/);
     assert.match(volume, /章末位移是写完后回头看的结果/);
     assert.match(volume, /第 1 章写到：主角第一次注意到女主那个下午/);
+    const style = DEFAULT_BOOK_FILES.find((file) => file.path === 'book/style.md')?.content || '';
+    assert.match(style, /## 怎么写好这本书/);
+    assert.match(style, /执行方案确认/);
+    assert.match(style, /卷细纲要在这一步之后形成/);
+    assert.match(style, /慢写不是把一场戏写长/);
+    assert.match(style, /章节是连续流里的呼吸点/);
+    assert.match(style, /章节不是任务/);
+    assert.match(style, /一章里不需要“完成”任何事/);
 });
 
 test('Book context prompt keeps stable files separate from volatile turn context', () => {
@@ -449,6 +463,8 @@ test('Delegate prompt gives the reviewer a stable book-specific tool model', () 
     assert.match(EBOOK_DELEGATE_PROMPT, /章节不是任务/);
     assert.match(EBOOK_DELEGATE_PROMPT, /章末位移是结果，不是目标/);
     assert.match(EBOOK_DELEGATE_PROMPT, /地图，不是工单/);
+    assert.match(EBOOK_DELEGATE_PROMPT, /慢写不是多加几百字/);
+    assert.match(EBOOK_DELEGATE_PROMPT, /发生前、临界前、动作中、动作后和后续余波/);
     assert.match(EBOOK_DELEGATE_PROMPT, /人物不能只是任务执行器/);
     assert.match(EBOOK_DELEGATE_PROMPT, /审稿规则没有覆盖的地方/);
     assert.match(EBOOK_DELEGATE_PROMPT, /You cannot write files, manage plans, or delegate to another agent/);
@@ -468,19 +484,30 @@ test('Book action prompts rely on injected core story files', () => {
     assert.match(startBookPrompt, /我想试试写一本书/);
     assert.match(startBookPrompt, /不要立刻写正文/);
     assert.match(startBookPrompt, /只问最核心的 3 到 5 个问题/);
-    assert.match(startBookPrompt, /作品入口三项/);
+    assert.match(startBookPrompt, /开书定位/);
+    assert.match(startBookPrompt, /类型\/题材承诺/);
+    assert.match(startBookPrompt, /尺度与边界/);
     assert.match(startBookPrompt, /文风、节奏、尺度、冲突密度、日常比例、性场景功能/);
-    assert.match(spinePrompt, /书脊/);
+    assert.match(spinePrompt, /故事脊柱/);
     assert.match(spinePrompt, /不要直接写完整大纲/);
-    assert.match(spinePrompt, /入口不足时先补入口/);
+    assert.match(spinePrompt, /定位不足时先补定位/);
+    assert.match(spinePrompt, /我准备怎样写好这本书/);
     assert.match(EBOOK_SYSTEM_PROMPT, /# 创作流程/);
     assert.match(EBOOK_SYSTEM_PROMPT, /## 流程纪律/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /### 开书/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /### 大纲与卷/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /### 章节推进/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /### 状态与复盘/);
     assert.match(EBOOK_SYSTEM_PROMPT, /book\/outline\.md` 顶部“新书建档引导”为准/);
-    assert.match(EBOOK_SYSTEM_PROMPT, /开书顺序不可跳/);
-    assert.match(EBOOK_SYSTEM_PROMPT, /卷内细纲只规划当前卷/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /开书时按这个顺序做，不要跳步/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /向用户说明“我准备怎样写好这本书”/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /是卷细纲的前置条件/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /卷内细纲写入 `book\/volumes\/NNN\.md`/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /不要把当前卷推进草图塞回 `book\/outline\.md`/);
     assert.match(EBOOK_SYSTEM_PROMPT, /章节表是地图和回头记录/);
     assert.match(EBOOK_SYSTEM_PROMPT, /一卷写完后先复盘/);
     assert.doesNotMatch(EBOOK_SYSTEM_PROMPT, /作品入口三项是：类型\/题材入口、情绪\/读者体验入口、关系\/设定张力入口/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /慢写不是多加几百字/);
     assert.match(EBOOK_SYSTEM_PROMPT, /book\/volumes\/NNN\.md/);
     assert.match(EBOOK_SYSTEM_PROMPT, /book\/volumes\/` is not stably injected/);
     assert.match(EBOOK_SYSTEM_PROMPT, /不要每章都问用户/);
@@ -496,6 +523,8 @@ test('Book action prompts rely on injected core story files', () => {
     assert.match(outlinePrompt, /推进草图是地图，不是工单/);
     assert.match(outlinePrompt, /按卷或事件集团推进/);
     assert.match(outlinePrompt, /少问多执行/);
+    assert.match(outlinePrompt, /我准备怎样写好这本书”：阅读体验落地、叙事视角、场景推进/);
+    assert.match(outlinePrompt, /不要急着拆当前卷细纲/);
     assert.match(outlinePrompt, /按需读取对应资料/);
     assert.match(nextChapterPrompt, /\[作品核心设定\]/);
     assert.match(nextChapterPrompt, /不要直接硬写长正文/);
@@ -504,6 +533,7 @@ test('Book action prompts rely on injected core story files', () => {
     assert.match(nextChapterPrompt, /不要变成写一章问一章/);
     assert.match(nextChapterPrompt, /沿事件集团和人物当前压力自然续写/);
     assert.match(nextChapterPrompt, /一章不需要完成任何固定事件/);
+    assert.match(nextChapterPrompt, /慢写不是多写几百字/);
     assert.match(nextChapterPrompt, /只读取目标章节或相邻章节/);
     assert.match(openingOptionsPrompt, /不要直接写入文件/);
     assert.match(openingOptionsPrompt, /给 2 到 3 个不同开场方案/);
@@ -5473,6 +5503,11 @@ test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
     assert.match(EBOOK_SYSTEM_PROMPT, /# File Discipline/);
     assert.match(EBOOK_SYSTEM_PROMPT, /## Tool Layers/);
     assert.match(EBOOK_SYSTEM_PROMPT, /## Selection Strategy/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /## 流程纪律/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /### 开书/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /### 大纲与卷/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /### 章节推进/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /### 状态与复盘/);
     assert.match(EBOOK_SYSTEM_PROMPT, /If a tool returns an error/);
     assert.match(EBOOK_SYSTEM_PROMPT, /Use Edit for small in-sentence or multi-spot local revisions/);
     assert.match(EBOOK_SYSTEM_PROMPT, /whole-chapter rewrites/);
