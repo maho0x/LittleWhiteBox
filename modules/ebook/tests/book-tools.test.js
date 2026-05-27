@@ -210,6 +210,11 @@ test('Shared applyTextEdits accepts JSON-stringified edits with a warning and re
     assert.equal(objectValue.ok, false);
     assert.equal(objectValue.results[0].error, 'edits_must_be_array');
     assert.match(objectValue.results[0].message, /received object/);
+
+    const missingValue = applyTextEdits(content);
+    assert.equal(missingValue.ok, false);
+    assert.equal(missingValue.results[0].error, 'missing_edits_array');
+    assert.match(missingValue.results[0].message, /it was missing/);
 });
 
 test('Shared applyTextEdits inserts text before, inside, and after line-numbered content', () => {
@@ -5808,7 +5813,7 @@ test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
     assert.match(EBOOK_SYSTEM_PROMPT, /use Edit `insertAtLine` to insert new text/);
     assert.match(EBOOK_SYSTEM_PROMPT, /use Write for creating files, complete file rewrites, whole sections, whole chapters/);
     assert.match(EBOOK_SYSTEM_PROMPT, /Do not send several Edit calls for the same file in the same turn/);
-    assert.match(EBOOK_SYSTEM_PROMPT, /Edit `edits` must be a real JSON array/);
+    assert.match(EBOOK_SYSTEM_PROMPT, /Edit `edits` must be a real, non-empty JSON array/);
     assert.match(EBOOK_SYSTEM_PROMPT, /Wrong: `"edits":"\[/);
     assert.match(EBOOK_SYSTEM_PROMPT, /Each Edit item must choose exactly one mode/);
     assert.match(EBOOK_SYSTEM_PROMPT, /line-range items must not include `oldString` or `insertAtLine`/);
@@ -5848,7 +5853,7 @@ test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
     assert.match(String(edit.function.description), /in-sentence, small-paragraph, or multi-spot local revisions/);
     assert.match(String(edit.function.description), /replaceAll/);
     assert.match(String(edit.function.description), /Do not issue multiple Edit tool calls for the same file/);
-    assert.match(String(edit.function.description), /must be an array value, not a JSON-stringified string/);
+    assert.match(String(edit.function.description), /must be a non-empty array value, not a JSON-stringified string/);
     assert.match(String(edit.function.description), /Wrong: `"edits":"\[/);
     assert.match(String(edit.function.description), /Omit unused mode fields entirely/);
     assert.match(String(edit.function.description), /Correct line-range item/);
@@ -5911,7 +5916,7 @@ test('Book tool definitions teach exact parameters like assistant tools', () => 
     const edit = definitions.get(EBOOK_TOOL_NAMES.EDIT);
     assert.match(String(edit.description), /One call edits one file/);
     assert.match(String(edit.description), /edits array/);
-    assert.match(String(edit.parameters.properties.edits.description), /real JSON array, not a quoted JSON string/);
+    assert.match(String(edit.parameters.properties.edits.description), /real, non-empty JSON array, not a quoted JSON string/);
     assert.match(String(edit.parameters.properties.edits.description), /Omit unused mode fields entirely/);
     assert.match(String(edit.description), /Combine same-file changes into one Edit call/);
     assert.equal(edit.parameters.properties.edits.items.required.includes('newString'), true);

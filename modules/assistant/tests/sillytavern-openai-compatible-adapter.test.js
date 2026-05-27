@@ -344,6 +344,120 @@ test('sillytavern Claude adapter streams tool calls through host generate endpoi
     }
 });
 
+test('sillytavern Claude adapter parses tool input only after stream completion', async () => {
+    const adapter = new SillyTavernClaudeAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'claude-sonnet-4-0',
+    });
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    globalThis.fetch = async () => createSseResponse([
+        {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', id: 'toolu_write', name: 'Write', input: {} },
+        },
+        {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '{"filePath":"book/chapters/001.md",' },
+        },
+        {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '"content":"第一行\\n\\"对话\\""}' },
+        },
+        {
+            type: 'message_delta',
+            delta: { stop_reason: 'tool_use' },
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '写一章' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Write',
+                    description: 'Write file.',
+                    parameters: { type: 'object', properties: {} },
+                },
+            }],
+            onStreamProgress: (snapshot) => progress.push(snapshot),
+        });
+
+        assert.equal(progress.length >= 2, true);
+        assert.deepEqual(result.toolCalls, [{
+            id: 'toolu_write',
+            name: 'Write',
+            arguments: '{"filePath":"book/chapters/001.md","content":"第一行\\n\\"对话\\""}',
+        }]);
+        assert.deepEqual(result.providerPayload.anthropicContent[0].input, {
+            filePath: 'book/chapters/001.md',
+            content: '第一行\n"对话"',
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern Claude adapter preserves malformed final tool input for tool-layer errors', async () => {
+    const adapter = new SillyTavernClaudeAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'claude-sonnet-4-0',
+    });
+    const originalFetch = globalThis.fetch;
+    const rawArguments = '{"filePath":"book/outline.md","edits":[';
+    globalThis.fetch = async () => createSseResponse([
+        {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', id: 'toolu_bad', name: 'Edit', input: {} },
+        },
+        {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: rawArguments },
+        },
+        {
+            type: 'message_delta',
+            delta: { stop_reason: 'tool_use' },
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '改大纲' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Edit',
+                    description: 'Edit file.',
+                    parameters: { type: 'object', properties: {} },
+                },
+            }],
+            onStreamProgress: () => {},
+        });
+
+        assert.deepEqual(result.toolCalls, [{
+            id: 'toolu_bad',
+            name: 'Edit',
+            arguments: rawArguments,
+        }]);
+        assert.deepEqual(result.providerPayload.anthropicContent[0], {
+            type: 'tool_use',
+            id: 'toolu_bad',
+            name: 'Edit',
+            input: {},
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('sillytavern Google adapter streams function calls through host generate endpoint', async () => {
     const adapter = new SillyTavernGoogleAdapter({
         baseUrl: '',

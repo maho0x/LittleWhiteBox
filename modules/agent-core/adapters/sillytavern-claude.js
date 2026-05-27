@@ -13,11 +13,19 @@ function cloneJson(value) {
     }
 }
 
-function parseJson(text, fallback = {}) {
+function parseToolInputJson(text = '') {
     try {
-        return JSON.parse(text || '');
-    } catch {
-        return fallback;
+        return {
+            ok: true,
+            input: JSON.parse(String(text || '')),
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            input: {},
+            raw: String(text || ''),
+            error: error instanceof Error ? error.message : String(error || 'invalid_tool_input_json'),
+        };
     }
 }
 
@@ -55,11 +63,33 @@ function normalizeContentBlocks(content = []) {
                 return { type: 'text', text: String(block.text || '') };
             }
             if (block.type === 'tool_use' && block.name) {
+                if (block.inputJson !== undefined) {
+                    const parsed = parseToolInputJson(block.inputJson);
+                    return {
+                        type: 'tool_use',
+                        id: String(block.id || block.name),
+                        name: String(block.name),
+                        input: parsed.input,
+                        ...(parsed.ok ? {} : {
+                            invalidInputJson: parsed.raw,
+                            inputParseError: parsed.error,
+                        }),
+                    };
+                }
+                const clonedInput = cloneJson(block.input);
+                if (clonedInput !== undefined) {
+                    return {
+                        type: 'tool_use',
+                        id: String(block.id || block.name),
+                        name: String(block.name),
+                        input: clonedInput,
+                    };
+                }
                 return {
                     type: 'tool_use',
                     id: String(block.id || block.name),
                     name: String(block.name),
-                    input: cloneJson(block.input) || parseJson(block.inputJson, {}),
+                    input: {},
                 };
             }
             if (block.type === 'thinking') {
@@ -73,6 +103,37 @@ function normalizeContentBlocks(content = []) {
         .filter(Boolean);
 }
 
+function buildProviderPayloadContent(blocks = []) {
+    return blocks.map((block) => {
+        if (!block || typeof block !== 'object') return null;
+        if (block.type === 'tool_use' && block.name) {
+            return {
+                type: 'tool_use',
+                id: block.id,
+                name: block.name,
+                input: cloneJson(block.input) || {},
+            };
+        }
+        return cloneJson(block) || null;
+    }).filter(Boolean);
+}
+
+function buildStreamProgressSnapshot(content = []) {
+    const source = Array.isArray(content) ? content : [];
+    const text = source
+        .filter((block) => block?.type === 'text')
+        .map((block) => block.text || '')
+        .join('\n');
+    const thoughts = source
+        .filter((block) => block?.type === 'thinking' || block?.type === 'redacted_thinking')
+        .map((block) => ({
+            label: block.type === 'thinking' ? '思考块' : '已脱敏思考块',
+            text: block.type === 'thinking' ? (block.thinking || '') : (block.data || ''),
+        }))
+        .filter((item) => item.text);
+    return { text, thoughts };
+}
+
 function parseContentResult(content = [], options = {}) {
     const normalized = normalizeContentBlocks(content);
     const toolCalls = normalized
@@ -80,7 +141,9 @@ function parseContentResult(content = [], options = {}) {
         .map((block, index) => ({
             id: block.id || `st-claude-tool-${index + 1}`,
             name: block.name,
-            arguments: JSON.stringify(block.input || {}),
+            arguments: block.invalidInputJson !== undefined
+                ? block.invalidInputJson
+                : JSON.stringify(block.input || {}),
         }));
     const text = normalized
         .filter((block) => block.type === 'text')
@@ -101,7 +164,7 @@ function parseContentResult(content = [], options = {}) {
         finishReason: options.finishReason || 'stop',
         model: options.model || '',
         provider: 'sillytavern-claude',
-        providerPayload: normalized.length ? { anthropicContent: normalized } : undefined,
+        providerPayload: normalized.length ? { anthropicContent: buildProviderPayloadContent(normalized) } : undefined,
     };
 }
 
@@ -129,7 +192,7 @@ function createClaudeStreamAccumulator(task, config = {}) {
     };
 
     const emit = () => {
-        const result = parseContentResult(blocks, { finishReason, model });
+        const result = buildStreamProgressSnapshot(blocks);
         emitStreamProgress(task, {
             text: result.text,
             thoughts: result.thoughts,
@@ -155,7 +218,6 @@ function createClaudeStreamAccumulator(task, config = {}) {
                 } else if (delta.type === 'input_json_delta') {
                     block.type = block.type || 'tool_use';
                     block.inputJson = `${block.inputJson || ''}${delta.partial_json || ''}`;
-                    block.input = parseJson(block.inputJson, block.input || {});
                 } else if (delta.type === 'thinking_delta') {
                     block.type = block.type || 'thinking';
                     block.thinking = `${block.thinking || ''}${delta.thinking || ''}`;

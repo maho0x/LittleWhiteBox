@@ -174,7 +174,7 @@ export function getEbookToolDefinitions(options = {}) {
                         'Use oldString/newString for in-sentence, small-paragraph, or multi-spot local revisions. Use startLine/endLine/newString for contiguous medium-sized passage replacement where copying oldString would be fragile. Use insertAtLine/newString to add new text before a line or at the end without replacing existing text. Use Write instead for creating files, complete file rewrites, whole sections, whole chapters, or rewrites where most content is new.',
                         'Read the target file first unless the exact current text is already available in the conversation or a recent tool result. Line-range and insertion edits must use line numbers from the latest Read result.',
                         'Put multiple same-mode edits in the edits array.',
-                        'The `edits` argument must be an array value, not a JSON-stringified string. Correct: `"edits":[{"startLine":10,"endLine":50,"newString":"..."}]`. Wrong: `"edits":"[{\\"startLine\\":10,\\"endLine\\":50,\\"newString\\":\\"...\\"}]"`.',
+                        'The `edits` argument must be a non-empty array value, not a JSON-stringified string. Correct: `"edits":[{"startLine":10,"endLine":50,"newString":"..."}]`. Wrong: `"edits":"[{\\"startLine\\":10,\\"endLine\\":50,\\"newString\\":\\"...\\"}]"`.',
                         'Each edit item must choose exactly one mode. Omit unused mode fields entirely; do not include placeholders such as oldString: "", startLine: null, endLine: null, or insertAtLine: null.',
                         'Correct line-range item: `{"startLine":10,"endLine":50,"newString":"..."}`. Wrong mixed item: `{"oldString":"...","startLine":10,"endLine":50,"insertAtLine":10,"newString":"..."}`.',
                         'Do not issue multiple Edit tool calls for the same file in one assistant turn. Combine same-file changes into one Edit call, or wait for the first result before editing that file again.',
@@ -203,7 +203,7 @@ export function getEbookToolDefinitions(options = {}) {
                             filePath: { type: 'string', description: 'Target file path, for example `book/chapters/001.md` or `book/characters.md`.' },
                             edits: {
                                 type: 'array',
-                                description: 'List of edits as a real JSON array, not a quoted JSON string. Each item must use exactly one mode: oldString/newString, startLine/endLine/newString, or insertAtLine/newString. Omit unused mode fields entirely.',
+                                description: 'List of edits as a real, non-empty JSON array, not a quoted JSON string. Each item must use exactly one mode: oldString/newString, startLine/endLine/newString, or insertAtLine/newString. Omit unused mode fields entirely.',
                                 items: {
                                     type: 'object',
                                     properties: {

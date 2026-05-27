@@ -430,7 +430,12 @@ function normalizeEditsInput(edits) {
         }
     }
     if (edits === undefined || edits === null) {
-        return { ok: true, edits: [], parsedFromString: false };
+        return {
+            ok: false,
+            error: 'missing_edits_array',
+            message: 'edits is required and must be a JSON array, but it was missing',
+            suggestion: 'Include an edits array with at least one item. Correct: "edits":[{"startLine":10,"endLine":50,"newString":"..."}].',
+        };
     }
     return {
         ok: false,
@@ -440,7 +445,7 @@ function normalizeEditsInput(edits) {
     };
 }
 
-export function applyTextEdits(content = '', edits = []) {
+export function applyTextEdits(content = '', edits) {
     let nextContent = String(content ?? '');
     const normalizedInput = normalizeEditsInput(edits);
     if (!normalizedInput.ok) {
