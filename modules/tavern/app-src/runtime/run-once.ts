@@ -15,6 +15,13 @@ export interface TavernRunOnceResult {
     provider?: string;
     finishReason?: string;
     providerPayload?: unknown;
+    requestSnapshot: {
+        provider: string;
+        model: string;
+        messageCount: number;
+        messageChars: number;
+        rawMessagesJson: string;
+    };
 }
 
 export async function runTavernOnce(options: TavernRunOnceOptions): Promise<TavernRunOnceResult> {
@@ -41,5 +48,12 @@ export async function runTavernOnce(options: TavernRunOnceOptions): Promise<Tave
         provider: result?.provider,
         finishReason: result?.finishReason,
         providerPayload: result?.providerPayload,
+        requestSnapshot: {
+            provider: String(result?.provider || providerConfig.provider || ''),
+            model: String(result?.model || providerConfig.model || ''),
+            messageCount: options.messages.length,
+            messageChars: options.messages.reduce((sum, message) => sum + String(message.content || '').length, 0),
+            rawMessagesJson: JSON.stringify(options.messages, null, 2),
+        },
     };
 }

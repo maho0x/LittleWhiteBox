@@ -311,6 +311,28 @@ textarea:disabled {
     padding: 12px;
 }
 
+.message-group {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.message-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid rgba(231, 225, 214, 0.1);
+    color: #d8c49e;
+    padding: 2px 2px 6px;
+    font-size: 12px;
+}
+
+.message-group-head span {
+    flex: 0 0 auto;
+    color: #aaa090;
+}
+
 .message.linked,
 .preset-section.selected,
 .preset-edit-card.selected {
@@ -620,6 +642,11 @@ pre {
 
     .message summary,
     .preset-section summary {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .message-group-head {
         align-items: flex-start;
         flex-direction: column;
     }

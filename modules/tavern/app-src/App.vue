@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
     buildXbTavernMessages,
+    createXbTavernBuildSnapshot,
     type XbTavernContext,
     type XbTavernMessage,
     type XbTavernPresetSection,
@@ -17,12 +18,14 @@ import {
     listTavernMessages,
     listTavernSessions,
     listUserTavernPresets,
+    normalizeTavernSessionState,
     saveTavernPreset,
     setActiveTavernPresetId,
     setSelectedTavernSessionId,
+    updateTavernSessionState,
+    type TavernMessageRecord,
     type TavernPresetRecord,
     type TavernSessionRecord,
-    type TavernMessageRecord,
 } from '../shared/session-db';
 import { runTavernOnce } from './runtime/run-once';
 
@@ -60,13 +63,16 @@ const savedPresetJson = ref('');
 const selectedPresetSourceId = ref('');
 const presetIsBuiltIn = computed(() => activePresetId.value === DEFAULT_XB_TAVERN_PRESET_ID);
 const presetDirty = computed(() => !presetIsBuiltIn.value && snapshotPreset(preset.value) !== savedPresetJson.value);
+const selectedSession = computed(() => sessions.value.find((item) => item.id === selectedSessionId.value) || null);
+const sessionRuntimeState = computed(() => normalizeTavernSessionState(selectedSession.value?.state || {}));
 
 const effectiveContext = computed<XbTavernContext>(() => ({
-    ...context.value,
+    ...(selectedSession.value?.contextSnapshot || context.value),
     history: selectedSessionId.value
         ? sessionMessages.value.map((message) => ({
             role: ['system', 'user', 'assistant', 'tool'].includes(message.role) ? message.role as XbTavernMessage['role'] : 'assistant',
             content: message.content,
+            name: message.name,
         }))
         : context.value.history,
 }));
@@ -78,6 +84,8 @@ const buildResult = computed(() => buildXbTavernMessages(effectiveContext.value,
         recursion: true,
         recursionLimit: 4,
         budgetChars: 24000,
+        turn: sessionRuntimeState.value.turn,
+        entryStates: sessionRuntimeState.value.worldEntryStates,
     },
 }));
 
@@ -88,8 +96,9 @@ const worldBookCount = computed(() => worldBooks.value.length);
 const worldEntryCount = computed(() => buildResult.value.worldEntryCandidates.length);
 const activatedCount = computed(() => buildResult.value.activatedWorldEntries.length);
 const messagePreview = computed(() => buildResult.value.messages);
-const selectedSessionTitle = computed(() => sessions.value.find((item) => item.id === selectedSessionId.value)?.title || '未创建会话');
+const selectedSessionTitle = computed(() => selectedSession.value?.title || '未创建会话');
 const rawMessagesJson = computed(() => buildResult.value.meta.rawMessagesJson);
+const buildSnapshot = computed(() => createXbTavernBuildSnapshot(effectiveContext.value, preset.value, buildResult.value, diagnostics.value));
 
 const characterFields = computed(() => {
     const character = context.value.character || {};
@@ -131,6 +140,46 @@ const messageRows = computed(() => messagePreview.value.map((message, index) => 
         tokenEstimate: layer?.tokenEstimate || Math.max(1, Math.ceil(message.content.length / 4)),
     };
 }));
+
+type MessagePreviewRow = (typeof messageRows.value)[number];
+
+const messageGroups = computed(() => {
+    const labels: Record<string, string> = {
+        'lwb-system': '小白顶层 system',
+        'lwb-tool': '小白工具/行为规则',
+        top: '顶部预设',
+        preset: '预设段',
+        'world-before': '世界书 · 角色卡前',
+        'character-card': '角色卡',
+        'world-after': '世界书 · 角色卡后',
+        'world-author-note': '世界书 · 作者备注',
+        'world-examples': '世界书 · 示例消息',
+        history: '历史',
+        'current-user/history': '历史/当前用户消息',
+        'current-user': '当前用户消息',
+        'world-depth': '世界书 · 深度插入',
+        'assistant-prefill': '助手预填',
+    };
+    const groups: Array<{ key: string; label: string; rows: MessagePreviewRow[]; chars: number; tokenEstimate: number }> = [];
+    messageRows.value.forEach((row) => {
+        const previous = groups[groups.length - 1];
+        let group = previous?.key === row.layer ? previous : null;
+        if (!group) {
+            group = {
+                key: row.layer,
+                label: labels[row.layer] || row.label || row.layer,
+                rows: [],
+                chars: 0,
+                tokenEstimate: 0,
+            };
+            groups.push(group);
+        }
+        group.rows.push(row);
+        group.chars += row.chars;
+        group.tokenEstimate += row.tokenEstimate;
+    });
+    return groups;
+});
 
 const activeCandidateKeys = computed(() => new Set(buildResult.value.activatedWorldEntries.map((entry) => entry.activationKey)));
 const activatedOrder = computed(() => new Map(buildResult.value.activatedWorldEntries.map((entry, index) => [entry.activationKey, index])));
@@ -220,6 +269,7 @@ async function selectPreset(presetId: string) {
     activePresetId.value = presetId || DEFAULT_XB_TAVERN_PRESET_ID;
     preset.value = await loadActiveTavernPreset();
     savedPresetJson.value = snapshotPreset(preset.value);
+    selectedPresetSourceId.value = '';
     presetStatus.value = presetIsBuiltIn.value ? '当前使用内置只读预设。' : '已切换到用户预设。';
 }
 
@@ -242,6 +292,7 @@ async function resetToBuiltInPreset() {
     activePresetId.value = DEFAULT_XB_TAVERN_PRESET_ID;
     preset.value = createDefaultXbTavernPreset();
     savedPresetJson.value = snapshotPreset(preset.value);
+    selectedPresetSourceId.value = '';
     presetStatus.value = '已切回内置默认预设。';
 }
 
@@ -317,6 +368,7 @@ async function discardPresetChanges() {
     if (presetIsBuiltIn.value || !presetDirty.value) {return;}
     preset.value = await loadActiveTavernPreset();
     savedPresetJson.value = snapshotPreset(preset.value);
+    selectedPresetSourceId.value = '';
     presetStatus.value = '已放弃未保存改动。';
 }
 
@@ -364,11 +416,31 @@ async function refreshSessions() {
 }
 
 async function createSessionFromContext() {
+    const snapshotContext = context.value;
+    const snapshotBuildResult = buildXbTavernMessages(snapshotContext, preset.value, {
+        currentUserMessage: currentUserMessage.value,
+        historyMode: historyMode.value,
+        worldSettings: {
+            recursion: true,
+            recursionLimit: 4,
+            budgetChars: 24000,
+            turn: 0,
+            entryStates: {},
+        },
+    });
+    const snapshotBuild = createXbTavernBuildSnapshot(snapshotContext, preset.value, snapshotBuildResult, diagnostics.value);
     const session = await createTavernSession({
-        title: `${characterName.value} · 小白酒馆`,
-        characterId: String(context.value.character?.id || ''),
-        characterName: characterName.value,
-        contextSnapshot: context.value,
+        title: `${snapshotContext.character?.name || '未选择角色'} · 小白酒馆`,
+        characterId: String(snapshotContext.character?.id || ''),
+        characterName: String(snapshotContext.character?.name || '未选择角色'),
+        contextSnapshot: snapshotContext,
+        buildSnapshot: snapshotBuild,
+        presetId: String(preset.value.id || activePresetId.value || ''),
+        presetName: String(preset.value.name || ''),
+        state: {
+            turn: 0,
+            worldEntryStates: {},
+        },
     });
     selectedSessionId.value = session.id;
     await refreshSessions();
@@ -380,9 +452,29 @@ async function selectSession(sessionId: string) {
     sessionMessages.value = await listTavernMessages(sessionId);
 }
 
-async function ensureSession(): Promise<string> {
+async function ensureSession(snapshot?: {
+    context: XbTavernContext;
+    buildSnapshot: ReturnType<typeof createXbTavernBuildSnapshot>;
+    presetId: string;
+    presetName: string;
+}): Promise<string> {
     if (!selectedSessionId.value) {
-        await createSessionFromContext();
+        const snapshotContext = snapshot?.context || context.value;
+        const session = await createTavernSession({
+            title: `${snapshotContext.character?.name || '未选择角色'} · 小白酒馆`,
+            characterId: String(snapshotContext.character?.id || ''),
+            characterName: String(snapshotContext.character?.name || '未选择角色'),
+            contextSnapshot: snapshotContext,
+            buildSnapshot: snapshot?.buildSnapshot,
+            presetId: snapshot?.presetId || String(preset.value.id || activePresetId.value || ''),
+            presetName: snapshot?.presetName || String(preset.value.name || ''),
+            state: {
+                turn: 0,
+                worldEntryStates: {},
+            },
+        });
+        selectedSessionId.value = session.id;
+        await refreshSessions();
     }
     return selectedSessionId.value;
 }
@@ -419,21 +511,49 @@ function candidateReason(entry: { status?: string; activationReason?: string; bu
 }
 
 async function runOnce() {
+    const requestContext = effectiveContext.value;
+    const requestPresetId = String(preset.value.id || activePresetId.value || '');
+    const requestPresetName = String(preset.value.name || '');
+    const requestRuntimeState = normalizeTavernSessionState(selectedSession.value?.state || {});
+    const requestBuildResult = buildXbTavernMessages(requestContext, preset.value, {
+        currentUserMessage: currentUserMessage.value,
+        historyMode: historyMode.value,
+        worldSettings: {
+            recursion: true,
+            recursionLimit: 4,
+            budgetChars: 24000,
+            turn: requestRuntimeState.turn,
+            entryStates: requestRuntimeState.worldEntryStates,
+        },
+    });
+    const requestBuildSnapshot = createXbTavernBuildSnapshot(requestContext, preset.value, requestBuildResult, diagnostics.value);
+    const requestRawMessagesJson = requestBuildResult.meta.rawMessagesJson;
     runtimeError.value = '';
     runtimeText.value = '';
     runtimeProvider.value = '';
     runtimeModel.value = '';
     runtimeSnapshotJson.value = JSON.stringify({
-        messageCount: messagePreview.value.length,
-        messages: messagePreview.value,
+        buildSnapshot: requestBuildSnapshot,
     }, null, 2);
     isRunning.value = true;
     try {
-        const sessionId = await ensureSession();
-        await appendTavernMessage(sessionId, { role: 'user', content: currentUserMessage.value } as XbTavernMessage);
+        const sessionId = await ensureSession({
+            context: requestContext,
+            buildSnapshot: requestBuildSnapshot,
+            presetId: requestPresetId,
+            presetName: requestPresetName,
+        });
+        await appendTavernMessage(sessionId, {
+            role: 'user',
+            content: currentUserMessage.value,
+            contextSnapshot: requestContext,
+            buildSnapshot: requestBuildSnapshot,
+            presetId: requestPresetId,
+            presetName: requestPresetName,
+        });
         const result = await runTavernOnce({
             agentConfig: agentConfig.value,
-            messages: messagePreview.value,
+            messages: requestBuildResult.messages,
             onStreamProgress: (snapshot) => {
                 if (typeof snapshot.text === 'string') {runtimeText.value = snapshot.text;}
             },
@@ -445,7 +565,28 @@ async function runOnce() {
             role: 'assistant',
             content: result.text,
             providerPayload: result.providerPayload,
-        } as unknown as TavernMessageRecord);
+            contextSnapshot: requestContext,
+            buildSnapshot: requestBuildSnapshot,
+            presetId: requestPresetId,
+            presetName: requestPresetName,
+            requestSnapshot: result.requestSnapshot,
+        });
+        await updateTavernSessionState(sessionId, {
+            turn: Number(requestRuntimeState.turn || 0) + 1,
+            worldEntryStates: requestBuildResult.meta.worldEntryStateUpdates,
+            lastBuildSnapshot: requestBuildSnapshot,
+            lastRequestSnapshot: result.requestSnapshot,
+            lastProvider: result.provider || '',
+            lastModel: result.model || '',
+        });
+        runtimeSnapshotJson.value = JSON.stringify({
+            provider: result.provider || '',
+            model: result.model || '',
+            previewMatchesRequest: requestRawMessagesJson === result.requestSnapshot.rawMessagesJson,
+            nextTurn: Number(requestRuntimeState.turn || 0) + 1,
+            buildSnapshot: requestBuildSnapshot,
+            requestSnapshot: result.requestSnapshot,
+        }, null, 2);
         await refreshSessions();
     } catch (error) {
         runtimeError.value = error instanceof Error ? error.message : String(error || 'run_failed');
@@ -928,19 +1069,29 @@ onUnmounted(() => {
             rows="3"
           />
           <div class="message-preview">
-            <details
-              v-for="row in messageRows"
-              :key="`${row.index}-${row.message.role}-${row.layer}`"
-              class="message"
-              :class="{ linked: row.sourceId && selectedPresetSourceId === row.sourceId }"
-              open
+            <section
+              v-for="group in messageGroups"
+              :key="group.key"
+              class="message-group"
             >
-              <summary>
-                <span>{{ row.index + 1 }} · {{ row.message.role }} · {{ row.label }}</span>
-                <small>{{ row.chars }} 字 · ~{{ row.tokenEstimate }} tokens</small>
-              </summary>
-              <pre>{{ row.message.content }}</pre>
-            </details>
+              <div class="message-group-head">
+                <strong>{{ group.label }}</strong>
+                <span>{{ group.rows.length }} 条 · {{ group.chars }} 字 · ~{{ group.tokenEstimate }} tokens</span>
+              </div>
+              <details
+                v-for="row in group.rows"
+                :key="`${row.index}-${row.message.role}-${row.layer}`"
+                class="message"
+                :class="{ linked: row.sourceId && selectedPresetSourceId === row.sourceId }"
+                open
+              >
+                <summary>
+                  <span>{{ row.index + 1 }} · {{ row.message.role }} · {{ row.label }}</span>
+                  <small>{{ row.chars }} 字 · ~{{ row.tokenEstimate }} tokens</small>
+                </summary>
+                <pre>{{ row.message.content }}</pre>
+              </details>
+            </section>
           </div>
           <details class="raw-json">
             <summary>Raw messages JSON</summary>

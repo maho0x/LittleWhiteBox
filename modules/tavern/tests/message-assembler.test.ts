@@ -6,6 +6,7 @@ import {
     XBTavernWorldPosition,
     activateWorldEntries,
     buildXbTavernMessages,
+    createXbTavernBuildSnapshot,
     squashChatHistory,
 } from '../shared/message-assembler';
 import {
@@ -329,6 +330,82 @@ test('xb tavern assembler distinguishes probability failures from budget skips',
     assert.equal(result.worldEntryCandidates[0]?.activationReason, 'constant');
 });
 
+test('xb tavern world activation honors case, whole-word, cooldown, delay, and state updates', () => {
+    const entries = activateWorldEntries([
+        {
+            uid: 'case',
+            content: 'Case-sensitive lore.',
+            key: ['Vault'],
+            caseSensitive: true,
+        },
+        {
+            uid: 'whole',
+            content: 'Whole-word lore.',
+            key: ['cat'],
+            matchWholeWords: true,
+        },
+        {
+            uid: 'cooling',
+            content: 'Cooling lore.',
+            constant: true,
+        },
+        {
+            uid: 'delayed',
+            content: 'Delayed lore.',
+            constant: true,
+            delay: 5,
+        },
+    ], {
+        scanText: 'Vault cat catalog',
+        turn: 3,
+        entryStates: {
+            cooling: { cooldownUntilTurn: 9 },
+        },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.uid), ['case', 'whole']);
+
+    const result = buildXbTavernMessages({
+        worldEntries: [
+            { uid: 'sticky', content: 'Sticky next.', constant: true, sticky: 2 },
+            { uid: 'cooldown', content: 'Cooldown next.', constant: true, cooldown: 3 },
+        ],
+    }, {
+        systemPrompt: 'Top',
+        toolPrompt: 'Tools',
+    }, {
+        currentUserMessage: 'Hello.',
+        worldSettings: { turn: 4 },
+    });
+
+    assert.deepEqual(result.meta.worldEntryStateUpdates['direct\u0000sticky'], { stickyUntilTurn: 6 });
+    assert.deepEqual(result.meta.worldEntryStateUpdates['direct\u0000cooldown'], { cooldownUntilTurn: 7 });
+});
+
+test('xb tavern world entry states are keyed by activation key across world books', () => {
+    const result = buildXbTavernMessages({
+        worldBooks: [
+            {
+                name: 'Alpha',
+                entries: [{ uid: 'shared', content: 'Alpha lore.', constant: true, cooldown: 2 }],
+            },
+            {
+                name: 'Beta',
+                entries: [{ uid: 'shared', content: 'Beta lore.', constant: true, cooldown: 4 }],
+            },
+        ],
+    }, {
+        systemPrompt: 'Top',
+        toolPrompt: 'Tools',
+    }, {
+        currentUserMessage: 'Hello.',
+        worldSettings: { turn: 10 },
+    });
+
+    assert.deepEqual(result.meta.worldEntryStateUpdates['Alpha\u0000shared'], { cooldownUntilTurn: 12 });
+    assert.deepEqual(result.meta.worldEntryStateUpdates['Beta\u0000shared'], { cooldownUntilTurn: 14 });
+});
+
 test('xb tavern assembler does not double count flattened world entries when world books exist', () => {
     const entry = {
         uid: 'same',
@@ -415,6 +492,18 @@ test('xb tavern assembler maps world positions into stable message locations', (
                 position: XBTavernWorldPosition.outlet,
                 outletName: 'status',
             },
+            {
+                uid: 'author-note',
+                content: 'Author note lore.',
+                constant: true,
+                position: XBTavernWorldPosition.ANTop,
+            },
+            {
+                uid: 'example-message',
+                content: 'Example message lore.',
+                constant: true,
+                position: XBTavernWorldPosition.EMBottom,
+            },
         ],
     }, {
         systemPrompt: 'Top',
@@ -428,8 +517,41 @@ test('xb tavern assembler maps world positions into stable message locations', (
     assert.equal(contents.indexOf('<world_info_before_character>\nBefore character lore.\n</world_info_before_character>') < contents.findIndex((content) => content.includes('<character_card>')), true);
     assert.equal(contents.indexOf('<world_info_after_character>\nAfter character lore.\n</world_info_after_character>') > contents.findIndex((content) => content.includes('<character_card>')), true);
     assert.deepEqual(result.outlets, { status: 'Outlet lore.' });
-    assert.equal(result.messages[result.messages.length - 2].content, 'Look at the vault.');
-    assert.equal(result.messages[result.messages.length - 1].content, '<world_info_depth depth="0">\nDepth lore.\n</world_info_depth>');
+    assert.equal(contents.includes('<world_info_author_note_top>\nAuthor note lore.\n</world_info_author_note_top>'), true);
+    assert.equal(contents.includes('<world_info_examples_bottom>\nExample message lore.\n</world_info_examples_bottom>'), true);
+    assert.equal(contents.includes('Look at the vault.'), true);
+    assert.equal(contents.includes('<world_info_depth depth="0">\nDepth lore.\n</world_info_depth>'), true);
+});
+
+test('xb tavern build snapshot summarizes context, preset, world activation, and raw messages', () => {
+    const context = {
+        character: { id: 'char-1', name: 'Aster' },
+        user: { name: 'Player' },
+        history: [{ role: 'user' as const, content: 'Earlier.' }],
+        worldBooks: [{
+            name: 'Lore',
+            entries: [{ uid: 'lore', content: 'Lore text.', constant: true }],
+        }],
+    };
+    const preset = {
+        id: 'preset-1',
+        name: 'Preset One',
+        systemPrompt: 'Top',
+        toolPrompt: 'Tools',
+    };
+    const result = buildXbTavernMessages(context, preset, {
+        currentUserMessage: 'Now.',
+    });
+    const snapshot = createXbTavernBuildSnapshot(context, preset, result, { ok: true });
+
+    assert.equal(snapshot.presetId, 'preset-1');
+    assert.equal(snapshot.characterName, 'Aster');
+    assert.equal(snapshot.historyCount, 1);
+    assert.deepEqual(snapshot.worldBooks, [{ name: 'Lore', entries: 1 }]);
+    assert.equal(snapshot.messageCount, result.messages.length);
+    assert.equal(snapshot.rawMessagesJson, result.meta.rawMessagesJson);
+    assert.equal(snapshot.activatedWorldEntries[0]?.sourceWorldBook, 'Lore');
+    assert.deepEqual(snapshot.diagnostics, { ok: true });
 });
 
 test('xb tavern assembler can squash chat history like a controlled preset layer', () => {

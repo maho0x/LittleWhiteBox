@@ -1,5 +1,5 @@
 import Dexie, { type DexieTable } from '../../../libs/dexie.mjs';
-import type { XbTavernContext, XbTavernMessage, XbTavernPreset } from './message-assembler';
+import type { XbTavernBuildSnapshot, XbTavernContext, XbTavernMessage, XbTavernPreset, XbTavernWorldEntryState } from './message-assembler';
 import { createDefaultXbTavernPreset, DEFAULT_XB_TAVERN_PRESET_ID } from './presets';
 
 export interface TavernSessionRecord {
@@ -10,8 +10,21 @@ export interface TavernSessionRecord {
     createdAt: number;
     updatedAt: number;
     contextSnapshot?: XbTavernContext;
+    buildSnapshot?: XbTavernBuildSnapshot;
+    presetId?: string;
+    presetName?: string;
     summary?: string;
-    state?: Record<string, unknown>;
+    state?: TavernSessionState;
+}
+
+export interface TavernSessionState {
+    turn?: number;
+    worldEntryStates?: Record<string, XbTavernWorldEntryState>;
+    lastBuildSnapshot?: XbTavernBuildSnapshot;
+    lastRequestSnapshot?: unknown;
+    lastProvider?: string;
+    lastModel?: string;
+    [key: string]: unknown;
 }
 
 export interface TavernMessageRecord {
@@ -19,9 +32,24 @@ export interface TavernMessageRecord {
     order: number;
     role: string;
     content: string;
+    name?: string;
     createdAt: number;
     providerPayload?: unknown;
+    contextSnapshot?: XbTavernContext;
+    buildSnapshot?: XbTavernBuildSnapshot;
+    presetId?: string;
+    presetName?: string;
+    requestSnapshot?: unknown;
 }
+
+export type TavernAppendMessageInput = XbTavernMessage & {
+    providerPayload?: unknown;
+    contextSnapshot?: XbTavernContext;
+    buildSnapshot?: XbTavernBuildSnapshot;
+    presetId?: string;
+    presetName?: string;
+    requestSnapshot?: unknown;
+};
 
 export interface TavernMetaRecord {
     key: string;
@@ -92,6 +120,50 @@ function normalizePresetName(value = '', fallback = '我的小白酒馆预设'):
     return normalized.slice(0, 120) || fallback;
 }
 
+function normalizeWorldEntryStates(value: unknown): Record<string, XbTavernWorldEntryState> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {return {};}
+    const states: Record<string, XbTavernWorldEntryState> = {};
+    Object.entries(value as Record<string, unknown>).forEach(([key, state]) => {
+        if (!key || !state || typeof state !== 'object' || Array.isArray(state)) {return;}
+        const normalized: XbTavernWorldEntryState = {};
+        const source = state as Record<string, unknown>;
+        ['stickyUntilTurn', 'cooldownUntilTurn', 'delayUntilTurn'].forEach((field) => {
+            const turn = Number(source[field]);
+            if (Number.isFinite(turn)) {
+                normalized[field as keyof XbTavernWorldEntryState] = turn;
+            }
+        });
+        if (Object.keys(normalized).length) {
+            states[key] = normalized;
+        }
+    });
+    return states;
+}
+
+export function normalizeTavernSessionState(value: unknown): TavernSessionState {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    return {
+        ...source,
+        turn: Math.max(0, Number(source.turn) || 0),
+        worldEntryStates: normalizeWorldEntryStates(source.worldEntryStates),
+    };
+}
+
+export function mergeWorldEntryStates(
+    existing: Record<string, XbTavernWorldEntryState> = {},
+    updates: Record<string, XbTavernWorldEntryState> = {},
+): Record<string, XbTavernWorldEntryState> {
+    const merged: Record<string, XbTavernWorldEntryState> = cloneJson(existing || {});
+    Object.entries(updates || {}).forEach(([key, update]) => {
+        if (!key || !update || typeof update !== 'object') {return;}
+        merged[key] = {
+            ...(merged[key] || {}),
+            ...update,
+        };
+    });
+    return merged;
+}
+
 export async function createTavernSession(input: Partial<TavernSessionRecord> = {}): Promise<TavernSessionRecord> {
     const timestamp = now();
     const session: TavernSessionRecord = {
@@ -102,8 +174,11 @@ export async function createTavernSession(input: Partial<TavernSessionRecord> = 
         createdAt: Number(input.createdAt) || timestamp,
         updatedAt: timestamp,
         contextSnapshot: input.contextSnapshot,
+        buildSnapshot: input.buildSnapshot,
+        presetId: String(input.presetId || ''),
+        presetName: String(input.presetName || ''),
         summary: String(input.summary || ''),
-        state: input.state || {},
+        state: normalizeTavernSessionState(input.state || {}),
     };
     await tavernSessionsTable.put(session);
     await tavernMetaTable.put({ key: 'selectedSessionId', value: session.id, updatedAt: timestamp });
@@ -131,7 +206,29 @@ export async function getTavernSession(sessionId = ''): Promise<TavernSessionRec
     return await tavernSessionsTable.get(id) || null;
 }
 
-export async function appendTavernMessage(sessionId: string, message: XbTavernMessage | TavernMessageRecord): Promise<TavernMessageRecord> {
+export async function updateTavernSessionState(sessionId = '', patch: Partial<TavernSessionState> = {}): Promise<TavernSessionRecord | null> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return null;}
+    const existing = await getTavernSession(id);
+    if (!existing) {return null;}
+    const timestamp = now();
+    const currentState = normalizeTavernSessionState(existing.state || {});
+    const patchState = normalizeTavernSessionState(patch);
+    const state: TavernSessionState = {
+        ...currentState,
+        ...patch,
+        turn: Math.max(0, Number(patch.turn ?? currentState.turn) || 0),
+        worldEntryStates: mergeWorldEntryStates(currentState.worldEntryStates || {}, patchState.worldEntryStates || {}),
+    };
+    await tavernSessionsTable.update(id, {
+        state,
+        updatedAt: timestamp,
+        buildSnapshot: patch.lastBuildSnapshot || existing.buildSnapshot,
+    });
+    return await getTavernSession(id);
+}
+
+export async function appendTavernMessage(sessionId: string, message: TavernAppendMessageInput): Promise<TavernMessageRecord> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('session_required');}
     const existing = await tavernMessagesTable.where('sessionId').equals(id).toArray();
@@ -142,8 +239,14 @@ export async function appendTavernMessage(sessionId: string, message: XbTavernMe
         order,
         role: String(message.role || ''),
         content: String(message.content || ''),
+        name: message.name ? String(message.name) : undefined,
         createdAt: timestamp,
         providerPayload: 'providerPayload' in message ? message.providerPayload : undefined,
+        contextSnapshot: 'contextSnapshot' in message ? message.contextSnapshot : undefined,
+        buildSnapshot: 'buildSnapshot' in message ? message.buildSnapshot : undefined,
+        presetId: 'presetId' in message ? String(message.presetId || '') : undefined,
+        presetName: 'presetName' in message ? String(message.presetName || '') : undefined,
+        requestSnapshot: 'requestSnapshot' in message ? message.requestSnapshot : undefined,
     };
     await db.transaction('rw', tavernMessagesTable, tavernSessionsTable, async () => {
         await tavernMessagesTable.put(record);
