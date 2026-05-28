@@ -134,6 +134,24 @@ function applyColorTheme(root, state) {
     });
 }
 
+function openBookPackageFilePicker(bookController) {
+    const doc = document;
+    const input = doc.createElement('input');
+    input.type = 'file';
+    input.accept = '.xbebook.json,.json,application/json';
+    input.style.position = 'fixed';
+    input.style.left = '-9999px';
+    input.style.opacity = '0';
+    input.addEventListener('change', () => {
+        const file = input.files?.[0] || null;
+        input.remove();
+        if (file) void bookController.importBookPackageFile(file);
+    }, { once: true });
+    input.addEventListener('cancel', () => input.remove(), { once: true });
+    doc.body.appendChild(input);
+    input.click();
+}
+
 function updateOpenKeyList(list = [], key = '', open = false) {
     const normalizedKey = String(key || '').trim();
     const current = new Set(Array.isArray(list) ? list : []);
@@ -301,6 +319,11 @@ export function bindEbookEvents(options = {}) {
     root.querySelector('#xb-close')?.addEventListener('click', () => postToHost('xb-ebook:close'));
     root.querySelector('#xb-library-link')?.addEventListener('click', () => void bookController.showLibrary());
     root.querySelector('#xb-library-new-book')?.addEventListener('click', () => void bookController.createNewBook());
+    root.querySelector('#xb-library-import-book')?.addEventListener('click', () => {
+        if (state.isBusy || state.bookTransferProgress) return;
+        openBookPackageFilePicker(bookController);
+    });
+    root.querySelector('#xb-library-export-book')?.addEventListener('click', () => void bookController.openExportDialog());
     root.querySelector('#xb-library-delete-book')?.addEventListener('click', () => {
         state.isDeleteBookOpen = true;
         render();
@@ -313,6 +336,16 @@ export function bindEbookEvents(options = {}) {
         if (event.target !== event.currentTarget) return;
         state.isDeleteBookOpen = false;
         render();
+    });
+    root.querySelector('#xb-book-export-close')?.addEventListener('click', () => void bookController.closeExportDialog());
+    root.querySelector('#xb-book-export-overlay')?.addEventListener('click', (event) => {
+        if (event.target !== event.currentTarget) return;
+        void bookController.closeExportDialog();
+    });
+    root.querySelectorAll('[data-export-book-id]').forEach((button) => {
+        button.addEventListener('click', () => {
+            void bookController.exportBookPackage(button.dataset.exportBookId || '');
+        });
     });
     root.querySelectorAll('[data-delete-book-id]').forEach((button) => {
         button.addEventListener('click', () => {

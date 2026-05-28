@@ -93,6 +93,37 @@ export async function createBook(title = '') {
     return cloneBook(book);
 }
 
+export async function importBookFromFiles(title = '', nextFiles = []) {
+    const timestamp = now();
+    const book = {
+        id: createId('book'),
+        title: normalizeTitle(title, '导入书稿'),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+    const files = (Array.isArray(nextFiles) ? nextFiles : [])
+        .map((file) => ({
+            path: normalizeBookFilePath(file?.path),
+            content: typeof file?.content === 'string' ? file.content : '',
+            createdAt: Number(file?.createdAt) || timestamp,
+            updatedAt: Number(file?.updatedAt) || timestamp,
+        }))
+        .filter((file) => file.path);
+    if (!files.length) throw new Error('ebook_package_has_no_files');
+
+    await db.transaction('rw', booksTable, filesTable, async () => {
+        await booksTable.put(book);
+        await Promise.all(files.map((file) => filesTable.put({
+            bookId: book.id,
+            path: file.path,
+            content: file.content,
+            createdAt: file.createdAt,
+            updatedAt: file.updatedAt,
+        })));
+    });
+    return cloneBook(book);
+}
+
 export async function getBook(bookId = '') {
     const book = await booksTable.get(String(bookId || '').trim());
     return book ? cloneBook(book) : null;

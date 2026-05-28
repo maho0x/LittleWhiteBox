@@ -57,6 +57,32 @@ function base64ToBlob(base64, mime) {
     return new Blob(chunks, { type: mime });
 }
 
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('blob_read_failed'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function savedUrlToDataUrl(savedUrl = '') {
+    const url = String(savedUrl || '').trim();
+    if (!url) return '';
+    if (/^data:[^;]+;base64,/i.test(url)) return url;
+    if (/^blob:/i.test(url)) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('image_fetch_failed');
+        return blobToDataUrl(await response.blob());
+    }
+    if (/^https?:\/\//i.test(url) || url.startsWith('/')) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('image_fetch_failed');
+        return blobToDataUrl(await response.blob());
+    }
+    return '';
+}
+
 function getObjectUrlCacheKey(imgId, base64) {
     return String(imgId || '').trim() || `inline-${String(base64 || '').slice(0, 80)}`;
 }
@@ -156,6 +182,12 @@ function invalidateCache(slotId) {
     } else {
         previewCache.clear();
     }
+}
+
+function normalizePreviewBase64(value = '') {
+    const parsed = parseBase64Image(value);
+    if (!parsed?.data) return '';
+    return `data:${parsed.mime};base64,${parsed.data}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -265,6 +297,105 @@ export async function getSlotSelection(slotId) {
             reject(e);
         }
     });
+}
+
+export async function exportPortablePreviewsForSlots(slotIds = []) {
+    const slots = [...new Set((Array.isArray(slotIds) ? slotIds : [])
+        .map((slotId) => String(slotId || '').trim())
+        .filter(Boolean))];
+    const previews = [];
+    const selections = [];
+    const skipped = [];
+    for (const slotId of slots) {
+        const display = await getDisplayPreviewForSlot(slotId).catch(() => null);
+        const preview = display?.preview || null;
+        const imgId = String(preview?.imgId || '').trim();
+        if (!imgId) {
+            skipped.push({ slotId, imgId: '', reason: 'image_preview_missing' });
+            continue;
+        }
+        let base64 = normalizePreviewBase64(preview.base64);
+        if (!base64 && preview.savedUrl) {
+            base64 = await savedUrlToDataUrl(preview.savedUrl).catch(() => '');
+        }
+        if (!base64) {
+            skipped.push({ slotId, imgId, reason: 'image_data_missing' });
+            continue;
+        }
+        previews.push({
+            imgId,
+            slotId,
+            messageId: String(preview.messageId || ''),
+            chatId: String(preview.chatId || ''),
+            characterName: String(preview.characterName || ''),
+            source: String(preview.source || ''),
+            bookId: String(preview.bookId || ''),
+            bookTitle: String(preview.bookTitle || ''),
+            chapterPath: String(preview.chapterPath || ''),
+            chapterTitle: String(preview.chapterTitle || ''),
+            base64,
+            tags: String(preview.tags || ''),
+            positive: String(preview.positive || ''),
+            status: preview.status === 'failed' ? 'failed' : 'success',
+            errorType: preview.errorType || null,
+            errorMessage: preview.errorMessage || null,
+            characterPrompts: preview.characterPrompts || null,
+            negativePrompt: preview.negativePrompt || null,
+            anchor: String(preview.anchor || ''),
+            timestamp: Number(preview.timestamp) || Date.now(),
+        });
+        selections.push({ slotId, selectedImgId: imgId });
+    }
+    return { slots, previews, selections, skipped };
+}
+
+export async function importPortablePreviews(previews = [], selections = [], options = {}) {
+    const database = await openDB();
+    const bookId = String(options.bookId || '').trim();
+    const bookTitle = String(options.bookTitle || '').trim();
+    const records = (Array.isArray(previews) ? previews : [])
+        .map((preview) => ({
+            ...preview,
+            imgId: String(preview?.imgId || '').trim(),
+            slotId: String(preview?.slotId || preview?.imgId || '').trim(),
+            bookId: bookId || String(preview?.bookId || ''),
+            bookTitle: bookTitle || String(preview?.bookTitle || ''),
+            base64: normalizePreviewBase64(preview?.base64),
+            timestamp: Number(preview?.timestamp) || Date.now(),
+            savedUrl: null,
+        }))
+        .filter((preview) => preview.imgId && preview.slotId && preview.base64);
+    const selectionRows = (Array.isArray(selections) ? selections : [])
+        .map((selection) => ({
+            slotId: String(selection?.slotId || '').trim(),
+            selectedImgId: String(selection?.selectedImgId || '').trim(),
+            timestamp: Date.now(),
+        }))
+        .filter((selection) => selection.slotId && selection.selectedImgId);
+    if (!records.length && !selectionRows.length) return { importedPreviews: 0, importedSelections: 0 };
+
+    await new Promise((resolve, reject) => {
+        try {
+            const stores = [DB_STORE];
+            if (database.objectStoreNames.contains(DB_SELECTIONS_STORE)) stores.push(DB_SELECTIONS_STORE);
+            const tx = database.transaction(stores, 'readwrite');
+            const previewStore = tx.objectStore(DB_STORE);
+            records.forEach((record) => previewStore.put(record));
+            if (stores.includes(DB_SELECTIONS_STORE)) {
+                const selectionStore = tx.objectStore(DB_SELECTIONS_STORE);
+                selectionRows.forEach((selection) => selectionStore.put(selection));
+            }
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        } catch (error) {
+            reject(error);
+        }
+    });
+    records.forEach((record) => invalidateCache(record.slotId));
+    return {
+        importedPreviews: records.length,
+        importedSelections: selectionRows.length,
+    };
 }
 
 export async function clearSlotSelection(slotId) {

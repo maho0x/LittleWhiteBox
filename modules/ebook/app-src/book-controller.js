@@ -4,14 +4,25 @@ import {
     getBook,
     getBookFile,
     getSelectedBookId,
+    importBookFromFiles,
     listBookFiles,
     listBooks,
     renameBook,
     setSelectedBookId,
     upsertBookFile,
 } from '../shared/ebook-db.js';
+import {
+    buildEbookPackage,
+    collectEbookImageSlotIds,
+    makeEbookPackageFileName,
+    parseEbookPackage,
+} from '../shared/book-package.js';
 import { normalizeBookFilePath } from '../shared/book-paths.js';
-import { EBOOK_DRAW_REQUEST_TIMEOUT_MS, EBOOK_TTS_REQUEST_TIMEOUT_MS } from './constants.js';
+import {
+    EBOOK_BOOK_TRANSFER_REQUEST_TIMEOUT_MS,
+    EBOOK_DRAW_REQUEST_TIMEOUT_MS,
+    EBOOK_TTS_REQUEST_TIMEOUT_MS,
+} from './constants.js';
 
 const DEFAULT_DRAFT_PATH = 'book/chapters/001.md';
 const CHAPTER_PATH_REGEX = /^book\/chapters\/.+\.md$/;
@@ -27,6 +38,38 @@ function isChapterPath(path = '') {
 
 function stripEbookImageMarkers(content = '') {
     return String(content || '').replace(EBOOK_IMAGE_MARKER_REGEX, '').trim();
+}
+
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('file_read_failed'));
+        reader.readAsText(file);
+    });
+}
+
+function downloadTextFile(filename = 'ebook.json', content = '') {
+    const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function waitForPaint() {
+    return new Promise((resolve) => {
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => setTimeout(resolve, 0));
+            return;
+        }
+        setTimeout(resolve, 0);
+    });
 }
 
 function cleanReaderTtsText(content = '') {
@@ -697,6 +740,119 @@ export function createBookController(deps = {}) {
         }
     }
 
+    function openExportDialog() {
+        if (state.isBusy || state.bookTransferProgress) return;
+        state.isBookExportOpen = true;
+        render();
+    }
+
+    function closeExportDialog() {
+        if (state.bookTransferProgress) return;
+        state.isBookExportOpen = false;
+        render();
+    }
+
+    async function showBookTransferProgress(mode = 'export', title = '', detail = '') {
+        state.bookTransferProgress = {
+            mode,
+            title: String(title || '').trim(),
+            detail: String(detail || '').trim(),
+            startedAt: Date.now(),
+        };
+        state.status = detail || (mode === 'import' ? '正在导入作品包...' : '正在导出作品包...');
+        render();
+        await waitForPaint();
+    }
+
+    function clearBookTransferProgress() {
+        state.bookTransferProgress = null;
+        state.status = '就绪';
+    }
+
+    async function exportBookPackage(bookId = '') {
+        if (state.isBusy || state.bookTransferProgress) return;
+        const id = String(bookId || '').trim();
+        if (!id) return;
+        const book = state.books.find((item) => item.id === id) || await getBook(id);
+        if (!book) {
+            showToast?.('没有找到这本书');
+            return;
+        }
+        if (!confirm(`导出《${book.title || '未命名书稿'}》？`)) return;
+        await showBookTransferProgress('export', book.title || '未命名书稿', '正在读取书稿文件...');
+        try {
+            const files = await listBookFiles(id);
+            const slotIds = collectEbookImageSlotIds(files);
+            await showBookTransferProgress(
+                'export',
+                book.title || '未命名书稿',
+                slotIds.length ? `正在打包 ${slotIds.length} 个阅读器配图...` : '正在生成作品包...',
+            );
+            const imageResult = slotIds.length
+                ? await requestHost('xb-ebook:export-images', { slotIds }, { timeoutMs: EBOOK_BOOK_TRANSFER_REQUEST_TIMEOUT_MS })
+                : { images: { slots: [], previews: [], selections: [], skipped: [] } };
+            await showBookTransferProgress('export', book.title || '未命名书稿', '正在生成下载文件...');
+            const pkg = buildEbookPackage({
+                book,
+                files,
+                images: imageResult?.images || null,
+            });
+            downloadTextFile(
+                makeEbookPackageFileName(book.title || 'ebook'),
+                JSON.stringify(pkg, null, 2),
+            );
+            const skipped = pkg.images?.skipped?.length || 0;
+            state.isBookExportOpen = false;
+            showToast?.(skipped ? `已导出，${skipped} 张图片未找到数据` : '作品包已导出');
+        } catch (error) {
+            showToast?.(`导出失败：${error?.message || error}`);
+        } finally {
+            clearBookTransferProgress();
+            render();
+        }
+    }
+
+    async function importBookPackageFile(file) {
+        if (state.isBusy || state.bookTransferProgress || !file) return;
+        await showBookTransferProgress('import', file.name || '作品包', '正在读取作品包...');
+        try {
+            const text = await readFileAsText(file);
+            await showBookTransferProgress('import', file.name || '作品包', '正在解析作品包...');
+            const pkg = parseEbookPackage(JSON.parse(text));
+            await showBookTransferProgress('import', pkg.title || file.name || '作品包', '正在写入书稿文件...');
+            const importedBook = await importBookFromFiles(pkg.title, pkg.files);
+            let imageImportWarning = '';
+            if (pkg.images?.previews?.length || pkg.images?.selections?.length) {
+                try {
+                    await showBookTransferProgress(
+                        'import',
+                        importedBook.title || pkg.title,
+                        `正在导入 ${pkg.images.previews?.length || 0} 张阅读器配图...`,
+                    );
+                    await requestHost('xb-ebook:import-images', {
+                        images: pkg.images,
+                        bookId: importedBook.id,
+                        bookTitle: importedBook.title,
+                    }, {
+                        timeoutMs: EBOOK_BOOK_TRANSFER_REQUEST_TIMEOUT_MS,
+                    });
+                } catch (error) {
+                    imageImportWarning = error?.message || String(error || 'image_import_failed');
+                }
+            }
+            await refreshBooksAndFiles();
+            state.isBookExportOpen = false;
+            showToast?.(imageImportWarning
+                ? `已导入：${importedBook.title || pkg.title}，但图片导入失败：${imageImportWarning}`
+                : `已导入：${importedBook.title || pkg.title}`);
+        } catch (error) {
+            showToast?.(`导入失败：${error?.message || error}`);
+        } finally {
+            clearBookTransferProgress();
+            render();
+        }
+    }
+
     async function createNewFile() {
         if (!state.book || state.isBusy) return;
         if (isEditorDirty() && !confirm('当前文件还没保存，确定新建章节吗？')) return;
@@ -787,9 +943,12 @@ export function createBookController(deps = {}) {
         createNewBook,
         createNewFile,
         drawCurrentChapter,
+        closeExportDialog,
+        exportBookPackage,
         getDrawImage,
         handleDrawProgress,
         handleTtsState,
+        importBookPackageFile,
         importMaterial,
         initializeBook,
         isEditorDirty,
@@ -798,6 +957,7 @@ export function createBookController(deps = {}) {
         refreshTtsStatus,
         removeBook,
         renameCurrentBook,
+        openExportDialog,
         saveCurrentFile,
         selectBook,
         selectFile,

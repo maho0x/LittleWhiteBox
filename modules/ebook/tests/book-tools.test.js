@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 const dbModule = await import('../shared/ebook-db.js');
 const toolsModule = await import('../shared/book-tools.js');
 const bookTemplatesModule = await import('../shared/book-templates.js');
+const bookPackageModule = await import('../shared/book-package.js');
 const controllerModule = await import('../app-src/book-controller.js');
 const conversationStoreModule = await import('../app-src/conversation-store.js');
 const compactionModule = await import('../app-src/history-compaction.js');
@@ -25,6 +26,7 @@ const {
     getBook,
     getBookFile,
     getSelectedBookId,
+    importBookFromFiles,
     listBookFiles,
     listBooks,
     ebookMessagesTable,
@@ -39,6 +41,11 @@ const {
     getEbookToolDefinitions,
 } = toolsModule;
 const { DEFAULT_BOOK_FILES } = bookTemplatesModule;
+const {
+    buildEbookPackage,
+    collectEbookImageSlotIds,
+    parseEbookPackage,
+} = bookPackageModule;
 const { createBookController, formatDrawProgress } = controllerModule;
 const { createEbookConversationStore } = conversationStoreModule;
 const {
@@ -74,6 +81,65 @@ async function resetDb() {
     await db.delete();
     await db.open();
 }
+
+test('Ebook package helpers collect referenced image slots and normalize files', () => {
+    const files = [
+        { path: 'book/chapters/002.md', content: '正文\n[ebook-image:slot-a]\n[ebook-image:slot-b]' },
+        { path: 'book/chapters/001.md', content: '旧图 [ebook-image:slot-a]' },
+        { path: '../bad.md', content: '无效路径不会进入作品包' },
+    ];
+
+    assert.deepEqual(collectEbookImageSlotIds(files), ['slot-a', 'slot-b']);
+
+    const pkg = buildEbookPackage({
+        book: { title: '测试书' },
+        files,
+        images: {
+            slots: ['slot-a'],
+            previews: [{ slotId: 'slot-a', imgId: 'img-a', base64: 'data:image/png;base64,AAAA' }],
+            selections: [{ slotId: 'slot-a', selectedImgId: 'img-a' }],
+            skipped: [],
+        },
+    });
+
+    assert.equal(pkg.type, 'littlewhitebox-ebook-package');
+    assert.equal(pkg.version, 1);
+    assert.deepEqual(pkg.files.map((file) => file.path), ['book/chapters/001.md', 'book/chapters/002.md']);
+    assert.deepEqual(pkg.images.slots, ['slot-a']);
+    assert.equal(pkg.images.previews[0].imgId, 'img-a');
+});
+
+test('Ebook package parser rejects invalid packages and returns portable files', () => {
+    assert.throws(() => parseEbookPackage({ type: 'bad', version: 1, files: [] }), /不是小白电纸书作品包/);
+    assert.throws(() => parseEbookPackage({ type: 'littlewhitebox-ebook-package', version: 999, files: [] }), /作品包版本不支持/);
+    assert.throws(() => parseEbookPackage({ type: 'littlewhitebox-ebook-package', version: 1, files: [] }), /作品包没有书稿文件/);
+
+    const parsed = parseEbookPackage({
+        type: 'littlewhitebox-ebook-package',
+        version: 1,
+        book: { title: '导入标题' },
+        files: [{ path: 'book/outline.md', content: '# 大纲' }],
+        images: { slots: ['slot-a'], previews: [], selections: [] },
+    });
+
+    assert.equal(parsed.title, '导入标题');
+    assert.deepEqual(parsed.files, [{ path: 'book/outline.md', content: '# 大纲', createdAt: 0, updatedAt: 0 }]);
+    assert.deepEqual(parsed.images.slots, ['slot-a']);
+});
+
+test('Importing ebook files creates a new shelf book without changing selected book', async () => {
+    await resetDb();
+    const existing = await createBook('原书');
+    await importBookFromFiles('导入书', [
+        { path: 'book/outline.md', content: '# 导入大纲' },
+        { path: 'book/chapters/001.md', content: '导入正文' },
+    ]);
+
+    assert.equal(await getSelectedBookId(), existing.id);
+    const books = await listBooks();
+    assert.equal(books.length, 2);
+    assert.ok(books.some((book) => book.title === '导入书'));
+});
 
 test('Shared applyTextEdits replaces short and multiline text fragments', () => {
     const result = applyTextEdits('她低头看杯子。\n杯沿还有水痕。\n她笑了。', [
@@ -1780,6 +1846,8 @@ test('Initializing on an empty database keeps the shelf empty', async () => {
     assert.match(html, /Agent 沉浸式创作与阅读平台/);
     assert.match(html, /class="xb-shelf-actions"/);
     assert.match(html, /id="xb-library-new-book"/);
+    assert.match(html, /id="xb-library-import-book"/);
+    assert.match(html, /id="xb-library-export-book"[^>]*disabled/);
     assert.match(html, /id="xb-library-delete-book"[^>]*disabled/);
     const headerHtml = html.slice(html.indexOf('<header'), html.indexOf('<main'));
     assert.doesNotMatch(headerHtml, /xb-library-new-book|xb-library-delete-book|xb-delete-book-close/);
@@ -1812,10 +1880,261 @@ test('Library shelf actions stay inside the shelf after the rendered books', () 
     assert.match(headerHtml, /class="xb-archive-subtitle">Agent 沉浸式创作与阅读平台/);
     assert.match(html, /id="xb-library-new-book"/);
     assert.match(html, /id="xb-library-delete-book"/);
+    assert.match(headerHtml, /id="xb-library-import-book"/);
+    assert.match(headerHtml, /id="xb-library-export-book"/);
     assert.match(html, /xb-shelf-action-ring/);
     assert.match(headerHtml, /id="xb-close"[^>]*aria-label="退出电纸书"/);
     assert.match(headerHtml, /class="xb-exit-icon"/);
     assert.doesNotMatch(headerHtml, /xb-library-new-book|xb-library-delete-book|xb-delete-book-close/);
+});
+
+test('Library export dialog lists books without selecting one from the shelf', () => {
+    const state = {
+        book: null,
+        books: [
+            { id: 'book-export-a', title: '可导出书', updatedAt: 1716039600000 },
+        ],
+        files: [],
+        selectedPath: '',
+        readerPath: '',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        toast: '',
+        isDeleteBookOpen: false,
+        isBookExportOpen: true,
+        colorTheme: 'dark',
+    };
+
+    const html = renderEbookShell({ state });
+    assert.match(html, /id="xb-book-export-overlay"/);
+    assert.match(html, /id="xb-book-export-title">导出作品包/);
+    assert.match(html, /data-export-book-id="book-export-a"/);
+    assert.match(html, /选择一本书，导出书稿文件和已引用的阅读器配图。/);
+});
+
+test('Library shows an animated transfer overlay while importing or exporting packages', () => {
+    const state = {
+        book: null,
+        books: [
+            { id: 'book-transfer-a', title: '处理中书稿', updatedAt: 1716039600000 },
+        ],
+        files: [],
+        selectedPath: '',
+        readerPath: '',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        toast: '',
+        isDeleteBookOpen: false,
+        isBookExportOpen: true,
+        bookTransferProgress: {
+            mode: 'export',
+            title: '处理中书稿',
+            detail: '正在打包 3 个阅读器配图...',
+        },
+        colorTheme: 'dark',
+    };
+
+    const html = renderEbookShell({ state });
+    assert.match(html, /class="xb-ebook-transfer-overlay"/);
+    assert.match(html, /导出作品包/);
+    assert.match(html, /正在打包 3 个阅读器配图/);
+    assert.match(html, /id="xb-library-import-book"[^>]*disabled/);
+    assert.match(html, /id="xb-library-export-book"[^>]*disabled/);
+    assert.match(html, /data-export-book-id="book-transfer-a"[^>]*disabled/);
+});
+
+test('Ebook controller export packages selected shelf book and referenced images', async () => {
+    await resetDb();
+    const book = await createBook('导出书');
+    await upsertBookFile(book.id, 'book/chapters/001.md', '正文\n[ebook-image:slot-export]');
+    const state = {
+        book,
+        books: await listBooks(),
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        isBookExportOpen: true,
+        status: '就绪',
+    };
+    const hostRequests = [];
+    let downloaded = false;
+    const previousConfirm = globalThis.confirm;
+    const previousDocument = globalThis.document;
+    const previousUrlCreate = globalThis.URL?.createObjectURL;
+    const previousUrlRevoke = globalThis.URL?.revokeObjectURL;
+    globalThis.confirm = () => true;
+    globalThis.document = {
+        body: {
+            appendChild() {},
+        },
+        createElement(tagName) {
+            assert.equal(tagName, 'a');
+            return {
+                style: {},
+                click() {
+                    downloaded = true;
+                },
+                remove() {},
+            };
+        },
+    };
+    globalThis.URL.createObjectURL = () => 'blob:ebook-export';
+    globalThis.URL.revokeObjectURL = () => {};
+    try {
+        const controller = createBookController({
+            state,
+            render() {},
+            async requestHost(type, payload) {
+                hostRequests.push({ type, payload });
+                return {
+                    images: {
+                        slots: payload.slotIds,
+                        previews: [{ slotId: 'slot-export', imgId: 'img-export', base64: 'data:image/png;base64,AAAA' }],
+                        selections: [],
+                        skipped: [],
+                    },
+                };
+            },
+            showToast() {},
+        });
+
+        await controller.exportBookPackage(book.id);
+
+        assert.deepEqual(hostRequests, [{ type: 'xb-ebook:export-images', payload: { slotIds: ['slot-export'] } }]);
+        assert.equal(downloaded, true);
+        assert.equal(state.isBookExportOpen, false);
+        assert.equal(state.viewMode, 'library');
+    } finally {
+        globalThis.confirm = previousConfirm;
+        globalThis.document = previousDocument;
+        globalThis.URL.createObjectURL = previousUrlCreate;
+        globalThis.URL.revokeObjectURL = previousUrlRevoke;
+    }
+});
+
+test('Ebook controller import creates a shelf book and stays on library', async () => {
+    await resetDb();
+    const existing = await createBook('原书');
+    const pkg = buildEbookPackage({
+        book: { title: '导入书' },
+        files: [{ path: 'book/outline.md', content: '# 导入大纲' }],
+        images: {
+            slots: ['slot-import'],
+            previews: [{ slotId: 'slot-import', imgId: 'img-import', base64: 'data:image/png;base64,AAAA' }],
+            selections: [{ slotId: 'slot-import', selectedImgId: 'img-import' }],
+        },
+    });
+    const state = {
+        book: existing,
+        books: await listBooks(),
+        files: await listBookFiles(existing.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        isBookExportOpen: false,
+        status: '就绪',
+    };
+    const hostRequests = [];
+    const previousFileReader = globalThis.FileReader;
+    globalThis.FileReader = class {
+        readAsText() {
+            this.result = JSON.stringify(pkg);
+            this.onload?.();
+        }
+    };
+    try {
+        const controller = createBookController({
+            state,
+            render() {},
+            async requestHost(type, payload) {
+                hostRequests.push({ type, payload });
+                return { ok: true };
+            },
+            showToast() {},
+        });
+
+        await controller.importBookPackageFile({ name: 'import.xbebook.json' });
+
+        assert.equal(await getSelectedBookId(), existing.id);
+        assert.equal(state.viewMode, 'library');
+        assert.equal(state.book.id, existing.id);
+        assert.equal(state.books.length, 2);
+        assert.ok(state.books.some((book) => book.title === '导入书'));
+        assert.deepEqual(hostRequests.map((request) => request.type), ['xb-ebook:import-images']);
+        assert.equal(hostRequests[0].payload.images.previews[0].slotId, 'slot-import');
+        assert.equal(hostRequests[0].payload.bookTitle, '导入书');
+        assert.match(hostRequests[0].payload.bookId, /^book-/);
+    } finally {
+        globalThis.FileReader = previousFileReader;
+    }
+});
+
+test('Ebook controller keeps imported book when image import fails', async () => {
+    await resetDb();
+    const existing = await createBook('原书');
+    const pkg = buildEbookPackage({
+        book: { title: '图片失败书' },
+        files: [{ path: 'book/outline.md', content: '# 导入大纲' }],
+        images: {
+            slots: ['slot-missing'],
+            previews: [{ slotId: 'slot-missing', imgId: 'img-missing', base64: 'data:image/png;base64,AAAA' }],
+            selections: [],
+        },
+    });
+    const state = {
+        book: existing,
+        books: await listBooks(),
+        files: await listBookFiles(existing.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        isBookExportOpen: false,
+        status: '就绪',
+    };
+    const toasts = [];
+    const previousFileReader = globalThis.FileReader;
+    globalThis.FileReader = class {
+        readAsText() {
+            this.result = JSON.stringify(pkg);
+            this.onload?.();
+        }
+    };
+    try {
+        const controller = createBookController({
+            state,
+            render() {},
+            async requestHost() {
+                throw new Error('image_store_failed');
+            },
+            showToast(message) {
+                toasts.push(message);
+            },
+        });
+
+        await controller.importBookPackageFile({ name: 'import.xbebook.json' });
+
+        assert.equal(await getSelectedBookId(), existing.id);
+        assert.equal(state.viewMode, 'library');
+        assert.equal(state.books.length, 2);
+        assert.ok(state.books.some((book) => book.title === '图片失败书'));
+        assert.match(toasts.at(-1), /^已导入：图片失败书，但图片导入失败：image_store_failed$/);
+    } finally {
+        globalThis.FileReader = previousFileReader;
+    }
 });
 
 test('Studio renders mobile workspace switching and file drawer hooks', () => {

@@ -776,6 +776,30 @@ function renderExitIcon() {
     `;
 }
 
+function renderImportIcon() {
+    return `
+        <svg class="xb-theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"></path>
+            <path d="m7 10 5 5 5-5"></path>
+            <path d="M5 21h14"></path>
+            <path d="M5 17v4"></path>
+            <path d="M19 17v4"></path>
+        </svg>
+    `;
+}
+
+function renderExportIcon() {
+    return `
+        <svg class="xb-theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 21V9"></path>
+            <path d="m7 14 5-5 5 5"></path>
+            <path d="M5 3h14"></path>
+            <path d="M5 3v4"></path>
+            <path d="M19 3v4"></path>
+        </svg>
+    `;
+}
+
 export function renderThemeToggleIcon(colorTheme = 'dark') {
     const isLight = colorTheme === 'light';
     if (isLight) {
@@ -796,12 +820,70 @@ export function renderThemeToggleIcon(colorTheme = 'dark') {
     `;
 }
 
+function renderBookExportDialog(state = {}) {
+    if (!state.isBookExportOpen) return '';
+    const books = Array.isArray(state.books) ? state.books : [];
+    const transferActive = !!state.bookTransferProgress;
+    const list = books.length
+        ? books.map((book) => `
+            <button class="xb-ebook-export-book" type="button" data-export-book-id="${escapeHtml(book.id)}" ${state.isBusy || transferActive ? 'disabled' : ''}>
+                <span>
+                    <strong>${escapeHtml(book.title || '未命名书稿')}</strong>
+                    <small>${escapeHtml(formatBookDate(book.updatedAt))}</small>
+                </span>
+                <em>导出</em>
+            </button>
+        `).join('')
+        : '<div class="xb-ebook-delete-note">书架上还没有可导出的书。</div>';
+    return `
+        <div class="xb-ebook-delete-overlay xb-ebook-export-overlay" id="xb-book-export-overlay">
+            <div class="xb-ebook-delete-dialog xb-ebook-export-dialog" role="dialog" aria-modal="true" aria-labelledby="xb-book-export-title">
+                <div class="xb-ebook-delete-head">
+                    <div>
+                        <h2 id="xb-book-export-title">导出作品包</h2>
+                        <p class="xb-ebook-export-note">选择一本书，导出书稿文件和已引用的阅读器配图。</p>
+                    </div>
+                    <button id="xb-book-export-close" class="xb-icon-button" type="button" title="关闭" aria-label="关闭">×</button>
+                </div>
+                <div class="xb-ebook-delete-list xb-ebook-export-list">
+                    ${list}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderBookTransferOverlay(state = {}) {
+    const progress = state.bookTransferProgress;
+    if (!progress) return '';
+    const mode = progress.mode === 'import' ? '导入作品包' : '导出作品包';
+    const title = String(progress.title || '').trim();
+    const detail = String(progress.detail || '').trim() || '正在处理作品包...';
+    return `
+        <div class="xb-ebook-transfer-overlay" role="status" aria-live="polite">
+            <div class="xb-ebook-transfer-panel">
+                <div class="xb-ebook-transfer-orbit" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                </div>
+                <div class="xb-ebook-transfer-copy">
+                    <strong>${escapeHtml(mode)}</strong>
+                    ${title ? `<small>${escapeHtml(title)}</small>` : ''}
+                    <p>${escapeHtml(detail)}</p>
+                </div>
+                <div class="xb-ebook-transfer-bar" aria-hidden="true"><span></span></div>
+            </div>
+        </div>
+    `;
+}
+
 function renderLibraryShell(options = {}) {
     const state = options.state || {};
     const bookCount = Array.isArray(state.books) ? state.books.length : 0;
     const themeClass = state.colorTheme === 'light' ? 'theme-light' : 'theme-dark';
     const themeToggleIcon = renderThemeToggleIcon(state.colorTheme);
     const themeToggleTitle = state.colorTheme === 'light' ? '切换为深色视觉' : '切换为白底黑字';
+    const transferActive = !!state.bookTransferProgress;
     return `
         <div class="xb-ebook-screen xb-library-screen ${escapeHtml(themeClass)}${state.isDeleteBookOpen ? ' is-delete-mode' : ''}">
             <div class="xb-ambient-aurora"></div>
@@ -812,6 +894,8 @@ function renderLibraryShell(options = {}) {
                     <div class="xb-archive-meta">${bookCount ? `${bookCount} 本书稿 · 本地书架` : '本地书架 · 等待第一本书稿'}</div>
                 </div>
                 <div class="xb-global-actions">
+                    <button id="xb-library-import-book" class="xb-glass-button xb-transfer-button" type="button" title="导入作品包" aria-label="导入作品包" ${state.isBusy || transferActive ? 'disabled' : ''}>${renderImportIcon()}</button>
+                    <button id="xb-library-export-book" class="xb-glass-button xb-transfer-button" type="button" title="导出作品包" aria-label="导出作品包" ${bookCount && !state.isBusy && !transferActive ? '' : 'disabled'}>${renderExportIcon()}</button>
                     <button id="xb-theme-toggle" class="xb-glass-button xb-theme-button" type="button" title="${escapeHtml(themeToggleTitle)}" aria-label="${escapeHtml(themeToggleTitle)}">${themeToggleIcon}</button>
                     <button id="xb-close" class="xb-glass-button xb-exit-button" type="button" title="退出电纸书" aria-label="退出电纸书">${renderExitIcon()}</button>
                 </div>
@@ -823,6 +907,8 @@ function renderLibraryShell(options = {}) {
                     ${renderLibraryShelfActions(state, bookCount)}
                 </section>
             </main>
+            ${renderBookExportDialog(state)}
+            ${renderBookTransferOverlay(state)}
             ${state.toast ? `<div class="xb-toast">${escapeHtml(state.toast)}</div>` : ''}
         </div>
     `;

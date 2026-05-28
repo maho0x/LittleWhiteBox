@@ -2,7 +2,11 @@ import { extensionFolderPath } from '../../core/constants.js';
 import { isTrustedMessage, postToIframe } from '../../core/iframe-messaging.js';
 import { buildEbookFrameConfig, saveEbookAgentConfig } from './host/assistant-config.js';
 import { buildImportMaterial } from './host/import-materials.js';
-import { getDisplayPreviewForSlot } from '../draw/shared/gallery-cache.js';
+import {
+    exportPortablePreviewsForSlots,
+    getDisplayPreviewForSlot,
+    importPortablePreviews,
+} from '../draw/shared/gallery-cache.js';
 import { synthesizeAndPlay } from '../fourth-wall/fw-voice-runtime.js';
 
 const SOURCE_HOST = 'xb-ebook-host';
@@ -454,6 +458,41 @@ async function handleDrawImage(payload = {}) {
     }
 }
 
+async function handleExportImages(payload = {}) {
+    const requestId = String(payload.requestId || '');
+    try {
+        const images = await exportPortablePreviewsForSlots(payload.slotIds || []);
+        replyHostResult(requestId, {
+            ok: true,
+            images,
+        });
+    } catch (error) {
+        replyHostResult(requestId, {
+            ok: false,
+            error: error?.message || String(error || 'image_export_failed'),
+        });
+    }
+}
+
+async function handleImportImages(payload = {}) {
+    const requestId = String(payload.requestId || '');
+    try {
+        const result = await importPortablePreviews(payload.images?.previews || [], payload.images?.selections || [], {
+            bookId: payload.bookId,
+            bookTitle: payload.bookTitle,
+        });
+        replyHostResult(requestId, {
+            ok: true,
+            ...result,
+        });
+    } catch (error) {
+        replyHostResult(requestId, {
+            ok: false,
+            error: error?.message || String(error || 'image_import_failed'),
+        });
+    }
+}
+
 function handleFrameMessage(event) {
     const iframe = getIframe();
     if (!isTrustedMessage(event, iframe, SOURCE_APP)) return;
@@ -498,6 +537,12 @@ function handleFrameMessage(event) {
             break;
         case 'xb-ebook:draw-image':
             void handleDrawImage(payload);
+            break;
+        case 'xb-ebook:export-images':
+            void handleExportImages(payload);
+            break;
+        case 'xb-ebook:import-images':
+            void handleImportImages(payload);
             break;
         default:
             break;
