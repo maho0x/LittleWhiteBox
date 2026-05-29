@@ -1,5 +1,6 @@
 const CONTEXT_RADIUS = 24;
 const MIN_FLEXIBLE_WHITESPACE_CHARS = 24;
+const EDIT_RESULT_PREVIEW_CHARS = 240;
 
 const NORMALIZE_CHAR_MAP = new Map([
     ['“', '"'],
@@ -103,6 +104,11 @@ function numberPreviewLines(lines = [], startLine = 1, limit = 8) {
     const selected = lines.slice(0, limit);
     const suffix = lines.length > limit ? '\n...' : '';
     return `${selected.map((line, index) => `${startLine + index}: ${line}`).join('\n')}${suffix}`;
+}
+
+function textPreview(text = '', limit = EDIT_RESULT_PREVIEW_CHARS) {
+    const normalized = String(text ?? '').replace(/\r\n/g, '\n');
+    return normalized.length > limit ? `${normalized.slice(0, limit)}...` : normalized;
 }
 
 function buildMatches(text = '', ranges = []) {
@@ -411,6 +417,46 @@ function normalizeEditForMode(edit = {}, mode = '') {
     };
 }
 
+function describeEditForResult(edit = {}, mode = '') {
+    if (mode === 'line_range') {
+        return {
+            mode,
+            startLine: edit.startLine,
+            endLine: edit.endLine,
+            newPreview: textPreview(edit.newString),
+        };
+    }
+    if (mode === 'line_insert') {
+        return {
+            mode,
+            insertAtLine: edit.insertAtLine,
+            newPreview: textPreview(edit.newString),
+        };
+    }
+    return {
+        mode,
+        oldPreview: textPreview(edit.oldString),
+        newPreview: textPreview(edit.newString),
+        replaceAll: !!edit.replaceAll || undefined,
+    };
+}
+
+function attachEditResultIdentities(results = [], editList = [], modeList = []) {
+    return results.map((result, index) => {
+        if (!result || typeof result !== 'object') return result;
+        const mode = modeList[index] || getEditMode(editList[index] || {});
+        if (result.ok) {
+            return Object.hasOwn(result, 'index') ? result : { ...result, index };
+        }
+        const resultIndex = Object.hasOwn(result, 'index') ? result.index : index;
+        return {
+            ...describeEditForResult(editList[index] || {}, mode),
+            ...result,
+            index: resultIndex,
+        };
+    });
+}
+
 function splitFileLines(text = '') {
     return String(text ?? '').replace(/\r\n/g, '\n').split('\n');
 }
@@ -517,7 +563,7 @@ function applyLineRangeEdits(content = '', editList = []) {
         ok: failedCount === 0,
         partial: appliedCount > 0 && failedCount > 0 ? true : undefined,
         content: nextLines.join('\n'),
-        results,
+        results: attachEditResultIdentities(results, editList, editList.map(() => 'line_range')),
     };
 }
 
@@ -591,7 +637,7 @@ function applyLineInsertEdits(content = '', editList = []) {
         ok: failedCount === 0,
         partial: appliedCount > 0 && failedCount > 0 ? true : undefined,
         content: nextLines.join('\n'),
-        results,
+        results: attachEditResultIdentities(results, editList, editList.map(() => 'line_insert')),
     };
 }
 
@@ -765,7 +811,7 @@ function applyLinePositionEdits(content = '', editList = [], modeList = []) {
         ok: failedCount === 0,
         partial: appliedCount > 0 && failedCount > 0 ? true : undefined,
         content: nextLines.join('\n'),
-        results,
+        results: attachEditResultIdentities(results, editList, modeList),
     };
 }
 
@@ -875,11 +921,11 @@ export function applyTextEdits(content = '', edits) {
         return {
             ok: false,
             content: nextContent,
-            results: [buildEditFailure(
+            results: attachEditResultIdentities(editList.map(() => buildEditFailure(
                 'mixed_edit_modes',
                 'Do not mix Edit modes in one Edit call',
                 'Use separate Edit calls for oldString replacements, line-range replacements, and insertAtLine insertions.',
-            )],
+            )), editList, modeList),
         };
     }
     if (lineRangeCount && insertLineCount) {
@@ -1001,7 +1047,7 @@ export function applyTextEdits(content = '', edits) {
         ok: failedCount === 0,
         partial: (appliedCount > 0 || satisfiedCount > 0) && failedCount > 0 ? true : undefined,
         content: nextContent,
-        results,
+        results: attachEditResultIdentities(results, normalizedOldStringEdits, modeList),
         warning: normalizedInput.warning,
     };
 }

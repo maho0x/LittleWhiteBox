@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     OpenAICompatibleAdapter,
     buildNativeMessages,
+    extractTaggedToolCalls,
     stripTaggedToolCallsForDisplay,
 } from '../../agent-core/adapters/openai-compatible.js';
 
@@ -29,6 +30,10 @@ test('openai-compatible adapter hides incomplete tagged tool blocks from display
     );
     assert.equal(
         stripTaggedToolCallsForDisplay('前置说明\n<tool_call>{"name":"Read","arguments":{}}</tool_call>\n<tool_call>{"name":"Grep"'),
+        '前置说明',
+    );
+    assert.equal(
+        stripTaggedToolCallsForDisplay('前置说明\n<tool_call>{"name":"Read","arguments":{}}</tool_call>\n这段不该进入下一轮'),
         '前置说明',
     );
 });
@@ -83,6 +88,81 @@ test('openai-compatible adapter sanitizes malformed replay tool calls before sen
             arguments: '{"path":"book/state.md"}',
         },
     }]);
+});
+
+test('openai-compatible adapter removes tagged-json tool garbage from replay payload', () => {
+    const messages = buildNativeMessages({
+        messages: [
+            {
+                role: 'user',
+                content: '继续。',
+            },
+            {
+                role: 'assistant',
+                content: '前置说明',
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '前置说明\n<tool_call>{"name":"Read","arguments":{"path":"book/state.md"}}</tool_call>\n闭合后的多余正文',
+                        tool_calls: [{
+                            id: 'call-1',
+                            type: 'function',
+                            function: {
+                                name: 'Read',
+                                arguments: '{"path":"book/state.md"}',
+                            },
+                        }],
+                    },
+                },
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call-1',
+                content: '{}',
+            },
+        ],
+    }, 'compat-model');
+
+    assert.equal(messages[1].content, '前置说明');
+    assert.equal(messages[1].content.includes('tool_call'), false);
+    assert.equal(messages[1].content.includes('闭合后的多余正文'), false);
+});
+
+test('openai-compatible adapter repairs malformed tagged-json Write arguments', () => {
+    const calls = extractTaggedToolCalls([
+        '<tool_call>{"name":"Write","arguments":{"filePath":"book/chapters/001.md","content":"她说："回来。"',
+        '第二行"}} </tool_call>',
+    ].join('\n'));
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, 'Write');
+    const args = JSON.parse(calls[0].arguments);
+    assert.deepEqual(args, {
+        filePath: 'book/chapters/001.md',
+        content: '她说："回来。"\n第二行',
+    });
+});
+
+test('openai-compatible adapter repairs malformed tagged-json string arguments', () => {
+    const calls = extractTaggedToolCalls(
+        '<tool_call>{"name":"Write","arguments":"{\\"filePath\\":\\"book/notes/a.md\\",\\"content\\":\\"第一行\n第二行\\"}"}</tool_call>',
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, 'Write');
+    const args = JSON.parse(calls[0].arguments);
+    assert.deepEqual(args, {
+        filePath: 'book/notes/a.md',
+        content: '第一行\n第二行',
+    });
+});
+
+test('openai-compatible adapter keeps incomplete tagged-json blocks out of tool calls', () => {
+    const calls = extractTaggedToolCalls(
+        '<tool_call>{"name":"Write","arguments":{"filePath":"book/chapters/001.md","content":"半截',
+    );
+
+    assert.deepEqual(calls, []);
 });
 
 test('openai-compatible adapter ignores a replay message with no valid tool calls', () => {

@@ -66,7 +66,7 @@ const activePresetId = ref(DEFAULT_XB_TAVERN_PRESET_ID);
 const presetStatus = ref('');
 const savedPresetJson = ref('');
 const selectedPresetSourceId = ref('');
-type WorkspaceKey = 'overview' | 'snapshot' | 'preset' | 'world' | 'messages' | 'runtime';
+type WorkspaceKey = 'snapshot' | 'world' | 'messages' | 'runtime' | 'preset';
 interface BrainCheck {
     key: WorkspaceKey;
     label: string;
@@ -77,16 +77,18 @@ const presetIsBuiltIn = computed(() => activePresetId.value === DEFAULT_XB_TAVER
 const presetDirty = computed(() => !presetIsBuiltIn.value && snapshotPreset(preset.value) !== savedPresetJson.value);
 const selectedSession = computed(() => sessions.value.find((item) => item.id === selectedSessionId.value) || null);
 const sessionRuntimeState = computed(() => normalizeTavernSessionState(selectedSession.value?.state || {}));
-const activeWorkspace = ref<WorkspaceKey>('overview');
+const activeWorkspace = ref<WorkspaceKey>('snapshot');
 const workspaceTabs = [
-    { key: 'overview', label: '脑子总览', hint: '先看关键结论是否成立' },
-    { key: 'snapshot', label: '资料快照', hint: '角色、用户、世界书来源' },
-    { key: 'preset', label: '小白预设', hint: '固定规则和可调规则段' },
-    { key: 'world', label: '世界书命中', hint: '命中、跳过和插入位置' },
-    { key: 'messages', label: 'AI 实际收到', hint: '最终 messages 分层预览' },
-    { key: 'runtime', label: '试跑记录', hint: '跑一轮并保存诊断' },
+    { key: 'snapshot', label: '1 选角色', hint: '确认小白读的是哪张卡' },
+    { key: 'world', label: '2 看资料', hint: '看世界书和检查结果' },
+    { key: 'messages', label: '3 看发送内容', hint: '确认模型实际会收到什么' },
+    { key: 'runtime', label: '4 试聊一句', hint: '跑一轮验证脑子是否正常' },
 ] as const;
-const activeWorkspaceItem = computed(() => workspaceTabs.find((item) => item.key === activeWorkspace.value) || workspaceTabs[0]);
+const activeWorkspaceItem = computed(() => workspaceTabs.find((item) => item.key === activeWorkspace.value) || {
+    key: 'preset',
+    label: '调整小白预设',
+    hint: '修改第 3 步最终发送内容里使用的小白规则',
+});
 
 const effectiveContext = computed<XbTavernContext>(() => ({
     ...(selectedSession.value?.contextSnapshot || context.value),
@@ -140,7 +142,7 @@ const brainChecks = computed<BrainCheck[]>(() => {
                 : '还没有读到角色卡',
         },
         {
-            key: 'preset',
+            key: 'messages',
             label: '顶层规则',
             ok: topRulesLocked,
             detail: topRulesLocked ? '小白 system 和工具边界固定在最前两条' : '最前两条规则异常',
@@ -251,7 +253,6 @@ const messageGroups = computed(() => {
     return groups;
 });
 
-const activeCandidateKeys = computed(() => new Set(buildResult.value.activatedWorldEntries.map((entry) => entry.activationKey)));
 const activatedOrder = computed(() => new Map(buildResult.value.activatedWorldEntries.map((entry, index) => [entry.activationKey, index])));
 const candidateRows = computed(() => buildResult.value.worldEntryCandidates);
 const scanTextPreview = computed(() => buildResult.value.meta.scanText || '');
@@ -667,7 +668,10 @@ onUnmounted(() => {
         <p class="eyebrow">
           LittleWhiteBox Tavern
         </p>
-        <h1>小白酒馆脑子验收台</h1>
+        <h1>小白酒馆验脑台</h1>
+        <p class="top-subtitle">
+          先确认角色、资料、世界书和发送内容都对，再做正式聊天。
+        </p>
       </div>
       <button
         class="icon-button"
@@ -681,8 +685,37 @@ onUnmounted(() => {
 
     <section class="xb-layout">
       <aside class="xb-sidebar">
+        <div class="panel guide-card">
+          <h2>你现在要做什么</h2>
+          <p class="muted">
+            按顺序看完四步。只要有一步不对，就先停下来修脑子，不进入正式聊天。
+          </p>
+          <div class="guide-steps">
+            <button
+              v-for="tab in workspaceTabs"
+              :key="tab.key"
+              type="button"
+              class="guide-step"
+              :class="{ active: activeWorkspace === tab.key }"
+              @click="activeWorkspace = tab.key"
+            >
+              <strong>{{ tab.label }}</strong>
+              <span>{{ tab.hint }}</span>
+            </button>
+          </div>
+          <button
+            type="button"
+            class="guide-step guide-step-secondary"
+            :class="{ active: activeWorkspace === 'preset' }"
+            @click="activeWorkspace = 'preset'"
+          >
+            <strong>调预设</strong>
+            <span>需要改小白规则时再打开</span>
+          </button>
+        </div>
+
         <div class="panel">
-          <h2>选择资料</h2>
+          <h2>当前选择</h2>
           <dl class="kv">
             <dt>角色</dt>
             <dd>{{ characterName }}</dd>
@@ -714,7 +747,7 @@ onUnmounted(() => {
             type="button"
             @click="refreshSelectedCharacter"
           >
-            重新读取资料
+            读取这张角色
           </button>
         </div>
 
@@ -766,46 +799,19 @@ onUnmounted(() => {
         <div class="panel workspace-panel">
           <div class="panel-head">
             <div>
-              <h2>阶段 A 验收</h2>
+              <h2>{{ activeWorkspaceItem.label }}</h2>
               <p class="muted compact">
-                先确认脑子链路正确，再考虑正式聊天页。
+                {{ activeWorkspaceItem.hint }}
               </p>
             </div>
             <span class="pill">
-              正在看：{{ activeWorkspaceItem.label }}
+              {{ characterName }}
             </span>
           </div>
-          <div class="workspace-tabs">
-            <button
-              v-for="tab in workspaceTabs"
-              :key="tab.key"
-              type="button"
-              class="workspace-tab"
-              :class="{ active: activeWorkspace === tab.key }"
-              @click="activeWorkspace = tab.key"
-            >
-              <strong>{{ tab.label }}</strong>
-              <small>{{ tab.hint }}</small>
-            </button>
-          </div>
-        </div>
-
-        <div
-          v-show="activeWorkspace === 'overview'"
-          class="panel overview-panel"
-        >
-          <div class="panel-head">
-            <div>
-              <h2>当前脑子结论</h2>
-              <p class="muted compact">
-                这里看不通过，就不应该进入正式聊天页。
-              </p>
-            </div>
-          </div>
-          <div class="brain-checks">
+          <div class="brain-checks compact-checks">
             <button
               v-for="check in brainChecks"
-              :key="check.key"
+              :key="check.label"
               type="button"
               class="brain-check"
               :class="{ ok: check.ok, warn: !check.ok }"
@@ -818,56 +824,57 @@ onUnmounted(() => {
               </span>
             </button>
           </div>
-          <div class="overview-steps">
-            <button
-              type="button"
-              @click="activeWorkspace = 'snapshot'"
-            >
-              <strong>1. 资料快照</strong>
-              <span>{{ characterName }} · 世界书 {{ worldBookCount }} 本 · 历史 {{ effectiveHistoryCount }} 条</span>
-            </button>
-            <button
-              type="button"
-              @click="activeWorkspace = 'preset'"
-            >
-              <strong>2. 小白预设</strong>
-              <span>{{ preset.name || '默认规则' }} · {{ presetRows.length }} 段</span>
-            </button>
-            <button
-              type="button"
-              @click="activeWorkspace = 'world'"
-            >
-              <strong>3. 世界书命中</strong>
-              <span>本轮会带上 {{ activatedCount }} 条，可检查 {{ worldEntryCount }} 条</span>
-            </button>
-            <button
-              type="button"
-              @click="activeWorkspace = 'messages'"
-            >
-              <strong>4. AI 实际收到</strong>
-              <span>{{ messagePreview.length }} 条内容 · {{ buildSnapshot.messageChars }} 字</span>
-            </button>
-            <button
-              type="button"
-              @click="activeWorkspace = 'runtime'"
-            >
-              <strong>5. 试跑记录</strong>
-              <span>{{ selectedSessionTitle }}</span>
-            </button>
-          </div>
         </div>
 
         <div
           v-show="activeWorkspace === 'snapshot'"
-          class="panel"
+          class="panel step-panel"
         >
           <div class="panel-head">
-            <h2>本次会用的资料</h2>
+            <div>
+              <h2>1. 选角色卡</h2>
+              <p class="muted compact">
+                先确认小白酒馆读到的是你想测试的角色，不要在错角色上继续验。
+              </p>
+            </div>
             <span class="pill">历史 {{ effectiveHistoryCount }} 条</span>
+          </div>
+          <div class="what-to-check">
+            <strong>你要判断：</strong>
+            <span>角色名、用户 persona、角色描述、首条消息和世界书来源是不是这次要测试的资料。</span>
+          </div>
+          <div class="step-actions">
+            <label>
+              角色卡
+              <select
+                v-model="selectedCharacterId"
+                @change="refreshSelectedCharacter"
+              >
+                <option
+                  v-for="character in availableCharacters"
+                  :key="character.id"
+                  :value="character.id"
+                >
+                  {{ character.name }}
+                </option>
+              </select>
+            </label>
+            <button
+              type="button"
+              @click="refreshSelectedCharacter"
+            >
+              读取这张角色
+            </button>
+            <button
+              type="button"
+              @click="createSessionFromContext"
+            >
+              用当前资料开始新会话
+            </button>
           </div>
           <div class="snapshot-grid">
             <article class="snapshot-card">
-              <h3>角色 / 用户</h3>
+              <h3>读到的角色 / 用户</h3>
               <dl class="field-list">
                 <template
                   v-for="field in characterFields"
@@ -879,7 +886,7 @@ onUnmounted(() => {
               </dl>
             </article>
             <article class="snapshot-card">
-              <h3>世界书来源</h3>
+              <h3>读到的世界书</h3>
               <div class="source-list">
                 <span
                   v-for="book in worldBooks"
@@ -901,14 +908,244 @@ onUnmounted(() => {
         </div>
 
         <div
-          v-show="activeWorkspace === 'preset'"
-          class="panel"
+          v-show="activeWorkspace === 'world'"
+          class="panel step-panel"
         >
           <div class="panel-head">
             <div>
-              <h2>小白自己的说话规则</h2>
+              <h2>2. 看它读到了哪些资料</h2>
               <p class="muted compact">
-                {{ preset.name }} · {{ preset.version }} · {{ preset.id }}
+                这里检查资料有没有漏读、误读，世界书为什么会被带上。
+              </p>
+            </div>
+            <div class="panel-pills">
+              <span class="pill">{{ activatedCount }} / {{ worldEntryCount }}</span>
+              <span class="pill">{{ worldBudget.enabled ? `${worldBudget.used}/${worldBudget.limit} 字` : '无预算限制' }}</span>
+            </div>
+          </div>
+          <div class="what-to-check">
+            <strong>你要判断：</strong>
+            <span>该触发的世界书有没有触发；不该触发的有没有混进来；检查结果有没有明显报错。</span>
+          </div>
+          <ul class="diagnostics inline-diagnostics">
+            <li
+              v-for="row in diagnosticRows"
+              :key="row"
+            >
+              {{ row }}
+            </li>
+          </ul>
+          <div class="world-debug-grid">
+            <details class="debug-box">
+              <summary>开发查看：用于匹配世界书的文本 · {{ buildResult.meta.scanTextChars }} 字</summary>
+              <pre>{{ shortText(scanTextPreview, 2400) }}</pre>
+            </details>
+            <div class="debug-box">
+              <strong>会放到哪里</strong>
+              <div class="position-list">
+                <span
+                  v-for="row in worldPositionRows"
+                  :key="row[0]"
+                >
+                  {{ insertionTargetLabel(row[0]) }} · {{ row[1] }}
+                </span>
+                <span v-if="!worldPositionRows.length">这次没有带上世界书</span>
+              </div>
+            </div>
+          </div>
+          <div class="world-list">
+            <article
+              v-for="entry in activatedCandidateRows"
+              :key="entry.activationKey"
+              class="world-entry"
+              :class="{ active: true }"
+            >
+              <div class="entry-head">
+                <strong>{{ entry.title || entry.uid }}</strong>
+                <span>{{ statusLabel(entry.status) }}</span>
+              </div>
+              <small>
+                来自 {{ entry.sourceWorldBook || '未归属' }} · 放到 {{ insertionTargetLabel(entry.insertionTarget) }} · {{ entry.contentChars }} 字
+              </small>
+              <p class="entry-meta">
+                关键词：{{ entry.key.join(', ') || '无' }} / 二级关键词：{{ entry.keysecondary.join(', ') || '无' }}
+              </p>
+              <p class="entry-meta">
+                {{ candidateReason(entry) }}
+                <template v-if="entry.status === 'budget_skipped' && typeof entry.budgetRemainingBefore === 'number'">
+                  · 当时剩余 {{ entry.budgetRemainingBefore }} 字
+                </template>
+              </p>
+              <p>{{ shortText(entry.content, 360) }}</p>
+            </article>
+            <p
+              v-if="!activatedCandidateRows.length"
+              class="muted"
+            >
+              这次没有带上世界书条目。
+            </p>
+          </div>
+          <details
+            v-if="skippedCandidateRows.length"
+            class="raw-json"
+          >
+            <summary>开发查看：未带上的世界书条目 · {{ skippedCandidateRows.length }} 条</summary>
+            <div class="world-list folded-world-list">
+              <article
+                v-for="entry in skippedCandidateRows"
+                :key="entry.activationKey"
+                class="world-entry"
+              >
+                <div class="entry-head">
+                  <strong>{{ entry.title || entry.uid }}</strong>
+                  <span>{{ statusLabel(entry.status) }}</span>
+                </div>
+                <small>
+                  来自 {{ entry.sourceWorldBook || '未归属' }} · {{ entry.contentChars }} 字
+                </small>
+                <p class="entry-meta">
+                  {{ candidateReason(entry) }}
+                </p>
+              </article>
+            </div>
+          </details>
+        </div>
+
+        <div
+          v-show="activeWorkspace === 'messages'"
+          class="panel step-panel"
+        >
+          <div class="panel-head">
+            <div>
+              <h2>3. 看最终会发给模型什么</h2>
+              <p class="muted compact">
+                小白会把固定规则、预设、角色卡、世界书、历史和你的本次输入组装成这些内容。
+              </p>
+            </div>
+            <label class="mini-select">
+              历史
+              <select v-model="historyMode">
+                <option value="squash">
+                  压缩历史
+                </option>
+                <option value="raw">
+                  逐条历史
+                </option>
+              </select>
+            </label>
+          </div>
+          <div class="what-to-check">
+            <strong>你要判断：</strong>
+            <span>最前面必须是小白固定规则；酒馆预设不能混进来；世界书和角色卡应出现在合理位置。</span>
+          </div>
+          <label class="field-label">这次试聊要发的话</label>
+          <textarea
+            v-model="currentUserMessage"
+            class="input"
+            rows="3"
+          />
+          <div class="message-preview">
+            <section
+              v-for="group in messageGroups"
+              :key="group.key"
+              class="message-group"
+            >
+              <div class="message-group-head">
+                <strong>{{ group.label }}</strong>
+                <span>{{ group.rows.length }} 条 · {{ group.chars }} 字 · ~{{ group.tokenEstimate }} tokens</span>
+              </div>
+              <details
+                v-for="row in group.rows"
+                :key="`${row.index}-${row.message.role}-${row.layer}`"
+                class="message"
+                :class="{ linked: row.sourceId && selectedPresetSourceId === row.sourceId }"
+                open
+              >
+                <summary>
+                  <span>{{ row.index + 1 }} · {{ roleLabel(row.message.role) }} · {{ row.label }}</span>
+                  <small>{{ row.chars }} 字 · ~{{ row.tokenEstimate }} tokens</small>
+                </summary>
+                <pre>{{ row.message.content }}</pre>
+              </details>
+            </section>
+          </div>
+          <details class="raw-json">
+            <summary>开发查看：原始 messages</summary>
+            <pre>{{ rawMessagesJson }}</pre>
+          </details>
+        </div>
+
+        <div
+          v-show="activeWorkspace === 'runtime'"
+          class="panel step-panel"
+        >
+          <div class="panel-head">
+            <div>
+              <h2>4. 试聊一句</h2>
+              <p class="muted compact">
+                只跑一轮验证消息结构和模型通道，结果写入小白酒馆自己的会话。
+              </p>
+            </div>
+            <button
+              type="button"
+              :disabled="isRunning"
+              @click="runOnce"
+            >
+              {{ isRunning ? '试聊中' : '试聊一句' }}
+            </button>
+          </div>
+          <div class="what-to-check">
+            <strong>你要判断：</strong>
+            <span>回复是否像这张角色、是否读到了该读的世界书、是否没有暴露调试信息。</span>
+          </div>
+          <p
+            v-if="runtimeError"
+            class="error"
+          >
+            {{ runtimeError }}
+          </p>
+          <p
+            v-if="runtimeProvider || runtimeModel"
+            class="muted"
+          >
+            模型通道：{{ runtimeProvider || '未知通道' }} / {{ runtimeModel || '未知模型' }}
+          </p>
+          <p
+            v-if="lastRequestSnapshot?.rawMessagesJson"
+            class="muted"
+          >
+            发送内容检查：{{ lastRequestMatchesPreview ? '当前预览和上次实际发送一致' : '当前预览已变化，需要重新试聊' }}
+          </p>
+          <pre class="runtime">{{ runtimeText || '这里显示 AI 的试跑回复。' }}</pre>
+          <details
+            v-if="runtimeSnapshotJson"
+            class="raw-json"
+          >
+            <summary>开发查看：本次发送记录</summary>
+            <pre>{{ runtimeSnapshotJson }}</pre>
+          </details>
+          <p class="muted">
+            这里只写入小白酒馆自己的会话，不会改动原酒馆聊天。
+          </p>
+          <div class="session-messages">
+            <span
+              v-for="message in sessionMessages"
+              :key="`${message.sessionId}-${message.order}`"
+            >
+              {{ message.order + 1 }}. {{ roleLabel(message.role) }}
+            </span>
+          </div>
+        </div>
+
+        <div
+          v-show="activeWorkspace === 'preset'"
+          class="panel step-panel preset-workspace"
+        >
+          <div class="panel-head drawer-head">
+            <div>
+              <h2>调整小白预设</h2>
+              <p class="muted compact">
+                这里会影响第 3 步里最终发给模型的内容。默认规则不能直接改，需要先复制一份。
               </p>
             </div>
             <div class="panel-pills">
@@ -916,7 +1153,7 @@ onUnmounted(() => {
                 v-if="presetDirty"
                 class="pill warning"
               >未保存</span>
-              <span class="pill">{{ presetRows.length }} 段</span>
+              <span class="pill">{{ preset.version }} · {{ preset.id }}</span>
             </div>
           </div>
           <div class="preset-toolbar">
@@ -1146,167 +1383,6 @@ onUnmounted(() => {
               </summary>
               <pre>{{ row.content }}</pre>
             </details>
-          </div>
-        </div>
-
-        <div
-          v-show="activeWorkspace === 'world'"
-          class="panel"
-        >
-          <div class="panel-head">
-            <h2>这次会带上的世界书</h2>
-            <div class="panel-pills">
-              <span class="pill">{{ activatedCount }} / {{ worldEntryCount }}</span>
-              <span class="pill">{{ worldBudget.enabled ? `${worldBudget.used}/${worldBudget.limit} 字` : '无预算限制' }}</span>
-            </div>
-          </div>
-          <div class="world-debug-grid">
-            <details class="debug-box">
-              <summary>用于匹配世界书的文本 · {{ buildResult.meta.scanTextChars }} 字</summary>
-              <pre>{{ shortText(scanTextPreview, 2400) }}</pre>
-            </details>
-            <div class="debug-box">
-              <strong>会放到哪里</strong>
-              <div class="position-list">
-                <span
-                  v-for="row in worldPositionRows"
-                  :key="row[0]"
-                >
-                  {{ insertionTargetLabel(row[0]) }} · {{ row[1] }}
-                </span>
-                <span v-if="!worldPositionRows.length">这次没有带上世界书</span>
-              </div>
-            </div>
-          </div>
-          <div class="world-list">
-            <article
-              v-for="entry in [...activatedCandidateRows, ...skippedCandidateRows]"
-              :key="entry.activationKey"
-              class="world-entry"
-              :class="{ active: activeCandidateKeys.has(entry.activationKey) }"
-            >
-              <div class="entry-head">
-                <strong>{{ entry.title || entry.uid }}</strong>
-                <span>{{ statusLabel(entry.status) }}</span>
-              </div>
-              <small>
-                来自 {{ entry.sourceWorldBook || '未归属' }} · 放到 {{ insertionTargetLabel(entry.insertionTarget) }} · {{ entry.contentChars }} 字
-              </small>
-              <p class="entry-meta">
-                关键词：{{ entry.key.join(', ') || '无' }} / 二级关键词：{{ entry.keysecondary.join(', ') || '无' }}
-              </p>
-              <p class="entry-meta">
-                {{ candidateReason(entry) }}
-                <template v-if="entry.status === 'budget_skipped' && typeof entry.budgetRemainingBefore === 'number'">
-                  · 当时剩余 {{ entry.budgetRemainingBefore }} 字
-                </template>
-              </p>
-              <p>{{ shortText(entry.content, 360) }}</p>
-            </article>
-            <p
-              v-if="!candidateRows.length"
-              class="muted"
-            >
-              当前没有可检查的世界书条目。
-            </p>
-          </div>
-        </div>
-
-        <div
-          v-show="activeWorkspace === 'messages'"
-          class="panel"
-        >
-          <div class="panel-head">
-            <h2>AI 实际收到的 messages</h2>
-            <select v-model="historyMode">
-              <option value="squash">
-                压缩历史
-              </option>
-              <option value="raw">
-                逐条历史
-              </option>
-            </select>
-          </div>
-          <textarea
-            v-model="currentUserMessage"
-            class="input"
-            rows="3"
-          />
-          <div class="message-preview">
-            <section
-              v-for="group in messageGroups"
-              :key="group.key"
-              class="message-group"
-            >
-              <div class="message-group-head">
-                <strong>{{ group.label }}</strong>
-                <span>{{ group.rows.length }} 条 · {{ group.chars }} 字 · ~{{ group.tokenEstimate }} tokens</span>
-              </div>
-              <details
-                v-for="row in group.rows"
-                :key="`${row.index}-${row.message.role}-${row.layer}`"
-                class="message"
-                :class="{ linked: row.sourceId && selectedPresetSourceId === row.sourceId }"
-                open
-              >
-                <summary>
-                  <span>{{ row.index + 1 }} · {{ roleLabel(row.message.role) }} · {{ row.label }}</span>
-                  <small>{{ row.chars }} 字 · ~{{ row.tokenEstimate }} tokens</small>
-                </summary>
-                <pre>{{ row.message.content }}</pre>
-              </details>
-            </section>
-          </div>
-          <details class="raw-json">
-            <summary>技术明细：原始发送内容</summary>
-            <pre>{{ rawMessagesJson }}</pre>
-          </details>
-        </div>
-
-        <div
-          v-show="activeWorkspace === 'runtime'"
-          class="panel"
-        >
-          <div class="panel-head">
-            <h2>试跑一轮</h2>
-            <button
-              type="button"
-              :disabled="isRunning"
-              @click="runOnce"
-            >
-              {{ isRunning ? '运行中' : '试发给 AI' }}
-            </button>
-          </div>
-          <p
-            v-if="runtimeError"
-            class="error"
-          >
-            {{ runtimeError }}
-          </p>
-          <p
-            v-if="runtimeProvider || runtimeModel"
-            class="muted"
-          >
-            模型通道：{{ runtimeProvider || '未知通道' }} / {{ runtimeModel || '未知模型' }}
-          </p>
-          <pre class="runtime">{{ runtimeText || '这里显示 AI 的试跑回复。' }}</pre>
-          <details
-            v-if="runtimeSnapshotJson"
-            class="raw-json"
-          >
-            <summary>技术明细：本次发送记录</summary>
-            <pre>{{ runtimeSnapshotJson }}</pre>
-          </details>
-          <p class="muted">
-            这里只写入小白酒馆自己的会话，不会改动原酒馆聊天。
-          </p>
-          <div class="session-messages">
-            <span
-              v-for="message in sessionMessages"
-              :key="`${message.sessionId}-${message.order}`"
-            >
-              {{ message.order + 1 }}. {{ roleLabel(message.role) }}
-            </span>
           </div>
         </div>
       </section>

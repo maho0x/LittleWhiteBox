@@ -78,6 +78,43 @@ test('agent protocol recognizes Google providerPayload function calls', () => {
     }]);
 });
 
+test('agent protocol repairs malformed raw Write arguments before execution', () => {
+    const toolCalls = resolveResultToolCalls({
+        provider: 'sillytavern-claude',
+        toolCalls: [{
+            id: 'claude-write',
+            name: 'Write',
+            arguments: [
+                '{"filePath":"book/chapters/001.md","content":"她说："回来。"',
+                '第二行"}',
+            ].join('\n'),
+        }],
+    }, {});
+
+    assert.equal(toolCalls.length, 1);
+    assert.equal(toolCalls[0].id, 'claude-write');
+    assert.equal(toolCalls[0].name, 'Write');
+    assert.deepEqual(JSON.parse(toolCalls[0].arguments), {
+        filePath: 'book/chapters/001.md',
+        content: '她说："回来。"\n第二行',
+    });
+});
+
+test('agent protocol does not treat key-like text inside Write content as arguments', () => {
+    const toolCalls = resolveResultToolCalls({
+        toolCalls: [{
+            id: 'claude-write-key-text',
+            name: 'Write',
+            arguments: '{"filePath":"book/chapters/001.md","content":"正文里出现 "path":"不是字段"，后面还要保留"}',
+        }],
+    }, {});
+
+    assert.deepEqual(JSON.parse(toolCalls[0].arguments), {
+        filePath: 'book/chapters/001.md',
+        content: '正文里出现 "path":"不是字段"，后面还要保留',
+    });
+});
+
 test('agent protocol normalizes and filters thought blocks per turn', () => {
     const normalized = mergeThoughtBlocks(
         [{ label: '思考块', text: '先读取。' }],

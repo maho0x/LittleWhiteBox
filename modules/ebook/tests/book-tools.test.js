@@ -389,6 +389,10 @@ test('Shared applyTextEdits rejects oldString mixed with line-number modes and p
     ]);
     assert.equal(partial.ok, false);
     assert.equal(partial.partial, true);
+    assert.equal(partial.results[1].index, 1);
+    assert.equal(partial.results[1].mode, 'line_range');
+    assert.equal(partial.results[1].startLine, 9);
+    assert.equal(partial.results[1].endLine, 9);
     assert.equal(partial.results[1].error, 'line_range_out_of_bounds');
     assert.equal(partial.content, ['一改', '二', '三', '四', '五改'].join('\n'));
 });
@@ -439,6 +443,9 @@ test('Shared applyTextEdits reports not found, no changes, and adapts common pun
         { oldString: '不存在', newString: '存在' },
     ]);
     assert.equal(missing.results[0].error, 'not_found');
+    assert.equal(missing.results[0].index, 0);
+    assert.equal(missing.results[0].mode, 'old_string');
+    assert.equal(missing.results[0].oldPreview, '不存在');
     assert.match(missing.results[0].suggestion, /Read the current file/);
 
     const noChange = applyTextEdits('原文', [
@@ -5682,17 +5689,17 @@ test('Book agent reports invalid tool arguments without executing Edit', async (
 
     const toolResult = JSON.parse(state.messages.find((message) => message.role === 'tool').content);
     assert.equal(toolResult.ok, false);
-    assert.equal(toolResult.error, 'invalid_tool_arguments');
+    assert.equal(toolResult.error, 'invalid_edits_json_string');
     assert.equal(toolResult.path, 'book/outline.md');
     assert.notEqual(toolResult.error, 'book_path_required');
     assert.equal((await getBookFile(book.id, 'book/outline.md')).content, originalOutline);
 
     const storedArguments = JSON.parse(state.messages[1].toolCalls[0].arguments);
-    assert.equal(storedArguments.invalidToolArguments, true);
-    assert.equal(storedArguments.argumentLength, malformedArguments.length);
+    assert.equal(storedArguments.filePath, 'book/outline.md');
+    assert.equal(typeof storedArguments.edits, 'string');
 
     const replayToolCall = secondRoundMessages.find((message) => message.role === 'assistant')?.tool_calls?.[0];
-    assert.equal(JSON.parse(replayToolCall.function.arguments).invalidToolArguments, true);
+    assert.deepEqual(JSON.parse(replayToolCall.function.arguments), storedArguments);
 });
 
 test('Book agent uses Google-style session tool loop without rebuilding replay history', async () => {

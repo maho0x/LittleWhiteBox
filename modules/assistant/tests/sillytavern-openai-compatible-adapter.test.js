@@ -18,6 +18,7 @@ import {
     setHostChatCompletionsRequestHeadersProvider,
 } from '../../../shared/host-llm/chat-completions/client.js';
 import { createAgentAdapter } from '../../agent-core/provider-config.js';
+import { resolveResultToolCalls } from '../../agent-core/runtime/protocol.js';
 import { pullModelsForProvider } from '../../agent-core/ui/settings-panel.js';
 
 function createSseResponse(events = [], delimiter = '\n\n') {
@@ -452,6 +453,59 @@ test('sillytavern Claude adapter preserves malformed final tool input for tool-l
             id: 'toolu_bad',
             name: 'Edit',
             input: {},
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern Claude malformed Write input can be repaired by shared tool-call normalization', async () => {
+    const adapter = new SillyTavernClaudeAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'claude-sonnet-4-0',
+    });
+    const originalFetch = globalThis.fetch;
+    const rawArguments = [
+        '{"filePath":"book/chapters/001.md","content":"她说："回来。"',
+        '第二行"}',
+    ].join('\n');
+    globalThis.fetch = async () => createSseResponse([
+        {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', id: 'toolu_write_bad', name: 'Write', input: {} },
+        },
+        {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: rawArguments },
+        },
+        {
+            type: 'message_delta',
+            delta: { stop_reason: 'tool_use' },
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '写一章' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Write',
+                    description: 'Write file.',
+                    parameters: { type: 'object', properties: {} },
+                },
+            }],
+            onStreamProgress: () => {},
+        });
+        const toolCalls = resolveResultToolCalls(result, { provider: 'sillytavern-claude' });
+
+        assert.equal(result.toolCalls[0].arguments, rawArguments);
+        assert.deepEqual(JSON.parse(toolCalls[0].arguments), {
+            filePath: 'book/chapters/001.md',
+            content: '她说："回来。"\n第二行',
         });
     } finally {
         globalThis.fetch = originalFetch;

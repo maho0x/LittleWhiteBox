@@ -1,4 +1,9 @@
 import OpenAI from 'openai';
+import {
+    extractLooseField,
+    findLooseKeyMatch,
+    repairLooseToolArguments,
+} from '../runtime/loose-tool-arguments.js';
 
 function safeParseArguments(text) {
     try {
@@ -40,6 +45,45 @@ function stringifyToolArguments(value) {
     }
 }
 
+function normalizeTaggedToolArguments(argumentsValue, toolName = '') {
+    if (argumentsValue && typeof argumentsValue === 'object' && !Array.isArray(argumentsValue)) {
+        return JSON.stringify(argumentsValue);
+    }
+    const text = typeof argumentsValue === 'string' ? argumentsValue : stringifyToolArguments(argumentsValue);
+    return repairLooseToolArguments(text, toolName) || JSON.stringify(safeParseArguments(text));
+}
+
+function extractLooseArgumentsTextFromToolPayload(payloadText = '') {
+    const source = String(payloadText || '');
+    const match = findLooseKeyMatch(source, 'arguments');
+    if (!match) return '';
+    let start = match.end;
+    while (/\s/.test(source[start] || '')) start += 1;
+    const first = source[start] || '';
+    if (first === '{') {
+        return source.slice(start).replace(/\}\s*$/, '').trimEnd();
+    }
+    if (first === '"') {
+        return source.slice(start + 1).replace(/"\s*\}\s*$/, '').trimEnd();
+    }
+    return source.slice(start).replace(/\}\s*$/, '').trimEnd();
+}
+
+function parseLooseTaggedToolPayload(payloadText = '', index = 0) {
+    const source = String(payloadText || '').trim();
+    const name = extractLooseField(source, 'name', ['id', 'arguments'])
+        || extractLooseField(source, 'toolName', ['id', 'arguments'])
+        || '';
+    const id = extractLooseField(source, 'id', ['name', 'toolName', 'arguments']) || `tool-call-${index + 1}`;
+    const argumentsText = extractLooseArgumentsTextFromToolPayload(source);
+    if (!name || !argumentsText) return null;
+    return {
+        id,
+        name,
+        arguments: normalizeTaggedToolArguments(argumentsText, name),
+    };
+}
+
 function normalizeToolCallForReplay(toolCall, index = 0, fallbackPrefix = 'openai-tool') {
     if (!isPlainObject(toolCall)) return null;
     const toolFunction = isPlainObject(toolCall.function) ? toolCall.function : null;
@@ -67,6 +111,9 @@ function normalizeToolCallsForReplay(toolCalls = [], fallbackPrefix = 'openai-to
 function sanitizeOpenAICompatibleMessage(message) {
     if (!isPlainObject(message)) return null;
     const cloned = cloneJson(message) || {};
+    if (typeof cloned.content === 'string' && /<tool_call\b/i.test(cloned.content)) {
+        cloned.content = stripTaggedToolCallsForDisplay(extractThinkTaggedContent(cloned.content).cleaned);
+    }
     if (Array.isArray(cloned.tool_calls)) {
         const normalizedToolCalls = normalizeToolCallsForReplay(cloned.tool_calls);
         if (normalizedToolCalls.length) {
@@ -112,10 +159,10 @@ export function extractThinkTaggedContent(text = '') {
 }
 
 export function stripTaggedToolCallsForDisplay(text = '') {
-    return String(text || '')
-        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-        .replace(/<tool_call>[\s\S]*$/g, '')
-        .trim();
+    const source = String(text || '');
+    const firstToolTag = source.search(/<tool_call\b/i);
+    if (firstToolTag < 0) return source.trim();
+    return source.slice(0, firstToolTag).trim();
 }
 
 function collectThoughtsFromUnknown(thoughts, value, label) {
@@ -200,16 +247,11 @@ export function extractTaggedToolCalls(content = '') {
                 results.push({
                     id: parsed.id || `tool-call-${index + 1}`,
                     name: String(parsed.name || ''),
-                    arguments: typeof parsed.arguments === 'string'
-                        ? parsed.arguments
-                        : JSON.stringify(parsed.arguments || {}),
+                    arguments: normalizeTaggedToolArguments(parsed.arguments, parsed.name),
                 });
             } catch {
-                results.push({
-                    id: `tool-call-${index + 1}`,
-                    name: '',
-                    arguments: '',
-                });
+                const repaired = parseLooseTaggedToolPayload(match[1], index);
+                if (repaired) results.push(repaired);
             }
         });
     });
