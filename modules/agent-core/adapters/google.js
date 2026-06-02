@@ -1,4 +1,5 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { buildSdkRequestInspection } from './request-inspection.js';
 
 function parseArguments(text) {
     try {
@@ -429,7 +430,7 @@ export class GoogleAdapter {
         });
     }
 
-    createChat(task) {
+    buildChatPayload(task) {
         const conversation = buildConversation(task.messages);
         const tools = Array.isArray(task.tools) ? task.tools : [];
         const systemInstruction = resolveSystemInstruction(task);
@@ -468,12 +469,65 @@ export class GoogleAdapter {
             history: conversation.history,
             config,
         };
-        const chat = this.client.chats.create(createPayload);
         return {
-            chat,
+            createPayload,
             sendPayload: {
                 message: conversation.latestMessage,
             },
+        };
+    }
+
+    inspectRequest(task, options = {}) {
+        const payload = options.payload || this.buildChatPayload(task);
+        const baseUrl = String(this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
+        return buildSdkRequestInspection({
+            provider: 'google',
+            model: this.config.model,
+            transport: 'google-genai-sdk',
+            url: `${baseUrl}/models/${encodeURIComponent(this.config.model || '')}:generateContent`,
+            headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': this.config.apiKey || '',
+            },
+            body: {
+                chatCreate: payload.createPayload,
+                sendMessage: payload.sendPayload,
+                stream: typeof task.onStreamProgress === 'function',
+            },
+            sdk: typeof task.onStreamProgress === 'function'
+                ? 'client.chats.create(...).sendMessageStream'
+                : 'client.chats.create(...).sendMessage',
+        });
+    }
+
+    inspectSendRequest(sendPayload, task) {
+        const baseUrl = String(this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
+        return buildSdkRequestInspection({
+            provider: 'google',
+            model: this.config.model,
+            transport: 'google-genai-sdk',
+            url: `${baseUrl}/models/${encodeURIComponent(this.config.model || '')}:generateContent`,
+            headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': this.config.apiKey || '',
+            },
+            body: {
+                sendMessage: sendPayload,
+                stream: typeof task.onStreamProgress === 'function',
+            },
+            sdk: typeof task.onStreamProgress === 'function'
+                ? 'activeChat.sendMessageStream'
+                : 'activeChat.sendMessage',
+        });
+    }
+
+    createChat(task) {
+        const payload = this.buildChatPayload(task);
+        const chat = this.client.chats.create(payload.createPayload);
+        return {
+            chat,
+            sendPayload: payload.sendPayload,
+            requestInspection: this.inspectRequest(task, { payload }),
         };
     }
 
@@ -575,9 +629,13 @@ export class GoogleAdapter {
             if (!this.activeChat) {
                 throw new Error('google_chat_session_missing');
             }
-            return await this.sendThroughChat(this.activeChat, {
+            const sendPayload = {
                 message: buildToolResponseMessage(task.toolResponses),
-            }, task);
+            };
+            return {
+                ...await this.sendThroughChat(this.activeChat, sendPayload, task),
+                requestInspection: this.inspectSendRequest(sendPayload, task),
+            };
         }
 
         const finalAnswerReminderText = String(task.finalAnswerReminderText || '').trim();
@@ -585,13 +643,20 @@ export class GoogleAdapter {
             if (!this.activeChat) {
                 throw new Error('google_chat_session_missing');
             }
-            return await this.sendThroughChat(this.activeChat, {
+            const sendPayload = {
                 message: [buildTextPart(finalAnswerReminderText)],
-            }, task);
+            };
+            return {
+                ...await this.sendThroughChat(this.activeChat, sendPayload, task),
+                requestInspection: this.inspectSendRequest(sendPayload, task),
+            };
         }
 
         const created = this.createChat(task);
         this.activeChat = created.chat;
-        return await this.sendThroughChat(this.activeChat, created.sendPayload, task);
+        return {
+            ...await this.sendThroughChat(this.activeChat, created.sendPayload, task),
+            requestInspection: created.requestInspection,
+        };
     }
 }

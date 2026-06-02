@@ -1,8 +1,10 @@
 import {
+    buildHostChatCompletionGenerateRequest,
     buildHostGoogleGeneratePayload,
     createHostChatCompletion,
     streamHostChatCompletion,
 } from '../../../shared/host-llm/chat-completions/client.js';
+import { redactRequestSecrets } from './request-inspection.js';
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -293,20 +295,60 @@ export class SillyTavernGoogleAdapter {
         return buildHostGoogleMessages(task);
     }
 
-    async chat(task) {
+    buildPayload(task) {
         const stream = typeof task.onStreamProgress === 'function';
         const messages = this.buildMessages(task);
-        const payload = buildHostGoogleGeneratePayload(this.config, task, messages, stream);
+        return buildHostGoogleGeneratePayload(this.config, task, messages, stream);
+    }
 
-        if (stream) {
-            const accumulator = createGoogleStreamAccumulator(task, this.config);
-            await streamHostChatCompletion(payload, (event) => {
-                accumulator.accept(event);
-            }, { signal: task.signal });
-            return accumulator.result();
+    async inspectRequest(task, options = {}) {
+        const payload = options.payload || this.buildPayload(task);
+        const request = await buildHostChatCompletionGenerateRequest(
+            payload,
+            typeof task.onStreamProgress === 'function',
+        );
+        return this.buildRequestInspection(request);
+    }
+
+    buildRequestInspection(request) {
+        return {
+            provider: 'sillytavern-google',
+            model: this.config.model,
+            transport: 'sillytavern-chat-completions',
+            request: redactRequestSecrets(request),
+        };
+    }
+
+    async chat(task) {
+        const stream = typeof task.onStreamProgress === 'function';
+        const payload = this.buildPayload(task);
+        let requestInspection = null;
+        const onRequest = (request) => {
+            requestInspection = this.buildRequestInspection(request);
+        };
+
+        try {
+            if (stream) {
+                const accumulator = createGoogleStreamAccumulator(task, this.config);
+                await streamHostChatCompletion(payload, (event) => {
+                    accumulator.accept(event);
+                }, { signal: task.signal, onRequest });
+                return {
+                    ...accumulator.result(),
+                    requestInspection,
+                };
+            }
+
+            const response = await createHostChatCompletion(payload, { signal: task.signal, onRequest });
+            return {
+                ...parseGoogleResult(response, { model: this.config.model }),
+                requestInspection,
+            };
+        } catch (error) {
+            if (requestInspection && error && typeof error === 'object') {
+                error.requestInspection = requestInspection;
+            }
+            throw error;
         }
-
-        const response = await createHostChatCompletion(payload, { signal: task.signal });
-        return parseGoogleResult(response, { model: this.config.model });
     }
 }

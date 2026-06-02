@@ -139,8 +139,6 @@ export interface XbTavernPreset {
     name?: string;
     description?: string;
     version?: string;
-    systemPrompt?: string;
-    toolPrompt?: string;
     stylePrompt?: string;
     postHistoryPrompt?: string;
     assistantPrefill?: string;
@@ -1245,8 +1243,6 @@ export function buildXbTavernMessages(
     const historyUnits = currentUserUnitIndex >= 0 ? conversationUnits.slice(0, currentUserUnitIndex) : conversationUnits;
     const currentUserUnits = currentUserUnitIndex >= 0 ? conversationUnits.slice(currentUserUnitIndex) : [];
     const compacted = compactMessageUnits([
-        makeMessageUnit('system', preset.systemPrompt, 'lwb-system', 'LittleWhiteBox top system', {}, 'lwb-system'),
-        makeMessageUnit('system', preset.toolPrompt, 'lwb-tool', 'LittleWhiteBox tool rules', {}, 'lwb-tool'),
         ...topSections,
         makeMessageUnit('system', renderEntryBlock('world_info_before_character', worldBuckets.before), 'world-before', 'world info before character'),
         ...beforeCharacterSections,

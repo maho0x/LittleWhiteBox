@@ -65,7 +65,7 @@ test('xb tavern brain world setting helper normalizes state defaults', () => {
     });
 });
 
-test('xb tavern brain injects memory without moving locked top prompts', () => {
+test('xb tavern brain injects memory between history and current user message', () => {
     const preset = createDefaultXbTavernPreset();
     const brain = buildXbTavernBrain({
         context: {
@@ -94,8 +94,6 @@ test('xb tavern brain injects memory without moving locked top prompts', () => {
         },
     });
 
-    assert.equal(brain.buildResult.messageLayers[0]?.layer, 'lwb-system');
-    assert.equal(brain.buildResult.messageLayers[1]?.layer, 'lwb-tool');
     const memoryLayer = brain.buildResult.messageLayers.find((layer) => layer.layer === 'memory');
     const currentUserLayer = brain.buildResult.messageLayers.find((layer) => layer.label === 'current user message');
     const historyLayer = brain.buildResult.messageLayers.find((layer) => layer.label === 'history 1');

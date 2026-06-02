@@ -15,7 +15,7 @@ import {
     listBuiltInXbTavernPresets,
 } from '../shared/presets';
 
-test('xb tavern assembler keeps LittleWhiteBox top prompts locked first', () => {
+test('xb tavern assembler keeps top preset sections before character data', () => {
     const result = buildXbTavernMessages({
         character: {
             name: 'Aster',
@@ -25,25 +25,20 @@ test('xb tavern assembler keeps LittleWhiteBox top prompts locked first', () => 
             name: 'Player',
         },
     }, {
-        systemPrompt: 'LWB top system',
-        toolPrompt: 'LWB tool rules',
         sections: [{ placement: 'top', role: 'system', content: 'Preset tone' }],
     }, {
         currentUserMessage: 'Hello.',
     });
 
     assert.equal(result.messages[0].role, 'system');
-    assert.equal(result.messages[0].content, 'LWB top system');
-    assert.equal(result.messages[1].role, 'system');
-    assert.equal(result.messages[1].content, 'LWB tool rules');
-    assert.equal(result.messages[2].content, 'Preset tone');
-    assert.deepEqual(result.messageLayers.slice(0, 3).map((item) => item.layer), ['lwb-system', 'lwb-tool', 'preset']);
+    assert.equal(result.messages[0].content, 'Preset tone');
+    assert.deepEqual(result.messageLayers.slice(0, 1).map((item) => item.layer), ['preset']);
     assert.deepEqual(JSON.parse(result.meta.rawMessagesJson), result.messages);
     assert.match(result.messages.map((message) => message.content).join('\n'), /<character_card>/);
-    assert.equal(result.messages.filter((message) => message.content === 'LWB top system').length, 1);
+    assert.equal(result.messages.filter((message) => message.content === 'Preset tone').length, 1);
 });
 
-test('xb tavern default preset has stable metadata and locked top messages', () => {
+test('xb tavern default preset uses editable sections without hidden top prompts', () => {
     const preset = createDefaultXbTavernPreset();
     const result = buildXbTavernMessages({
         character: { name: 'Aster', description: 'Pilot.' },
@@ -55,15 +50,13 @@ test('xb tavern default preset has stable metadata and locked top messages', () 
     assert.equal(preset.name, '小白酒馆默认角色扮演预设');
     assert.equal(preset.version, '1.0.0');
     assert.equal(listBuiltInXbTavernPresets()[0]?.id, DEFAULT_XB_TAVERN_PRESET_ID);
-    assert.equal(result.messages[0].content, preset.systemPrompt);
-    assert.equal(result.messages[1].content, preset.toolPrompt);
-    assert.deepEqual(result.messageLayers.slice(0, 2).map((item) => item.layer), ['lwb-system', 'lwb-tool']);
+    assert.equal(result.messageLayers[0]?.layer, 'preset');
+    assert.equal(result.messageLayers[0]?.sourceId, 'source-priority');
+    assert.match(result.messages[0]?.content || '', /你正在小白酒馆中进行角色扮演/);
 });
 
 test('xb tavern preset labels are debug metadata only', () => {
     const result = buildXbTavernMessages({}, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
         sections: [{
             id: 'debug-label-test',
             label: 'Debug Label',
@@ -84,8 +77,6 @@ test('xb tavern preset labels are debug metadata only', () => {
 
 test('xb tavern disabled preset sections stay out of model messages', () => {
     const result = buildXbTavernMessages({}, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
         sections: [
             {
                 id: 'enabled-section',
@@ -236,8 +227,6 @@ test('xb tavern assembler exposes world candidate explanations', () => {
             ],
         }],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'The station door opens.',
     });
@@ -277,8 +266,6 @@ test('xb tavern assembler exposes world budget and insertion debug metadata', ()
             ],
         }],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'Hello.',
         worldSettings: {
@@ -316,8 +303,6 @@ test('xb tavern assembler distinguishes probability failures from budget skips',
             ],
         }],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'Hello.',
         worldSettings: {
@@ -394,8 +379,6 @@ test('xb tavern world candidate matrix explains every activation and skip gate',
             ],
         }],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'The station opens.',
         worldSettings: {
@@ -458,8 +441,6 @@ test('xb tavern world activation follows SillyTavern sticky, selective and decor
             ],
         }],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'The station opens.',
         worldSettings: {
@@ -557,8 +538,6 @@ test('xb tavern world activation honors case, whole-word, cooldown, delay, and s
             { uid: 'cooldown', content: 'Cooldown next.', constant: true, cooldown: 3 },
         ],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'Hello.',
         worldSettings: { turn: 4 },
@@ -581,8 +560,6 @@ test('xb tavern world entry states are keyed by activation key across world book
             },
         ],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'Hello.',
         worldSettings: { turn: 10 },
@@ -602,8 +579,6 @@ test('xb tavern assembler does not double count flattened world entries when wor
         worldBooks: [{ name: 'BookA', entries: [entry] }],
         worldEntries: [entry],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'Hello.',
     });
@@ -632,8 +607,6 @@ test('xb tavern assembler deduplicates repeated entries from the same world book
             },
         ],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'station',
     });
@@ -656,8 +629,6 @@ test('xb tavern assembler keeps same uid entries separate across world books', (
             },
         ],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'Hello.',
     });
@@ -723,8 +694,6 @@ test('xb tavern assembler maps world positions into stable message locations', (
             },
         ],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'Look at the vault.',
         historyMode: 'raw',
@@ -753,8 +722,6 @@ test('xb tavern build snapshot summarizes context, preset, world activation, and
     const preset = {
         id: 'preset-1',
         name: 'Preset One',
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     };
     const result = buildXbTavernMessages(context, preset, {
         currentUserMessage: 'Now.',
@@ -791,8 +758,6 @@ test('xb tavern assembler supports preset placements around history', () => {
     const result = buildXbTavernMessages({
         history: [{ role: 'user', content: 'Previous turn.' }],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
         sections: [
             { placement: 'beforeHistory', role: 'system', content: 'Before history rule.' },
             { placement: 'afterHistory', role: 'system', content: 'After history rule.' },
@@ -814,8 +779,6 @@ test('xb tavern preset sections preserve placement order without leaking debug m
         character: { name: 'Aster', description: 'Pilot.' },
         history: [{ role: 'assistant', content: 'Earlier.' }],
     }, {
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
         sections: [
             { id: 'top-a', label: 'Top A', placement: 'top', role: 'system', content: 'Top A content.' },
             { id: 'top-b', label: 'Top B', placement: 'top', role: 'system', content: 'Top B content.' },
@@ -830,7 +793,7 @@ test('xb tavern preset sections preserve placement order without leaking debug m
     });
 
     const contents = result.messages.map((message) => message.content);
-    assert.deepEqual(contents.slice(0, 4), ['Top', 'Tools', 'Top A content.', 'Top B content.']);
+    assert.deepEqual(contents.slice(0, 2), ['Top A content.', 'Top B content.']);
     assert.equal(contents.indexOf('Before character content.') < contents.findIndex((content) => content.includes('<character_card>')), true);
     assert.equal(contents.indexOf('After character content.') > contents.findIndex((content) => content.includes('<character_card>')), true);
     assert.equal(contents.indexOf('Before history content.') < contents.indexOf('Now.'), true);

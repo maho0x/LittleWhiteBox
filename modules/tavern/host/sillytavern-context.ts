@@ -3,6 +3,7 @@ import { getRequestHeaders } from '../../../../../../../script.js';
 
 interface TavernHostOptions {
     characterId?: string | number;
+    includeHistory?: boolean;
 }
 
 interface TavernHostDiagnostics {
@@ -11,10 +12,20 @@ interface TavernHostDiagnostics {
     worldbookErrors: Array<{ name: string; error: string }>;
 }
 
+interface TavernHostCharacterOption {
+    id: string;
+    name: string;
+    avatar: string;
+    description: string;
+    personality: string;
+    scenario: string;
+    firstMessage: string;
+}
+
 interface TavernHostContextPayload {
     context: Record<string, unknown>;
     diagnostics: TavernHostDiagnostics;
-    availableCharacters: Array<{ id: string; name: string; avatar: string }>;
+    availableCharacters: TavernHostCharacterOption[];
     selectedCharacterId: string;
 }
 
@@ -194,13 +205,17 @@ function collectWorldbookNames(ctx: Record<string, unknown> = getContext?.() || 
     return names;
 }
 
-function listCharacters(ctx: Record<string, unknown> = getContext?.() || {}): Array<{ id: string; name: string; avatar: string }> {
+function listCharacters(ctx: Record<string, unknown> = getContext?.() || {}): TavernHostCharacterOption[] {
     return asArray<Record<string, unknown>>(ctx.characters).map((character, index) => {
         const data = asRecord(character?.data) || character || {};
         return {
             id: String(index),
             name: normalizeText(character?.name || data.name || `Character ${index + 1}`),
             avatar: normalizeText(character?.avatar || data.avatar),
+            description: normalizeText(data.description || character.description),
+            personality: normalizeText(data.personality || character.personality),
+            scenario: normalizeText(data.scenario || character.scenario),
+            firstMessage: normalizeText(data.first_mes || character.first_mes),
         };
     }).filter((character) => character.name);
 }
@@ -228,7 +243,7 @@ async function fetchWorldbook(name = ''): Promise<Record<string, unknown>> {
 
 export async function buildTavernContext(options: TavernHostOptions = {}): Promise<TavernHostContextPayload> {
     const ctx = (getContext?.() || {}) as Record<string, unknown>;
-    const useCurrentHistory = isCurrentCharacterSelection(ctx, options);
+    const useCurrentHistory = options.includeHistory !== false && isCurrentCharacterSelection(ctx, options);
     const embeddedBook = normalizeEmbeddedCharacterBook(ctx, options);
     const worldbookNames = collectWorldbookNames(ctx, options);
     const fetchedWorldBooks = await Promise.all(worldbookNames.map(async (name) => {

@@ -25,6 +25,7 @@ import {
     buildTavernRequestSnapshot,
     runTavernOnce,
     runXbTavernTurn,
+    simulateXbTavernRequest,
     type XbTavernRunResult,
     type TavernRunOnceOptions,
 } from '../app-src/runtime/run-once';
@@ -608,6 +609,47 @@ test('xb tavern provider resolver reports shared API readiness and request audit
     assert.equal(snapshot.presetName, '酒馆 Claude');
     assert.equal(snapshot.providerLabel, '酒馆 Claude');
     assert.equal(snapshot.model, 'claude-sonnet-4-0');
+    assert.match(snapshot.rawRequestJson, /"request"/);
+    assert.match(snapshot.rawRequestJson, /"messages"/);
+});
+
+test('xb tavern simulated request builds raw API JSON without saving chat messages', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Aster',
+        characterId: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster', description: 'A careful scout.' },
+        },
+        presetId: preset.id,
+        presetName: preset.name,
+    });
+    const result = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig: {
+            currentPresetName: '酒馆 OpenAI',
+            presets: {
+                '酒馆 OpenAI': {
+                    provider: 'sillytavern-openai-compatible',
+                    modelConfigs: {
+                        'sillytavern-openai-compatible': {
+                            model: 'gpt-test',
+                        },
+                    },
+                },
+            },
+        },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '只模拟，不发送。',
+    });
+    assert.equal(result.requestSnapshot.requestKind, 'simulated');
+    assert.match(result.requestSnapshot.rawRequestJson, /"url": "\/api\/backends\/chat-completions\/generate"/);
+    assert.match(result.requestSnapshot.rawRequestJson, /"stream": true/);
+    assert.match(result.requestSnapshot.rawRequestJson, /只模拟，不发送。/);
+    assert.deepEqual(await listTavernMessages(session.id), []);
 });
 
 test('xb tavern runtime keeps capability registry empty until agent tools are added', () => {
@@ -700,6 +742,46 @@ test('xb tavern run turn records provider failures as error assistant messages',
         },
     });
     assert.doesNotMatch(retryRaw, /provider_failed/);
+});
+
+test('xb tavern run turn keeps the actual failed request snapshot when provider exposes it', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Fail with request snapshot.',
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            const error = new Error('provider_failed_after_request') as Error & { requestSnapshot?: unknown };
+            error.requestSnapshot = buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                provider: 'actual-provider',
+                model: 'actual-model',
+                requestInspection: {
+                    provider: 'actual-provider',
+                    model: 'actual-model',
+                    transport: 'test',
+                    request: {
+                        body: {
+                            stream: true,
+                            marker: 'actual-failed-request',
+                        },
+                    },
+                },
+            });
+            throw error;
+        },
+    });
+
+    assert.equal(result.error, 'provider_failed_after_request');
+    assert.match(result.requestSnapshot.rawRequestJson, /actual-failed-request/);
+    assert.equal(result.requestSnapshot.provider, 'actual-provider');
+    const messages = await listTavernMessages(result.sessionId);
+    assert.match(JSON.stringify(messages[1]?.requestSnapshot || {}), /actual-failed-request/);
+    const session = await getTavernSession(result.sessionId);
+    assert.match(JSON.stringify(session?.state?.lastRequestSnapshot || {}), /actual-failed-request/);
 });
 
 test('xb tavern run turn records aborted partial text as assistant message', async () => {

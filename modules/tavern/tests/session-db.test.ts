@@ -60,8 +60,6 @@ test('tavern session db stores independent sessions and messages', async () => {
     }, {
         id: 'preset-1',
         name: 'Preset One',
-        systemPrompt: 'Top',
-        toolPrompt: 'Tools',
     }, {
         currentUserMessage: 'Hello.',
     });

@@ -185,7 +185,11 @@ function listCharacters(ctx = getContext?.() || {}) {
     return {
       id: String(index),
       name: normalizeText(character?.name || data.name || `Character ${index + 1}`),
-      avatar: normalizeText(character?.avatar || data.avatar)
+      avatar: normalizeText(character?.avatar || data.avatar),
+      description: normalizeText(data.description || character.description),
+      personality: normalizeText(data.personality || character.personality),
+      scenario: normalizeText(data.scenario || character.scenario),
+      firstMessage: normalizeText(data.first_mes || character.first_mes)
     };
   }).filter((character) => character.name);
 }
@@ -213,7 +217,7 @@ async function fetchWorldbook(name = "") {
 }
 async function buildTavernContext(options = {}) {
   const ctx = getContext?.() || {};
-  const useCurrentHistory = isCurrentCharacterSelection(ctx, options);
+  const useCurrentHistory = options.includeHistory !== false && isCurrentCharacterSelection(ctx, options);
   const embeddedBook = normalizeEmbeddedCharacterBook(ctx, options);
   const worldbookNames = collectWorldbookNames(ctx, options);
   const fetchedWorldBooks = await Promise.all(worldbookNames.map(async (name) => {

@@ -14,7 +14,6 @@ export interface XbTavernAgentRuntime {
         signal?: AbortSignal;
         onStreamProgress?: (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => void;
     }): {
-        systemPrompt: string;
         messages: XbTavernMessage[];
         tools: unknown[];
         toolChoice: 'none';
@@ -39,7 +38,6 @@ export function createXbTavernAgentRuntime(
         capabilities,
         buildChatTask(input) {
             return {
-                systemPrompt: '',
                 messages: input.messages,
                 tools: capabilities.tools,
                 toolChoice: capabilities.toolChoice,

@@ -1,5 +1,12 @@
 import Dexie, { type DexieTable } from '../../../libs/dexie.mjs';
-import type { XbTavernBuildSnapshot, XbTavernContext, XbTavernMessage, XbTavernPreset, XbTavernWorldEntryState } from './message-assembler';
+import type {
+    XbTavernBuildSnapshot,
+    XbTavernContext,
+    XbTavernMessage,
+    XbTavernPreset,
+    XbTavernPresetSection,
+    XbTavernWorldEntryState,
+} from './message-assembler';
 import { createDefaultXbTavernPreset, DEFAULT_XB_TAVERN_PRESET_ID } from './presets';
 
 export interface TavernSessionRecord {
@@ -245,6 +252,32 @@ function cloneSerializable<T>(value: T, fallback: T): T {
 function normalizePresetName(value = '', fallback = '我的小白酒馆预设'): string {
     const normalized = String(value || '').trim();
     return normalized.slice(0, 120) || fallback;
+}
+
+function normalizeTavernPresetSchema(preset: XbTavernPreset = {}): XbTavernPreset {
+    const normalized: XbTavernPreset = {
+        id: String(preset.id || '').trim(),
+        name: normalizePresetName(preset.name),
+        description: String(preset.description || ''),
+        version: String(preset.version || ''),
+        stylePrompt: String(preset.stylePrompt || ''),
+        postHistoryPrompt: String(preset.postHistoryPrompt || ''),
+        assistantPrefill: String(preset.assistantPrefill || ''),
+        historySeparator: String(preset.historySeparator || ''),
+        sections: Array.isArray(preset.sections)
+            ? preset.sections.map((section): XbTavernPresetSection => ({
+                id: String(section?.id || '').trim(),
+                label: String(section?.label || '').trim(),
+                locked: section?.locked !== false,
+                enabled: section?.enabled !== false,
+                role: section?.role,
+                content: String(section?.content || ''),
+                placement: section?.placement,
+            }))
+            : [],
+    };
+    if (!normalized.id) {delete normalized.id;}
+    return normalized;
 }
 
 function normalizeStringArray(value: unknown, limit = 12): string[] {
@@ -714,11 +747,11 @@ export async function saveTavernPreset(preset: XbTavernPreset, options: {
 } = {}): Promise<TavernPresetRecord> {
     const timestamp = now();
     const id = String(preset.id || createId('tavern-preset'));
-    const normalizedPreset = cloneSerializable({
+    const normalizedPreset = normalizeTavernPresetSchema(cloneSerializable({
         ...preset,
         id,
         name: normalizePresetName(preset.name),
-    }, createDefaultXbTavernPreset());
+    }, createDefaultXbTavernPreset()));
     const existing = await tavernPresetsTable.get(id);
     const record: TavernPresetRecord = {
         id,
@@ -754,7 +787,7 @@ export async function loadActiveTavernPreset(): Promise<XbTavernPreset> {
     const activeId = await getActiveTavernPresetId();
     if (activeId === DEFAULT_XB_TAVERN_PRESET_ID) {return createDefaultXbTavernPreset();}
     const record = await tavernPresetsTable.get(activeId);
-    return record?.preset ? cloneJson(record.preset) : createDefaultXbTavernPreset();
+    return record?.preset ? normalizeTavernPresetSchema(cloneJson(record.preset)) : createDefaultXbTavernPreset();
 }
 
 export async function deriveAndActivateDefaultTavernPreset(name = '我的小白酒馆预设'): Promise<TavernPresetRecord> {

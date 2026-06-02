@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { buildSdkRequestInspection } from './request-inspection.js';
 
 function parseArguments(text) {
     try {
@@ -193,7 +194,7 @@ export class AnthropicAdapter {
         });
     }
 
-    async chat(task) {
+    buildRequestBody(task) {
         const tools = (task.tools || []).map((tool) => ({
             name: tool.function.name,
             description: tool.function.description,
@@ -216,6 +217,29 @@ export class AnthropicAdapter {
                 display: 'summarized',
             };
         }
+        return body;
+    }
+
+    inspectRequest(task, options = {}) {
+        const stream = typeof task.onStreamProgress === 'function';
+        const baseUrl = normalizeAnthropicSdkBaseUrl(this.config.baseUrl);
+        return buildSdkRequestInspection({
+            provider: 'anthropic',
+            model: this.config.model,
+            transport: 'anthropic-sdk',
+            url: `${baseUrl}/v1/messages`,
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': this.config.apiKey || '',
+            },
+            body: options.body || this.buildRequestBody(task),
+            sdk: stream ? 'client.messages.stream' : 'client.messages.create',
+        });
+    }
+
+    async chat(task) {
+        const body = this.buildRequestBody(task);
+        const requestInspection = this.inspectRequest(task, { body });
         let response;
 
         if (typeof task.onStreamProgress === 'function') {
@@ -285,6 +309,7 @@ export class AnthropicAdapter {
             model: response.model || this.config.model,
             provider: 'anthropic',
             providerPayload: buildProviderPayload(response),
+            requestInspection,
         };
     }
 }

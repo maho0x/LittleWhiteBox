@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { buildSdkRequestInspection } from './request-inspection.js';
 import {
     extractLooseField,
     findLooseKeyMatch,
@@ -710,6 +711,50 @@ export class OpenAICompatibleAdapter {
         });
     }
 
+    buildRequestBody(task) {
+        const toolMode = this.config.toolMode || 'native';
+        const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
+        const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
+            ? task.tools
+            : null;
+        const body = {
+            model: this.config.model,
+            messages: isTaggedMode ? buildTaggedMessages(task) : buildNativeMessages(task, this.config.model),
+            ...(nativeTools ? { tools: nativeTools, tool_choice: task.toolChoice || 'auto' } : {}),
+            ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
+        };
+        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+            body.temperature = task.temperature;
+        }
+        if (task.reasoning?.enabled) {
+            body.reasoning_effort = task.reasoning.effort;
+        }
+        return body;
+    }
+
+    inspectRequest(task, options = {}) {
+        const stream = typeof task.onStreamProgress === 'function';
+        const body = {
+            ...(options.body || this.buildRequestBody(task)),
+            ...(stream ? { stream: true } : {}),
+        };
+        const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+        return buildSdkRequestInspection({
+            provider: 'openai-compatible',
+            model: this.config.model,
+            transport: 'openai-compatible',
+            url: `${baseUrl}/chat/completions`,
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: this.config.apiKey ? `Bearer ${this.config.apiKey}` : '',
+            },
+            body,
+            sdk: stream
+                ? 'client.chat.completions.create(..., { stream: true })'
+                : 'client.chat.completions.create',
+        });
+    }
+
     async streamNativeChatCompletions(task, body) {
         const url = `${String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
         const response = await fetch(url, {
@@ -794,24 +839,14 @@ export class OpenAICompatibleAdapter {
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const shouldUseStreaming = typeof task.onStreamProgress === 'function';
-        const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
-            ? task.tools
-            : null;
-        const body = {
-            model: this.config.model,
-            messages: isTaggedMode ? buildTaggedMessages(task) : buildNativeMessages(task, this.config.model),
-            ...(nativeTools ? { tools: nativeTools, tool_choice: task.toolChoice || 'auto' } : {}),
-            ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
-        };
-        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
-            body.temperature = task.temperature;
-        }
-        if (task.reasoning?.enabled) {
-            body.reasoning_effort = task.reasoning.effort;
-        }
+        const body = this.buildRequestBody(task);
+        const requestInspection = this.inspectRequest(task, { body });
         if (shouldUseStreaming) {
             if (!isTaggedMode) {
-                return await this.streamNativeChatCompletions(task, body);
+                return {
+                    ...await this.streamNativeChatCompletions(task, body),
+                    requestInspection,
+                };
             }
             const stream = await this.client.chat.completions.create({
                 ...body,
@@ -885,6 +920,7 @@ export class OpenAICompatibleAdapter {
                 model: lastModel,
                 provider: 'openai-compatible',
                 providerPayload,
+                requestInspection,
             };
         }
 
@@ -914,6 +950,7 @@ export class OpenAICompatibleAdapter {
             model: response.model || this.config.model,
             provider: 'openai-compatible',
             providerPayload: buildProviderPayload(replayableMessage),
+            requestInspection,
         };
     }
 }

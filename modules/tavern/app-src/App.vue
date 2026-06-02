@@ -24,6 +24,7 @@ import {
 import { createDefaultXbTavernPreset, DEFAULT_XB_TAVERN_PRESET_ID } from '../shared/presets';
 import {
     createTavernSession,
+    appendTavernMessage,
     deleteTavernMessages,
     deriveAndActivateDefaultTavernPreset,
     getActiveTavernPresetId,
@@ -52,7 +53,7 @@ import {
     type TavernSessionRecord,
     type TavernTurnSummaryRecord,
 } from '../shared/session-db';
-import { buildContextHistory, deriveTavernSessionStateFromMessages, runXbTavernTurn } from './runtime/run-once';
+import { buildContextHistory, deriveTavernSessionStateFromMessages, runXbTavernTurn, simulateXbTavernRequest } from './runtime/run-once';
 import { runXbTavernManagerAfterTurn } from './runtime/manager';
 import { resolveXbTavernProviderConfig } from './runtime/provider';
 
@@ -64,6 +65,9 @@ interface TavernDiagnostics {
 
 interface RequestAuditSnapshot {
     rawMessagesJson?: string;
+    rawRequestJson?: string;
+    requestKind?: string;
+    capturedAt?: number;
     messageCount?: number;
     messageChars?: number;
     presetName?: string;
@@ -73,9 +77,20 @@ interface RequestAuditSnapshot {
     toolMode?: string;
 }
 
+interface TavernCharacterOption {
+    id: string;
+    name: string;
+    avatar?: string;
+    description?: string;
+    personality?: string;
+    scenario?: string;
+    firstMessage?: string;
+}
+
 const SOURCE_APP = 'xb-tavern-app';
 const SOURCE_HOST = 'xb-tavern-host';
 const HOST_REQUEST_TIMEOUT_MS = 5000;
+const CHARACTER_CONTEXT_TIMEOUT_MS = 15000;
 
 const context = ref<XbTavernContext>({});
 const diagnostics = ref<TavernDiagnostics>({});
@@ -84,8 +99,10 @@ const hostRequestHeaders = ref<Record<string, unknown>>({});
 const apiSettingsRootRef = ref<HTMLElement | null>(null);
 const apiConfigSave = ref({ status: 'idle', requestId: '', error: '' });
 const apiConfigStatus = ref('');
-const availableCharacters = ref<Array<{ id: string; name: string; avatar?: string }>>([]);
+const availableCharacters = ref<TavernCharacterOption[]>([]);
 const selectedCharacterId = ref('');
+const pendingCharacterSessionId = ref('');
+const pendingCharacterError = ref('');
 const statusText = ref('等待读取资料');
 const currentUserMessage = ref('');
 const historyMode = ref<'raw' | 'squash'>('squash');
@@ -112,15 +129,20 @@ const activePresetId = ref(DEFAULT_XB_TAVERN_PRESET_ID);
 const presetStatus = ref('');
 const savedPresetJson = ref('');
 const selectedPresetSourceId = ref('');
-type AppView = 'home' | 'chat' | 'inspect' | 'settings';
-type WorkspaceKey = 'snapshot' | 'world' | 'messages' | 'runtime' | 'api' | 'preset';
+type AppView = 'home' | 'chat' | 'characters' | 'settings';
 type SettingsWorkspaceKey = 'api' | 'preset';
 type ChatFocus = 'chat' | 'balanced' | 'manager';
-interface BrainCheck {
-    key: WorkspaceKey;
-    label: string;
-    ok: boolean;
-    detail: string;
+function readInitialView(): AppView {
+    const hash = String(window.location.hash || '').replace(/^#\/?/, '');
+    const [view] = hash.split('/');
+    if (view === 'chat' || view === 'characters' || view === 'settings') {
+        return view;
+    }
+    return 'home';
+}
+function readInitialSettingsWorkspace(): SettingsWorkspaceKey {
+    const hash = String(window.location.hash || '').replace(/^#\/?/, '');
+    return hash.split('/')[1] === 'preset' ? 'preset' : 'api';
 }
 interface PendingHostRequest {
     resolve: (value: Record<string, unknown>) => void;
@@ -132,8 +154,8 @@ const pendingHostRequests = new Map<string, PendingHostRequest>();
 const presetDirty = computed(() => !presetIsBuiltIn.value && snapshotPreset(preset.value) !== savedPresetJson.value);
 const selectedSession = computed(() => sessions.value.find((item) => item.id === selectedSessionId.value) || null);
 const sessionRuntimeState = computed(() => normalizeTavernSessionState(selectedSession.value?.state || {}));
-const activeView = ref<AppView>('home');
-const activeSettingsWorkspace = ref<SettingsWorkspaceKey>('api');
+const activeView = ref<AppView>(readInitialView());
+const activeSettingsWorkspace = ref<SettingsWorkspaceKey>(readInitialSettingsWorkspace());
 const chatFocus = ref<ChatFocus>('balanced');
 const chatScrollRef = ref<HTMLElement | null>(null);
 const chatAutoScroll = ref(true);
@@ -142,6 +164,12 @@ const showChatScrollBottom = ref(false);
 const chatScrollControlsActive = ref(false);
 const editingMessageKey = ref('');
 const editingMessageDraft = ref('');
+const showPromptInspector = ref(false);
+const promptInspectorTab = ref<'history' | 'simulate'>('history');
+const simulateRequestInput = ref('');
+const simulateRequestJson = ref('');
+const simulateRequestStatus = ref('');
+const simulateRequestError = ref('');
 const messageActionFeedback = ref<Record<string, 'success' | 'error'>>({});
 const activeRunController = ref<AbortController | null>(null);
 const markdownHtmlCache = new Map<string, string>();
@@ -156,6 +184,7 @@ const apiSettingsPanelState: Record<string, unknown> = {
 };
 let apiSettingsPanel: ReturnType<typeof createAgentSettingsPanel> | null = null;
 let chatScrollHideTimer: number | null = null;
+let pendingCharacterSessionTimer: number | null = null;
 let chatScrollTicking = false;
 let chatTouchStartY: number | null = null;
 let chatLastScrollTop = 0;
@@ -163,29 +192,11 @@ const usingLockedSessionContext = computed(() => !!selectedSession.value?.contex
 const liveWorldBookCount = computed(() => context.value.worldBooks?.length || 0);
 const liveWorldEntryCount = computed(() => (context.value.worldBooks || []).reduce((sum, book) => sum + (book.entries?.length || 0), 0));
 const contextSourceTitle = computed(() => usingLockedSessionContext.value
-    ? '使用会话资料'
-    : '使用刚读取资料');
+    ? '会话快照'
+    : '酒馆当前资料');
 const contextSourceDetail = computed(() => usingLockedSessionContext.value
-    ? `这次会话锁定在 ${selectedSession.value?.characterName || '未选择角色'} 创建时的角色和世界书。改过资料后，可手动刷新。`
-    : `当前角色：${context.value.character?.name || '未选择角色'}；世界书 ${liveWorldBookCount.value} 本 ${liveWorldEntryCount.value} 条。`);
-const activeWorkspace = ref<WorkspaceKey>('snapshot');
-const workspaceTabs = [
-    { key: 'snapshot', label: '资料', hint: '角色与会话' },
-    { key: 'world', label: '世界书', hint: '读入与触发' },
-    { key: 'messages', label: '本轮内容', hint: '模型将看到什么' },
-    { key: 'runtime', label: '试聊记录', hint: '回复、错误和调用记录' },
-] as const;
-const workspaceFallbackItems: Record<WorkspaceKey, { key: WorkspaceKey; label: string; hint: string }> = {
-    snapshot: { key: 'snapshot', label: '资料', hint: '角色与会话' },
-    world: { key: 'world', label: '世界书', hint: '读入与触发' },
-    messages: { key: 'messages', label: '本轮内容', hint: '模型将看到什么' },
-    runtime: { key: 'runtime', label: '试聊记录', hint: '回复、错误和调用记录' },
-    api: { key: 'api', label: 'API 配置', hint: '使用小白助手和电纸书同一套模型预设' },
-    preset: { key: 'preset', label: '小白预设', hint: '聊天前的补充规则' },
-};
-const activeWorkspaceItem = computed(() => workspaceTabs.find((item) => item.key === activeWorkspace.value)
-    || workspaceFallbackItems[activeWorkspace.value]);
-
+    ? `保存于会话：${selectedSession.value?.characterName || '未选择角色'}。`
+    : `${context.value.character?.name || '未选择角色'} · 世界书 ${liveWorldBookCount.value} 本 / ${liveWorldEntryCount.value} 条。`);
 const effectiveContext = computed<XbTavernContext>(() => ({
     ...(selectedSession.value?.contextSnapshot || context.value),
     history: selectedSessionId.value
@@ -218,6 +229,44 @@ const buildResult = computed(() => brainBuild.value.buildResult);
 const effectiveCharacter = computed(() => effectiveContext.value.character || {});
 const effectiveUser = computed(() => effectiveContext.value.user || {});
 const characterName = computed(() => effectiveCharacter.value.name || '未选择角色');
+const hasCharacter = computed(() => !!String(effectiveCharacter.value.name || '').trim());
+const characterAvatar = computed(() => String(effectiveCharacter.value.avatar || '').trim());
+const liveCharacter = computed(() => context.value.character || {});
+const liveCharacterId = computed(() => String(liveCharacter.value.id || selectedCharacterId.value || '').trim());
+const characterCards = computed<TavernCharacterOption[]>(() => {
+    const byId = new Map<string, TavernCharacterOption>();
+    availableCharacters.value.forEach((character) => {
+        const id = String(character.id || '').trim();
+        if (!id) {return;}
+        byId.set(id, {
+            id,
+            name: String(character.name || '').trim() || `角色 ${id}`,
+            avatar: String(character.avatar || '').trim(),
+            description: String(character.description || '').trim(),
+            personality: String(character.personality || '').trim(),
+            scenario: String(character.scenario || '').trim(),
+            firstMessage: String(character.firstMessage || '').trim(),
+        });
+    });
+    const currentId = String(liveCharacter.value.id || '').trim();
+    if (currentId && liveCharacter.value.name && !byId.has(currentId)) {
+        byId.set(currentId, {
+            id: currentId,
+            name: String(liveCharacter.value.name || '').trim(),
+            avatar: String(liveCharacter.value.avatar || '').trim(),
+            description: String(liveCharacter.value.description || '').trim(),
+            personality: String(liveCharacter.value.personality || '').trim(),
+            scenario: String(liveCharacter.value.scenario || '').trim(),
+            firstMessage: String(liveCharacter.value.firstMessage || '').trim(),
+        });
+    }
+    return [...byId.values()].sort((left, right) => {
+        const leftCurrent = left.id === liveCharacterId.value ? -1 : 0;
+        const rightCurrent = right.id === liveCharacterId.value ? -1 : 0;
+        if (leftCurrent !== rightCurrent) {return leftCurrent - rightCurrent;}
+        return left.name.localeCompare(right.name, 'zh-Hans-CN');
+    });
+});
 const userName = computed(() => effectiveUser.value.name || 'User');
 const worldBooks = computed(() => effectiveContext.value.worldBooks || []);
 const worldBookCount = computed(() => worldBooks.value.length);
@@ -229,6 +278,7 @@ const rawMessagesJson = computed(() => buildResult.value.meta.rawMessagesJson);
 const buildSnapshot = computed(() => brainBuild.value.buildSnapshot);
 const effectiveHistoryCount = computed(() => effectiveContext.value.history?.length || 0);
 const lastRequestSnapshot = computed(() => selectedSession.value?.state?.lastRequestSnapshot as RequestAuditSnapshot | undefined);
+const lastRequestRawJson = computed(() => String(lastRequestSnapshot.value?.rawRequestJson || lastRequestSnapshot.value?.rawMessagesJson || ''));
 const lastRequestMatchesPreview = computed(() => !!lastRequestSnapshot.value?.rawMessagesJson
     && lastRequestSnapshot.value.rawMessagesJson === rawMessagesJson.value);
 const resolvedProviderConfig = computed(() => resolveXbTavernProviderConfig(agentConfig.value));
@@ -244,6 +294,14 @@ const latestErrorMessage = computed(() => {
 const latestManagerRun = computed(() => managerRuns.value[0] || null);
 const managerBusy = computed(() => managerRuns.value.some((run) => ['queued', 'running'].includes(run.status)));
 const recentTurnSummaries = computed(() => [...turnSummaries.value].reverse().slice(0, 8));
+const sidebarSessions = computed(() => sessions.value.slice(0, 6));
+const chatSidebarSessions = computed(() => {
+    const currentCharacterId = String(selectedSession.value?.characterId || effectiveContext.value.character?.id || '').trim();
+    const sameCharacter = currentCharacterId
+        ? sessions.value.filter((session) => String(session.characterId || '').trim() === currentCharacterId)
+        : sessions.value;
+    return sameCharacter.slice(0, 6);
+});
 const activeMemoryFiles = computed(() => memoryFiles.value.filter((file) => file.status !== 'stale'));
 const selectedMemoryFile = computed(() => (
     memoryFiles.value.find((file) => file.path === selectedMemoryFilePath.value)
@@ -291,66 +349,7 @@ const apiRuntimeLine = computed(() => {
     const config = resolvedProviderConfig.value;
     return `预设「${config.currentPresetName || '默认'}」 · ${config.providerLabel} / ${config.model || '未选择模型'}`;
 });
-const chatTriggerSummary = computed(() => {
-    if (!currentUserMessage.value.trim()) {return '填写输入后，这里会预览世界书命中。';}
-    if (!activatedCandidateRows.value.length) {return '这句暂时没有触发世界书。';}
-    return `这句会带上 ${activatedCandidateRows.value.length} 条世界书。`;
-});
 const canSendMessage = computed(() => isRunning.value || !!currentUserMessage.value.trim());
-const brainChecks = computed<BrainCheck[]>(() => {
-    const layers = buildResult.value.messageLayers;
-    const topRulesLocked = layers[0]?.layer === 'lwb-system'
-        && layers[1]?.layer === 'lwb-tool'
-        && messagePreview.value[0]?.role === 'system'
-        && messagePreview.value[1]?.role === 'system';
-    const worldExplainable = candidateRows.value.every((entry) => entry.status && entry.insertionTarget);
-    const hasRequestAudit = !!lastRequestSnapshot.value?.rawMessagesJson;
-    return [
-        {
-            key: 'snapshot',
-            label: '资料快照',
-            ok: !!effectiveContext.value.character?.name,
-            detail: effectiveContext.value.character?.name
-                ? `${effectiveContext.value.character.name} / 世界书 ${worldBookCount.value} 本 / 历史 ${effectiveHistoryCount.value} 条`
-                : '还没有读到角色卡',
-        },
-        {
-            key: 'messages',
-            label: '顶层规则',
-            ok: topRulesLocked,
-            detail: topRulesLocked ? '核心规则固定在最前面' : '核心规则位置异常',
-        },
-        {
-            key: 'world',
-            label: '世界书解释',
-            ok: worldExplainable,
-            detail: `候选 ${worldEntryCount.value} 条，激活 ${activatedCount.value} 条，跳过原因可检查`,
-        },
-        {
-            key: 'messages',
-            label: '本轮内容',
-            ok: lastRequestMatchesPreview.value,
-            detail: hasRequestAudit
-                ? (lastRequestMatchesPreview.value
-                    ? `上次调用和当前内容一致：${lastRequestSnapshot.value?.messageCount || messagePreview.value.length} 条`
-                    : '当前内容已经变动，需要重新试聊')
-                : `待试聊：当前内容 ${messagePreview.value.length} 条 / ${buildSnapshot.value.messageChars} 字`,
-        },
-        {
-            key: 'api',
-            label: 'API 配置',
-            ok: apiReady.value,
-            detail: apiReady.value ? apiRuntimeLine.value : apiReadyDetail.value,
-        },
-        {
-            key: 'runtime',
-            label: '独立会话',
-            ok: !!selectedSessionId.value,
-            detail: selectedSessionId.value ? '回复会写入当前会话' : '还没创建会话',
-        },
-    ];
-});
-
 const characterFields = computed(() => {
     const character = effectiveContext.value.character || {};
     const user = effectiveContext.value.user || {};
@@ -358,7 +357,7 @@ const characterFields = computed(() => {
         ['角色', character.name],
         ['头像', character.avatar],
         ['用户', user.name],
-        ['用户 persona', user.persona || user.description],
+        ['用户设定', user.persona || user.description],
         ['描述', character.description],
         ['性格', character.personality],
         ['场景', character.scenario],
@@ -398,10 +397,8 @@ type MessagePreviewRow = (typeof messageRows.value)[number];
 
 const messageGroups = computed(() => {
     const labels: Record<string, string> = {
-        'lwb-system': '核心规则',
-        'lwb-tool': '工具和行为边界',
         top: '开场规则',
-        preset: '补充规则',
+        preset: '预设条目',
         'world-before': '先放入的世界书',
         'character-card': '角色卡',
         'world-after': '角色卡后的世界书',
@@ -466,35 +463,24 @@ const placementLabels: Record<string, string> = {
     afterHistory: '历史后',
     assistantPrefill: '回复开头',
 };
+type PresetQueueRow = XbTavernPresetSection & {
+    previewId: string;
+    previewLabel: string;
+    previewPlacement: string;
+    sectionIndex: number;
+    chars: number;
+};
 const presetRows = computed(() => {
     const sections = Array.isArray(preset.value.sections) ? preset.value.sections : [];
-    const rows: Array<XbTavernPresetSection & { previewId: string; previewLabel: string; previewPlacement: string }> = [
-        {
-            previewId: 'lwb-system',
-            previewLabel: '最高优先级规则',
-            previewPlacement: '固定在最前面',
-            role: 'system',
-            locked: true,
-            enabled: true,
-            content: preset.value.systemPrompt,
-        },
-        {
-            previewId: 'lwb-tool',
-            previewLabel: '工具和行为边界',
-            previewPlacement: '固定在最前面',
-            role: 'system',
-            locked: true,
-            enabled: true,
-            content: preset.value.toolPrompt,
-        },
-        ...sections.map((section, index) => ({
-            ...section,
-            previewId: section.id || `preset-section-${index}`,
-            previewLabel: section.label || section.id || `规则段 ${index + 1}`,
-            previewPlacement: placementLabels[section.placement || 'beforeHistory'] || section.placement || '历史前',
-            enabled: section.enabled !== false,
-        })),
-    ];
+    const rows: PresetQueueRow[] = sections.map((section, index) => ({
+        ...section,
+        previewId: section.id || `preset-section-${index}`,
+        previewLabel: section.label || `条目 ${index + 1}`,
+        previewPlacement: placementLabels[section.placement || 'beforeHistory'] || section.placement || '历史前',
+        sectionIndex: index,
+        enabled: section.enabled !== false,
+        chars: 0,
+    }));
     return rows
         .map((row) => ({
             ...row,
@@ -503,6 +489,14 @@ const presetRows = computed(() => {
         }))
         .filter((row) => row.content || row.enabled === false);
 });
+const selectedPresetPreviewRow = computed(() => (
+    presetRows.value.find((row) => row.previewId === selectedPresetSourceId.value)
+    || presetRows.value[0]
+    || null
+));
+const presetTotalChars = computed(() => presetRows.value
+    .filter((row) => row.enabled !== false)
+    .reduce((sum, row) => sum + row.chars, 0));
 
 function snapshotPreset(value = preset.value) {
     return JSON.stringify(value || {});
@@ -525,7 +519,7 @@ async function deriveDefaultPreset() {
     activePresetId.value = record.id;
     preset.value = record.preset;
     await refreshPresets();
-    presetStatus.value = '已复制一份默认规则，可以开始修改。';
+    presetStatus.value = '已复制默认预设，可以开始编辑。';
 }
 
 async function selectPreset(presetId: string) {
@@ -534,12 +528,12 @@ async function selectPreset(presetId: string) {
     preset.value = await loadActiveTavernPreset();
     savedPresetJson.value = snapshotPreset(preset.value);
     selectedPresetSourceId.value = '';
-    presetStatus.value = presetIsBuiltIn.value ? '当前使用默认规则，不能直接修改。' : '已切换到你的规则。';
+    presetStatus.value = presetIsBuiltIn.value ? '当前使用默认预设，需复制后编辑。' : '已切换到你的预设。';
 }
 
 async function saveCurrentPreset() {
     if (presetIsBuiltIn.value) {
-        presetStatus.value = '默认规则不能直接改，请先复制一份。';
+        presetStatus.value = '默认预设需复制后编辑。';
         return;
     }
     const record = await saveTavernPreset(preset.value);
@@ -557,7 +551,7 @@ async function resetToBuiltInPreset() {
     preset.value = createDefaultXbTavernPreset();
     savedPresetJson.value = snapshotPreset(preset.value);
     selectedPresetSourceId.value = '';
-    presetStatus.value = '已切回默认规则。';
+    presetStatus.value = '已恢复默认预设。';
 }
 
 function updatePresetSection(index: number, patch: Partial<XbTavernPresetSection>) {
@@ -587,7 +581,7 @@ function addPresetSection() {
     const id = `custom-section-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     sections.push({
         id,
-        label: '新的补充规则',
+        label: `条目 ${sections.length + 1}`,
         locked: false,
         enabled: true,
         placement: 'beforeHistory',
@@ -756,7 +750,7 @@ function renderApiSettingsPanel() {
         showAssistantPermissions: false,
         showDelegateSettings: true,
         activePage: String(apiSettingsPanelState.configPage || 'main'),
-        delegatePresetHint: '后续小白酒馆后台能力会复用这里的分身 API；当前聊天仍使用主 API。',
+        delegatePresetHint: '记忆整理会复用这里的分身 API；当前聊天仍使用主 API。',
         isBusy: isRunning.value,
         canDeletePreset: Object.keys((apiSettingsPanelState.config as Record<string, unknown>)?.presets || {}).length > 1,
     });
@@ -787,11 +781,15 @@ function applyHostPayload(payload: Record<string, unknown>) {
         agentConfig.value = payload.agentConfig as Record<string, unknown> || agentConfig.value;
         syncApiSettingsConfigFromAgentConfig();
     }
-    availableCharacters.value = payload.availableCharacters as Array<{ id: string; name: string; avatar?: string }> || availableCharacters.value;
+    availableCharacters.value = payload.availableCharacters as TavernCharacterOption[] || availableCharacters.value;
     selectedCharacterId.value = String(payload.selectedCharacterId || context.value.character?.id || selectedCharacterId.value || '');
     statusText.value = usingLockedSessionContext.value
         ? `${diagnostics.value.message || '宿主资料已加载'}；当前会话仍使用锁定资料。`
         : diagnostics.value.message || '宿主资料已加载';
+    void finishPendingCharacterSession().catch((error) => {
+        pendingCharacterError.value = error instanceof Error ? error.message : String(error || 'create_session_failed');
+        clearPendingCharacterSession();
+    });
     void nextTick(renderApiSettingsPanel);
 }
 
@@ -816,30 +814,15 @@ function onHostMessage(event: MessageEvent) {
     }
 }
 
-function refreshSelectedCharacter() {
-    statusText.value = '正在重新读取这张角色卡';
-    postToHost('xb-tavern:refresh-context', {
-        characterId: selectedCharacterId.value,
-    });
+function openCharacterSelect() {
+    activeView.value = 'characters';
+    pendingCharacterError.value = '';
 }
 
-function openBrainCheck(check: BrainCheck) {
-    if (check.key === 'api') {
-        activeView.value = 'settings';
-        activeSettingsWorkspace.value = 'api';
-        return;
-    }
-    activeView.value = 'inspect';
-    activeWorkspace.value = check.key;
-}
-
-async function useLiveContextForPreview() {
-    selectedSessionId.value = '';
-    sessionMessages.value = [];
-    runtimeText.value = '';
-    runtimeError.value = '';
-    runtimeSnapshotJson.value = '';
-    await setSelectedTavernSessionId('');
+function refreshCharacterList() {
+    statusText.value = '正在读取角色列表';
+    pendingCharacterError.value = '';
+    postToHost('xb-tavern:refresh-context', {});
 }
 
 async function refreshSessions() {
@@ -895,19 +878,39 @@ async function rebuildSelectedSessionRuntimeState(messages: TavernMessageRecord[
     await refreshSessions();
 }
 
-async function createSessionFromContext() {
+function resetSessionPreviewState() {
+    currentUserMessage.value = '';
+    runtimeText.value = '';
+    runtimeError.value = '';
+    runtimeSnapshotJson.value = '';
+}
+
+async function appendFirstMessageIfPresent(sessionId: string, snapshotContext: XbTavernContext) {
+    const firstMessage = String(snapshotContext.character?.firstMessage || snapshotContext.character?.first_mes || '').trim();
+    if (!firstMessage) {return;}
+    await appendTavernMessage(sessionId, {
+        role: 'assistant',
+        name: String(snapshotContext.character?.name || ''),
+        content: firstMessage,
+        contextSnapshot: snapshotContext,
+        presetId: String(preset.value.id || activePresetId.value || ''),
+        presetName: String(preset.value.name || ''),
+    });
+}
+
+async function createSessionFromContext(options: { includeFirstMessage?: boolean } = {}) {
     const snapshotContext = context.value;
     const snapshotBrain = buildXbTavernBrain({
         context: snapshotContext,
         preset: preset.value,
-        currentUserMessage: currentUserMessage.value,
+        currentUserMessage: '',
         historyMode: historyMode.value,
         turn: 0,
         entryStates: {},
         diagnostics: diagnostics.value,
     });
     const session = await createTavernSession({
-        title: `${snapshotContext.character?.name || '未选择角色'} · 小白酒馆`,
+        title: String(snapshotContext.character?.name || '未选择角色'),
         characterId: String(snapshotContext.character?.id || ''),
         characterName: String(snapshotContext.character?.name || '未选择角色'),
         contextSnapshot: snapshotContext,
@@ -919,6 +922,9 @@ async function createSessionFromContext() {
             worldEntryStates: {},
         },
     });
+    if (options.includeFirstMessage !== false) {
+        await appendFirstMessageIfPresent(session.id, snapshotContext);
+    }
     selectedSessionId.value = session.id;
     await refreshSessions();
     return session;
@@ -927,6 +933,64 @@ async function createSessionFromContext() {
 async function createSessionAndOpenChat() {
     await createSessionFromContext();
     activeView.value = 'chat';
+    chatFocus.value = 'balanced';
+}
+
+async function handleHomePrimaryAction() {
+    if (selectedSessionId.value) {
+        openChatView();
+        return;
+    }
+    openCharacterSelect();
+}
+
+async function handleHomeNewSession() {
+    openCharacterSelect();
+}
+
+function clearPendingCharacterSession() {
+    if (pendingCharacterSessionTimer) {
+        window.clearTimeout(pendingCharacterSessionTimer);
+        pendingCharacterSessionTimer = null;
+    }
+    pendingCharacterSessionId.value = '';
+}
+
+async function finishPendingCharacterSession() {
+    const targetId = pendingCharacterSessionId.value;
+    if (!targetId) {return;}
+    const currentId = String(context.value.character?.id || selectedCharacterId.value || '').trim();
+    if (currentId !== targetId) {return;}
+    if (!context.value.character?.name) {
+        clearPendingCharacterSession();
+        pendingCharacterError.value = '没有读到这张角色卡。';
+        return;
+    }
+    clearPendingCharacterSession();
+    pendingCharacterError.value = '';
+    resetSessionPreviewState();
+    await createSessionAndOpenChat();
+}
+
+async function selectCharacterAndCreateSession(characterId: string) {
+    const targetId = String(characterId || '').trim();
+    if (!targetId || pendingCharacterSessionId.value) {return;}
+    selectedSessionId.value = '';
+    sessionMessages.value = [];
+    await setSelectedTavernSessionId('');
+    await refreshManagerRecords('');
+    resetSessionPreviewState();
+    selectedCharacterId.value = targetId;
+    pendingCharacterError.value = '';
+    statusText.value = '正在读取角色卡';
+    pendingCharacterSessionId.value = targetId;
+    if (pendingCharacterSessionTimer) {window.clearTimeout(pendingCharacterSessionTimer);}
+    pendingCharacterSessionTimer = window.setTimeout(() => {
+        if (pendingCharacterSessionId.value !== targetId) {return;}
+        clearPendingCharacterSession();
+        pendingCharacterError.value = '读取角色卡超时。';
+    }, CHARACTER_CONTEXT_TIMEOUT_MS);
+    postToHost('xb-tavern:refresh-context', { characterId: targetId, includeHistory: false });
 }
 
 async function refreshSelectedSessionSnapshot() {
@@ -951,11 +1015,56 @@ async function refreshSelectedSessionSnapshot() {
 }
 
 async function selectSession(sessionId: string) {
+    resetSessionPreviewState();
     selectedSessionId.value = sessionId;
     await setSelectedTavernSessionId(sessionId);
     sessionMessages.value = await listTavernMessages(sessionId);
     await refreshManagerRecords(sessionId);
     activeView.value = 'chat';
+    chatFocus.value = 'balanced';
+}
+
+function openChatView() {
+    activeView.value = 'chat';
+    chatFocus.value = 'balanced';
+}
+
+function openPromptInspector(tab: 'history' | 'simulate' = 'history') {
+    promptInspectorTab.value = tab;
+    showPromptInspector.value = true;
+}
+
+function closePromptInspector() {
+    showPromptInspector.value = false;
+}
+
+async function simulateApiRequest() {
+    const messageText = simulateRequestInput.value.trim();
+    simulateRequestError.value = '';
+    simulateRequestStatus.value = '';
+    simulateRequestJson.value = '';
+    if (!messageText) {
+        simulateRequestError.value = '先写一句话。';
+        return;
+    }
+    simulateRequestStatus.value = '模拟中';
+    try {
+        const result = await simulateXbTavernRequest({
+            sessionId: selectedSessionId.value,
+            agentConfig: agentConfig.value,
+            contextSnapshot: context.value,
+            preset: preset.value,
+            currentUserMessage: messageText,
+            runtimeState: normalizeTavernSessionState(selectedSession.value?.state || {}),
+            diagnostics: diagnostics.value,
+            historyMode: historyMode.value,
+        });
+        simulateRequestJson.value = result.requestSnapshot.rawRequestJson || result.requestSnapshot.rawMessagesJson || '';
+        simulateRequestStatus.value = `模拟完成 · ${result.requestSnapshot.providerLabel || result.provider} / ${result.model || '未选择模型'}`;
+    } catch (error) {
+        simulateRequestStatus.value = '';
+        simulateRequestError.value = error instanceof Error ? error.message : String(error || 'simulate_failed');
+    }
 }
 
 function shortText(value = '', limit = 180) {
@@ -1028,7 +1137,7 @@ async function retryManagerRun(run: TavernManagerRunRecord) {
         await refreshManagerRecords();
         return;
     }
-    managerActionStatus.value = '后台管理者正在重试。';
+    managerActionStatus.value = '记忆正在重试。';
     try {
         const result = await runXbTavernManagerAfterTurn({
             sessionId: selectedSessionId.value,
@@ -1474,8 +1583,11 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
     }
     const messageText = String(options.messageText ?? currentUserMessage.value ?? '').trim();
     if (!messageText) {
-        runtimeError.value = '先写一句要发给角色的话。';
+        runtimeError.value = '先写一句话。';
         return;
+    }
+    if (!selectedSessionId.value) {
+        await createSessionFromContext();
     }
     const controller = new AbortController();
     activeRunController.value = controller;
@@ -1568,7 +1680,6 @@ watch([
 });
 
 watch([
-    () => activeWorkspace.value,
     () => activeSettingsWorkspace.value,
     () => activeView.value,
     () => apiConfigSave.value.status,
@@ -1583,10 +1694,16 @@ onMounted(async () => {
     // onHostMessage validates origin and message source before accepting payloads.
     // eslint-disable-next-line no-restricted-syntax
     window.addEventListener('message', onHostMessage);
+    if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'api') {
+        void nextTick(renderApiSettingsPanel);
+    }
     void warmupMemoryTokenizer();
     await refreshPresets();
     await refreshSessions();
     syncApiSettingsConfigFromAgentConfig();
+    if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'api') {
+        await nextTick(renderApiSettingsPanel);
+    }
     postToHost('xb-tavern:frame-ready');
 });
 
@@ -1603,247 +1720,136 @@ onUnmounted(() => {
         window.clearTimeout(chatScrollHideTimer);
         chatScrollHideTimer = null;
     }
+    clearPendingCharacterSession();
 });
 </script>
 
 <template>
-  <main class="xb-tavern">
-    <header class="xb-topbar">
-      <div>
-        <p class="eyebrow">
-          角色共演
-        </p>
-        <h1>小白酒馆</h1>
-        <p class="top-subtitle">
-          {{ characterName }} · {{ chatReadyLabel }}
-        </p>
-      </div>
+  <main class="xb-tavern xb-os-shell">
+    <aside class="xb-os-rail">
+      <button
+        class="rail-brand"
+        type="button"
+        title="首页"
+        @click="activeView = 'home'"
+      >
+        <span>XB</span>
+        <strong>小白酒馆</strong>
+      </button>
       <nav
-        class="view-tabs"
-        aria-label="小白酒馆页面"
+        class="rail-nav"
+        aria-label="页面"
       >
         <button
           type="button"
-          :class="{ active: activeView === 'home' }"
+          :class="{ active: activeView === 'home' || activeView === 'characters' }"
           @click="activeView = 'home'"
         >
+          <span>01</span>
           首页
         </button>
         <button
           type="button"
           :class="{ active: activeView === 'chat' }"
-          @click="activeView = 'chat'"
+          @click="openChatView"
         >
+          <span>02</span>
           聊天
-        </button>
-        <button
-          type="button"
-          :class="{ active: activeView === 'inspect' }"
-          @click="activeView = 'inspect'"
-        >
-          检查
         </button>
         <button
           type="button"
           :class="{ active: activeView === 'settings' }"
           @click="activeView = 'settings'"
         >
+          <span>03</span>
           设置
         </button>
-        <button
-          class="icon-button"
-          type="button"
-          title="关闭"
-          @click="postToHost('xb-tavern:close')"
-        >
-          ×
-        </button>
       </nav>
-    </header>
-
-    <section
-      v-if="activeView === 'home'"
-      class="tavern-home"
-    >
-      <div class="home-hero">
-        <div>
-          <p class="eyebrow">
-            小白酒馆
-          </p>
-          <h2>{{ characterName }}</h2>
-          <p>
-            {{ selectedSessionId ? selectedSessionTitle : '选择角色，开一段新的对话。' }}
-          </p>
-        </div>
-        <div class="home-primary-actions">
-          <button
-            type="button"
-            class="home-action-main"
-            @click="selectedSessionId ? activeView = 'chat' : createSessionAndOpenChat()"
-          >
-            <strong>{{ selectedSessionId ? '继续聊天' : '开始聊天' }}</strong>
-            <span>{{ selectedSessionId ? selectedSessionTitle : characterName }}</span>
-          </button>
-          <button
-            type="button"
-            class="home-action-main"
-            @click="createSessionAndOpenChat"
-          >
-            <strong>新开会话</strong>
-            <span>{{ characterName }}</span>
-          </button>
-        </div>
+      <span
+        class="mobile-settings-label"
+        aria-hidden="true"
+      >设置</span>
+      <div class="rail-status">
+        <span>{{ apiReady ? 'READY' : 'SETUP' }}</span>
+        <strong>{{ characterName }}</strong>
+        <small>{{ chatReadyLabel }}</small>
       </div>
+      <button
+        class="rail-close"
+        type="button"
+        title="关闭"
+        aria-label="关闭"
+        @click="postToHost('xb-tavern:close')"
+      >
+        ×
+      </button>
+    </aside>
 
-      <div class="home-route-grid">
-        <button
-          type="button"
-          @click="activeView = 'inspect'; activeWorkspace = 'snapshot'"
-        >
-          <strong>选择角色</strong>
-          <span>{{ contextSourceTitle }}</span>
-        </button>
-        <button
-          type="button"
-          @click="activeView = 'inspect'; activeWorkspace = 'world'"
-        >
-          <strong>资料检查</strong>
-          <span>{{ worldBookCount }} 本世界书 · {{ worldEntryCount }} 条候选</span>
-        </button>
-        <button
-          type="button"
-          @click="activeView = 'settings'"
-        >
-          <strong>设置</strong>
-          <span>{{ apiReady ? apiRuntimeLine : apiReadyDetail }}</span>
-        </button>
-      </div>
-
-      <section class="session-board">
-        <div class="panel-head">
-          <div>
-            <h2>最近会话</h2>
-          </div>
-          <button
-            type="button"
-            @click="createSessionAndOpenChat"
-          >
-            新开会话
-          </button>
-        </div>
-        <div class="home-session-list">
-          <button
-            v-for="session in sessions"
-            :key="session.id"
-            type="button"
-            :class="{ active: session.id === selectedSessionId }"
-            @click="selectSession(session.id)"
-          >
-            <strong>{{ session.title }}</strong>
-            <small>{{ session.characterName || '未选择角色' }}</small>
-          </button>
-          <p
-            v-if="!sessions.length"
-            class="muted"
-          >
-            还没有会话。
-          </p>
-        </div>
-      </section>
-    </section>
-
-    <section
-      v-if="activeView === 'chat'"
-      class="tavern-chat"
-      :class="`chat-focus-${chatFocus}`"
-    >
-      <aside class="chat-side">
-        <section class="chat-profile">
-          <div class="avatar-orb">
-            {{ characterName.slice(0, 1) }}
-          </div>
-          <div>
+    <section class="xb-os-stage">
+      <section
+        v-if="activeView === 'home'"
+        class="tavern-home xb-page home-command-center"
+      >
+        <div class="home-hero home-command-hero">
+          <div class="home-brand-panel">
+            <div class="home-brand-mark">
+              XB
+            </div>
             <p class="eyebrow">
-              角色
+              角色共演
             </p>
-            <h2>{{ characterName }}</h2>
-            <p>{{ contextSourceTitle }}</p>
+            <h2>{{ hasCharacter ? characterName : '选择角色' }}</h2>
+            <p>
+              {{ selectedSessionId ? selectedSessionTitle : '选择角色，开一段新的对话。' }}
+            </p>
+            <div class="home-metric-strip">
+              <span>
+                <strong>{{ sessions.length }}</strong>
+                会话
+              </span>
+              <span>
+                <strong>{{ worldBookCount }}</strong>
+                世界书
+              </span>
+              <span>
+                <strong>{{ apiReady ? 'OK' : 'SET' }}</strong>
+                API
+              </span>
+            </div>
           </div>
-        </section>
-
-        <section class="chat-side-block">
-          <div class="chat-workspace-switch">
+          <div class="home-command-panel">
             <button
               type="button"
-              :class="{ active: chatFocus === 'chat' }"
-              @click="chatFocus = 'chat'"
+              class="home-action-main"
+              @click="handleHomePrimaryAction"
             >
-              聊天
+              <strong>{{ selectedSessionId ? '继续聊天' : '选择角色' }}</strong>
+              <span>{{ selectedSessionId ? selectedSessionTitle : `${characterCards.length} 张角色卡可选` }}</span>
             </button>
             <button
               type="button"
-              :class="{ active: chatFocus === 'balanced' }"
-              @click="chatFocus = 'balanced'"
+              class="home-action-main"
+              @click="handleHomeNewSession"
             >
-              并排
+              <strong>新开会话</strong>
+              <span>先选角色卡</span>
             </button>
+          </div>
+        </div>
+
+        <section class="session-board home-session-board">
+          <div class="panel-head">
+            <div>
+              <h2>最近会话</h2>
+            </div>
             <button
               type="button"
-              :class="{ active: chatFocus === 'manager' }"
-              @click="chatFocus = 'manager'"
+              @click="handleHomeNewSession"
             >
-              记忆
+              新开会话
             </button>
           </div>
-        </section>
-
-        <section class="chat-side-block">
-          <div class="side-stat">
-            <span>状态</span>
-            <strong>{{ chatReadyLabel }}</strong>
-          </div>
-          <div class="side-stat">
-            <span>轮次</span>
-            <strong>第 {{ sessionRuntimeState.turn || 0 }} 轮</strong>
-          </div>
-          <div class="side-stat">
-            <span>位置</span>
-            <strong>未记录</strong>
-          </div>
-        </section>
-
-        <section class="chat-map-panel">
-          <strong>场景</strong>
-          <div class="map-placeholder">
-            <span>未记录</span>
-          </div>
-        </section>
-
-        <section
-          v-if="usingLockedSessionContext"
-          class="chat-lock-note"
-        >
-          <strong>会话资料已锁定</strong>
-          <span>角色卡或世界书改动后，需要手动刷新当前会话。</span>
-          <button
-            type="button"
-            @click="refreshSelectedSessionSnapshot"
-          >
-            刷新会话资料
-          </button>
-        </section>
-
-        <section class="chat-side-block">
-          <div class="side-block-head">
-            <strong>会话</strong>
-            <button
-              type="button"
-              @click="createSessionAndOpenChat"
-            >
-              新建
-            </button>
-          </div>
-          <div class="session-list">
+          <div class="home-session-list">
             <button
               v-for="session in sessions"
               :key="session.id"
@@ -1856,1283 +1862,1067 @@ onUnmounted(() => {
             </button>
             <p
               v-if="!sessions.length"
-              class="muted compact"
+              class="muted"
             >
               还没有会话。
             </p>
           </div>
         </section>
-      </aside>
+      </section>
 
-      <section class="chat-main">
-        <header class="chat-head">
+      <section
+        v-if="activeView === 'characters'"
+        class="xb-page character-select-page"
+      >
+        <header class="character-select-head">
+          <button
+            type="button"
+            class="ghost-link"
+            @click="activeView = 'home'"
+          >
+            返回首页
+          </button>
           <div>
             <p class="eyebrow">
-              {{ chatReadyLabel }}
+              角色
             </p>
-            <h2>{{ selectedSessionTitle }}</h2>
-            <p>{{ chatSubtitle }}</p>
+            <h2>选择角色卡</h2>
+            <p>选中一张角色卡后，会用它的角色资料和世界书创建新的独立会话。</p>
           </div>
-          <div class="chat-head-actions">
-            <button
-              type="button"
-              @click="chatFocus = 'manager'"
-            >
-              记忆
-            </button>
-            <button
-              type="button"
-              @click="activeView = 'inspect'; activeWorkspace = 'messages'"
-            >
-              检查
-            </button>
-            <button
-              type="button"
-              @click="activeView = 'home'"
-            >
-              首页
-            </button>
-          </div>
-        </header>
-        <div
-          ref="chatScrollRef"
-          class="chat-scroll"
-          @scroll="handleChatScroll"
-          @wheel.passive="handleChatWheel"
-          @touchstart.passive="handleChatTouchStart"
-          @touchmove.passive="handleChatTouchMove"
-        >
-          <div
-            v-for="message in chatMessages"
-            :key="`${message.sessionId}-${message.order}`"
-            class="chat-bubble"
-            :class="[
-              message.role === 'user' ? 'from-user' : 'from-assistant',
-              { 'is-error': message.error },
-            ]"
+          <button
+            type="button"
+            @click="refreshCharacterList"
           >
-            <div class="bubble-meta">
-              <span>{{ message.error ? '错误' : roleLabel(message.role) }}</span>
-              <small>{{ formatMessageTime(message.createdAt) }}</small>
+            刷新列表
+          </button>
+        </header>
+
+        <div
+          v-if="pendingCharacterError"
+          class="character-select-error"
+        >
+          {{ pendingCharacterError }}
+        </div>
+
+        <section
+          v-if="characterCards.length"
+          class="character-card-grid"
+        >
+          <button
+            v-for="character in characterCards"
+            :key="character.id"
+            type="button"
+            class="character-card-option"
+            :class="{
+              current: character.id === liveCharacterId,
+              pending: character.id === pendingCharacterSessionId,
+            }"
+            :disabled="!!pendingCharacterSessionId"
+            @click="selectCharacterAndCreateSession(character.id)"
+          >
+            <span class="character-card-avatar">
+              <img
+                v-if="character.avatar"
+                :src="character.avatar"
+                alt=""
+              >
+              <span v-else>{{ character.name.slice(0, 1) }}</span>
+            </span>
+            <span class="character-card-body">
+              <span class="character-card-title">
+                <strong>{{ character.name }}</strong>
+                <small v-if="character.id === liveCharacterId">当前</small>
+                <small v-if="character.id === pendingCharacterSessionId">读取中</small>
+              </span>
+              <span class="character-card-desc">
+                {{ shortText(character.description || character.personality || character.scenario || character.firstMessage || '没有卡面摘要。', 150) }}
+              </span>
+            </span>
+          </button>
+        </section>
+
+        <section
+          v-else
+          class="character-empty"
+        >
+          <h2>没有读到角色卡</h2>
+          <p>请先在酒馆里加载角色，再刷新列表。</p>
+          <button
+            type="button"
+            @click="refreshCharacterList"
+          >
+            刷新列表
+          </button>
+        </section>
+      </section>
+
+      <section
+        v-if="activeView === 'chat'"
+        class="tavern-chat xb-page"
+        :class="`chat-focus-${chatFocus}`"
+      >
+        <aside class="chat-side">
+          <section class="chat-profile">
+            <div class="avatar-orb">
+              <img
+                v-if="characterAvatar"
+                :src="characterAvatar"
+                alt=""
+              >
+              <span v-else>{{ characterName.slice(0, 1) }}</span>
             </div>
-            <div
-              v-if="isEditingMessage(message)"
-              class="message-edit-panel"
+            <div>
+              <p class="eyebrow">
+                角色
+              </p>
+              <h2>{{ characterName }}</h2>
+              <p>{{ contextSourceTitle }}</p>
+            </div>
+          </section>
+
+          <section class="chat-side-block">
+            <div class="side-stat">
+              <span>状态</span>
+              <strong>{{ chatReadyLabel }}</strong>
+            </div>
+            <div class="side-stat">
+              <span>轮次</span>
+              <strong>第 {{ sessionRuntimeState.turn || 0 }} 轮</strong>
+            </div>
+            <div class="side-stat">
+              <span>位置</span>
+              <strong>未记录</strong>
+            </div>
+          </section>
+
+          <section class="chat-map-panel">
+            <strong>场景</strong>
+            <div class="map-placeholder">
+              <span>未记录</span>
+            </div>
+          </section>
+
+          <section
+            v-if="usingLockedSessionContext"
+            class="chat-lock-note"
+          >
+            <strong>会话资料已锁定</strong>
+            <span>角色卡或世界书改动后，需要手动刷新当前会话。</span>
+            <button
+              type="button"
+              @click="refreshSelectedSessionSnapshot"
             >
-              <textarea
-                v-model="editingMessageDraft"
-                class="message-edit-box"
-                rows="6"
-                :data-message-editor="messageKey(message)"
-                @input="handleEditInput"
-                @keydown="handleEditKeydown($event, message)"
-              />
-              <div class="message-edit-actions">
+              刷新会话资料
+            </button>
+          </section>
+
+          <section class="chat-side-block">
+            <div class="side-block-head">
+              <strong>会话</strong>
+              <button
+                type="button"
+                @click="handleHomeNewSession"
+              >
+                新建
+              </button>
+            </div>
+            <div class="session-list">
+              <button
+                v-for="session in chatSidebarSessions"
+                :key="session.id"
+                type="button"
+                :class="{ active: session.id === selectedSessionId }"
+                @click="selectSession(session.id)"
+              >
+                <strong>{{ session.title }}</strong>
+                <small>{{ session.characterName || '未选择角色' }}</small>
+              </button>
+              <button
+                v-if="sessions.length > chatSidebarSessions.length"
+                type="button"
+                class="session-more"
+                @click="activeView = 'home'"
+              >
+                查看全部会话
+              </button>
+              <p
+                v-if="!chatSidebarSessions.length"
+                class="muted compact"
+              >
+                当前角色还没有其他会话。
+              </p>
+            </div>
+          </section>
+        </aside>
+
+        <section class="chat-main">
+          <header class="chat-head">
+            <div>
+              <p class="eyebrow">
+                {{ chatReadyLabel }}
+              </p>
+              <h2>{{ selectedSessionTitle }}</h2>
+              <p>{{ chatSubtitle }}</p>
+            </div>
+            <div class="chat-head-actions">
+              <button
+                type="button"
+                class="prompt-inspector-trigger"
+                @click="openPromptInspector('history')"
+              >
+                API 请求
+              </button>
+              <div
+                class="mobile-chat-focus-switch"
+                aria-label="聊天视图"
+              >
                 <button
                   type="button"
-                  @click="saveEditMessage(message)"
+                  :class="{ active: chatFocus !== 'manager' }"
+                  @click="chatFocus = 'balanced'"
+                >
+                  聊天
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: chatFocus === 'manager' }"
+                  @click="chatFocus = 'manager'"
+                >
+                  记忆
+                </button>
+              </div>
+            </div>
+          </header>
+          <div
+            ref="chatScrollRef"
+            class="chat-scroll"
+            @scroll="handleChatScroll"
+            @wheel.passive="handleChatWheel"
+            @touchstart.passive="handleChatTouchStart"
+            @touchmove.passive="handleChatTouchMove"
+          >
+            <div
+              v-for="message in chatMessages"
+              :key="`${message.sessionId}-${message.order}`"
+              class="chat-bubble"
+              :class="[
+                message.role === 'user' ? 'from-user' : 'from-assistant',
+                { 'is-error': message.error },
+              ]"
+            >
+              <div class="bubble-meta">
+                <span>{{ message.error ? '错误' : roleLabel(message.role) }}</span>
+                <small>{{ formatMessageTime(message.createdAt) }}</small>
+              </div>
+              <div
+                v-if="isEditingMessage(message)"
+                class="message-edit-panel"
+              >
+                <textarea
+                  v-model="editingMessageDraft"
+                  class="message-edit-box"
+                  rows="6"
+                  :data-message-editor="messageKey(message)"
+                  @input="handleEditInput"
+                  @keydown="handleEditKeydown($event, message)"
+                />
+                <div class="message-edit-actions">
+                  <button
+                    type="button"
+                    @click="saveEditMessage(message)"
+                  >
+                    保存
+                  </button>
+                  <button
+                    type="button"
+                    @click="saveEditMessage(message, { rerun: true })"
+                  >
+                    保存并重跑
+                  </button>
+                  <button
+                    type="button"
+                    @click="cancelEditMessage"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+              <div
+                v-else
+                class="xb-tavern-markdown"
+                :data-markdown-signature="markdownSignature(message.content)"
+                v-html="renderChatMarkdown(message.content)"
+              />
+              <div
+                v-if="!isEditingMessage(message)"
+                class="message-actions"
+              >
+                <button
+                  type="button"
+                  :class="actionFeedback(message, 'copy')"
+                  title="复制"
+                  aria-label="复制"
+                  @click="copyMessage(message)"
+                >
+                  ⧉
+                </button>
+                <button
+                  type="button"
+                  :disabled="!canEditMessage(message)"
+                  :class="actionFeedback(message, 'edit')"
+                  title="编辑"
+                  aria-label="编辑"
+                  @click="startEditMessage(message)"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  :disabled="isRunning"
+                  :class="actionFeedback(message, 'rerun')"
+                  title="重新生成"
+                  aria-label="重新生成"
+                  @click="rerunFromMessage(message)"
+                >
+                  ↻
+                </button>
+                <button
+                  type="button"
+                  :disabled="isRunning"
+                  :class="actionFeedback(message, 'delete')"
+                  title="删除"
+                  aria-label="删除"
+                  @click="deleteMessageTurn(message)"
+                >
+                  ⌫
+                </button>
+              </div>
+            </div>
+            <div
+              v-if="isRunning && runtimeText"
+              class="chat-bubble from-assistant streaming"
+            >
+              <div class="bubble-meta">
+                <span>角色</span>
+                <small>生成中</small>
+              </div>
+              <div
+                class="xb-tavern-markdown"
+                :data-markdown-signature="markdownSignature(runtimeText)"
+                v-html="renderChatMarkdown(runtimeText)"
+              />
+            </div>
+            <div
+              v-if="isRunning && !runtimeText"
+              class="chat-bubble from-assistant streaming thinking"
+            >
+              <div class="bubble-meta">
+                <span>角色</span>
+                <small>生成中</small>
+              </div>
+              <p>正在组织回复...</p>
+            </div>
+            <p
+              v-if="!chatMessages.length && !isRunning"
+              class="chat-empty"
+            >
+              写一句话，开始。
+            </p>
+            <div
+              class="chat-scroll-helpers"
+              :class="{ active: chatScrollControlsActive }"
+            >
+              <button
+                type="button"
+                :class="{ visible: showChatScrollTop }"
+                title="回到顶部"
+                aria-label="回到顶部"
+                @click="scrollChatToTop"
+              >
+                ▲
+              </button>
+              <button
+                type="button"
+                :class="{ visible: showChatScrollBottom }"
+                title="回到底部"
+                aria-label="回到底部"
+                @click="scrollChatToBottom(true)"
+              >
+                ▼
+              </button>
+            </div>
+          </div>
+          <form
+            class="chat-compose"
+            @submit.prevent="handleChatSubmit"
+          >
+            <div
+              v-if="latestErrorMessage"
+              class="compose-error"
+            >
+              {{ latestErrorMessage }}
+            </div>
+            <textarea
+              v-model="currentUserMessage"
+              rows="3"
+              placeholder="对角色说一句话..."
+              :disabled="isRunning"
+              @input="handleComposeInput"
+              @keydown="handleComposeKeydown"
+            />
+            <button
+              type="submit"
+              class="primary-action"
+              :disabled="!canSendMessage"
+            >
+              {{ isRunning ? '停止' : '发送' }}
+            </button>
+          </form>
+        </section>
+
+        <aside class="chat-manager">
+          <header class="manager-head">
+            <div>
+              <p class="eyebrow">
+                记忆
+              </p>
+              <h2>记忆管理</h2>
+              <p>{{ managerStatusLine }}</p>
+            </div>
+            <div class="manager-head-actions">
+              <div
+                class="mobile-chat-focus-switch"
+                aria-label="聊天视图"
+              >
+                <button
+                  type="button"
+                  :class="{ active: chatFocus !== 'manager' }"
+                  @click="chatFocus = 'balanced'"
+                >
+                  聊天
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: chatFocus === 'manager' }"
+                  @click="chatFocus = 'manager'"
+                >
+                  记忆
+                </button>
+              </div>
+              <button
+                type="button"
+                @click="refreshManagerRecords()"
+              >
+                刷新
+              </button>
+            </div>
+          </header>
+
+          <section class="manager-section">
+            <div class="side-block-head">
+              <strong>记忆档案</strong>
+              <span>{{ activeMemoryFiles.length }}/{{ memoryFiles.length }}</span>
+            </div>
+            <p class="manager-index-line">
+              {{ memoryIndexStatusLine }}
+            </p>
+            <div
+              v-if="memoryFiles.length"
+              class="memory-file-grid"
+            >
+              <div class="memory-file-list">
+                <button
+                  v-for="file in memoryFiles"
+                  :key="file.path"
+                  type="button"
+                  :class="{ active: selectedMemoryFile?.path === file.path, stale: file.status === 'stale' }"
+                  @click="selectedMemoryFilePath = file.path"
+                >
+                  <strong>{{ file.path }}</strong>
+                  <span>{{ formatMemoryFileMeta(file) }}</span>
+                </button>
+              </div>
+              <article
+                v-if="selectedMemoryFile"
+                class="manager-card memory-file-preview"
+                :class="{ 'is-stale': selectedMemoryFile.status === 'stale' }"
+              >
+                <div class="manager-run-title">
+                  <strong>{{ selectedMemoryFile.path }}</strong>
+                  <small>{{ memoryFileStatusLabel(selectedMemoryFile.status) }}</small>
+                </div>
+                <div
+                  class="xb-tavern-markdown memory-file-markdown"
+                  :data-markdown-signature="markdownSignature(selectedMemoryFile.content)"
+                  v-html="renderChatMarkdown(selectedMemoryFile.content)"
+                />
+                <details>
+                  <summary>查看 Markdown 原文</summary>
+                  <pre>{{ selectedMemoryFile.content }}</pre>
+                </details>
+              </article>
+            </div>
+            <p
+              v-else
+              class="muted compact"
+            >
+              还没有记忆档案。
+            </p>
+          </section>
+
+          <section class="manager-section">
+            <div class="side-block-head">
+              <strong>阶段大总结</strong>
+              <span>{{ episodeSummaries.length }}</span>
+            </div>
+            <article
+              v-for="episode in episodeSummaries"
+              :key="episode.id"
+              class="manager-card"
+            >
+              <strong>{{ episode.title }}</strong>
+              <small>第 {{ episode.startTurn }}-{{ episode.endTurn }} 轮</small>
+              <p>{{ episode.summary || '暂无摘要。' }}</p>
+              <p v-if="episode.unresolved?.length">
+                未解决：{{ episode.unresolved.join('、') }}
+              </p>
+            </article>
+            <p
+              v-if="!episodeSummaries.length"
+              class="muted compact"
+            >
+              还没有阶段大总结。
+            </p>
+          </section>
+
+          <section class="manager-section">
+            <div class="side-block-head">
+              <strong>每轮小总结</strong>
+              <span>{{ turnSummaries.length }}</span>
+            </div>
+            <article
+              v-for="summary in recentTurnSummaries"
+              :key="summary.id"
+              class="manager-card"
+            >
+              <strong>{{ formatSummarySource(summary) }}</strong>
+              <small>{{ summary.tags?.join('、') || '无标签' }}</small>
+              <p>{{ summary.summary }}</p>
+            </article>
+            <p
+              v-if="!turnSummaries.length"
+              class="muted compact"
+            >
+              还没有小总结。
+            </p>
+          </section>
+
+          <section class="manager-section">
+            <div class="side-block-head">
+              <strong>工作记录</strong>
+              <span>{{ managerRuns.length }}</span>
+            </div>
+            <article
+              v-for="run in managerRuns"
+              :key="run.id"
+              class="manager-card"
+              :class="`is-${run.status}`"
+            >
+              <div class="manager-run-title">
+                <strong>{{ managerStatusLabel(run.status) }}</strong>
+                <small>{{ formatManagerSource(run) }}</small>
+              </div>
+              <p>{{ run.inputSummary }}</p>
+              <small>{{ formatRunModelLine(run) }}</small>
+              <p v-if="run.parsedAction">
+                动作：{{ run.parsedAction }}
+              </p>
+              <p v-if="run.changedFiles?.length">
+                文件：{{ run.changedFiles.join('、') }}
+              </p>
+              <details v-if="run.outputText">
+                <summary>工作结论</summary>
+                <pre>{{ run.outputText }}</pre>
+              </details>
+              <details v-if="run.toolTrace">
+                <summary>改动记录</summary>
+                <pre>{{ formatDebugJson(run.toolTrace) }}</pre>
+              </details>
+              <p v-if="run.error">
+                {{ run.error }}
+              </p>
+              <button
+                v-if="run.status === 'failed'"
+                type="button"
+                :disabled="managerBusy"
+                @click="retryManagerRun(run)"
+              >
+                重试
+              </button>
+            </article>
+            <p
+              v-if="!managerRuns.length"
+              class="muted compact"
+            >
+              还没有工作记录。
+            </p>
+          </section>
+        </aside>
+      </section>
+
+
+      <section
+        v-if="activeView === 'settings'"
+        class="xb-layout xb-page settings-layout"
+      >
+        <aside class="xb-sidebar settings-sidebar">
+          <div class="panel guide-card">
+            <h2>设置</h2>
+            <div class="guide-steps">
+              <button
+                type="button"
+                class="guide-step"
+                :class="{ active: activeSettingsWorkspace === 'api' }"
+                @click="activeSettingsWorkspace = 'api'"
+              >
+                <strong>API 配置</strong>
+                <span>模型预设</span>
+              </button>
+              <button
+                type="button"
+                class="guide-step"
+                :class="{ active: activeSettingsWorkspace === 'preset' }"
+                @click="activeSettingsWorkspace = 'preset'"
+              >
+                <strong>小白预设</strong>
+                <span>规则</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <section class="xb-main">
+          <div
+            v-show="activeSettingsWorkspace === 'api'"
+            class="panel step-panel api-workspace"
+          >
+            <div class="panel-head">
+              <div>
+                <h2>API 配置</h2>
+                <p class="muted compact">
+                  这里使用小白助手和电纸书同一套模型预设；保存后会立刻用于后续聊天。
+                </p>
+              </div>
+              <span
+                class="pill"
+                :class="{ warning: !apiReady }"
+              >
+                {{ apiReady ? '可发模' : '需配置' }}
+              </span>
+            </div>
+            <div
+              class="what-to-check"
+              :class="{ warning: !apiReady }"
+            >
+              <strong>当前模型：</strong>
+              <span>{{ apiReady ? apiRuntimeLine : apiReadyDetail }}</span>
+            </div>
+            <div
+              ref="apiSettingsRootRef"
+              class="tavern-api-settings"
+            />
+          </div>
+
+          <div
+            v-show="activeSettingsWorkspace === 'preset'"
+            class="panel step-panel preset-workspace"
+          >
+            <div class="panel-head preset-page-head">
+              <div>
+                <h2>小白预设</h2>
+                <p class="muted compact">
+                  聊天前写给模型的预设条目。
+                </p>
+              </div>
+              <div class="panel-pills">
+                <span
+                  v-if="presetDirty"
+                  class="pill warning"
+                >未保存</span>
+                <span
+                  class="pill"
+                  :class="{ warning: presetIsBuiltIn }"
+                >{{ presetIsBuiltIn ? '只读' : '可编辑' }}</span>
+              </div>
+            </div>
+            <div class="preset-command-bar">
+              <label>
+                <span>当前预设</span>
+                <select
+                  v-model="activePresetId"
+                  @change="selectPreset(activePresetId)"
+                >
+                  <option :value="DEFAULT_XB_TAVERN_PRESET_ID">
+                    默认预设
+                  </option>
+                  <option
+                    v-for="item in userPresets"
+                    :key="item.id"
+                    :value="item.id"
+                  >
+                    {{ item.name }}
+                  </option>
+                </select>
+              </label>
+              <div class="preset-actions">
+                <button
+                  type="button"
+                  @click="deriveDefaultPreset"
+                >
+                  复制
+                </button>
+                <button
+                  type="button"
+                  :disabled="presetIsBuiltIn"
+                  @click="saveCurrentPreset"
                 >
                   保存
                 </button>
                 <button
                   type="button"
-                  @click="saveEditMessage(message, { rerun: true })"
+                  :disabled="!presetDirty"
+                  @click="discardPresetChanges"
                 >
-                  保存并重跑
+                  放弃
                 </button>
                 <button
                   type="button"
-                  @click="cancelEditMessage"
+                  @click="resetToBuiltInPreset"
                 >
-                  取消
+                  恢复默认
                 </button>
               </div>
             </div>
-            <div
-              v-else
-              class="xb-tavern-markdown"
-              :data-markdown-signature="markdownSignature(message.content)"
-              v-html="renderChatMarkdown(message.content)"
-            />
-            <div
-              v-if="!isEditingMessage(message)"
-              class="message-actions"
-            >
-              <button
-                type="button"
-                :class="actionFeedback(message, 'copy')"
-                title="复制"
-                aria-label="复制"
-                @click="copyMessage(message)"
-              >
-                ⧉
-              </button>
-              <button
-                type="button"
-                :disabled="!canEditMessage(message)"
-                :class="actionFeedback(message, 'edit')"
-                title="编辑"
-                aria-label="编辑"
-                @click="startEditMessage(message)"
-              >
-                ✎
-              </button>
-              <button
-                type="button"
-                :disabled="isRunning"
-                :class="actionFeedback(message, 'rerun')"
-                title="重新生成"
-                aria-label="重新生成"
-                @click="rerunFromMessage(message)"
-              >
-                ↻
-              </button>
-              <button
-                type="button"
-                :disabled="isRunning"
-                :class="actionFeedback(message, 'delete')"
-                title="删除"
-                aria-label="删除"
-                @click="deleteMessageTurn(message)"
-              >
-                🗑
-              </button>
-            </div>
-          </div>
-          <div
-            v-if="isRunning && runtimeText"
-            class="chat-bubble from-assistant streaming"
-          >
-            <div class="bubble-meta">
-              <span>角色</span>
-              <small>生成中</small>
-            </div>
-            <div
-              class="xb-tavern-markdown"
-              :data-markdown-signature="markdownSignature(runtimeText)"
-              v-html="renderChatMarkdown(runtimeText)"
-            />
-          </div>
-          <div
-            v-if="isRunning && !runtimeText"
-            class="chat-bubble from-assistant streaming thinking"
-          >
-            <div class="bubble-meta">
-              <span>角色</span>
-              <small>生成中</small>
-            </div>
-            <p>正在组织回复...</p>
-          </div>
-          <p
-            v-if="!chatMessages.length && !isRunning"
-            class="chat-empty"
-          >
-            这里还没有消息。下面写一句话，开始和这个角色说话。
-          </p>
-          <div
-            class="chat-scroll-helpers"
-            :class="{ active: chatScrollControlsActive }"
-          >
-            <button
-              type="button"
-              :class="{ visible: showChatScrollTop }"
-              title="回到顶部"
-              aria-label="回到顶部"
-              @click="scrollChatToTop"
-            >
-              ▲
-            </button>
-            <button
-              type="button"
-              :class="{ visible: showChatScrollBottom }"
-              title="回到底部"
-              aria-label="回到底部"
-              @click="scrollChatToBottom(true)"
-            >
-              ▼
-            </button>
-          </div>
-        </div>
-        <form
-          class="chat-compose"
-          @submit.prevent="handleChatSubmit"
-        >
-          <div
-            v-if="latestErrorMessage"
-            class="compose-error"
-          >
-            {{ latestErrorMessage }}
-          </div>
-          <textarea
-            v-model="currentUserMessage"
-            rows="3"
-            placeholder="对角色说一句话..."
-            :disabled="isRunning"
-            @input="handleComposeInput"
-            @keydown="handleComposeKeydown"
-          />
-          <button
-            type="submit"
-            class="primary-action"
-            :disabled="!canSendMessage"
-          >
-            {{ isRunning ? '停止' : '发送' }}
-          </button>
-        </form>
-      </section>
 
-      <aside class="chat-manager">
-        <header class="manager-head">
+            <div
+              v-if="presetStatus || presetIsBuiltIn"
+              class="preset-status-line"
+            >
+              <span>{{ presetIsBuiltIn ? '默认预设只读，复制后可以编辑。' : presetStatus }}</span>
+            </div>
+
+            <div class="preset-meta-strip">
+              <label>
+                <span>预设名称</span>
+                <input
+                  :value="preset.name"
+                  :disabled="presetIsBuiltIn"
+                  @input="updatePresetMeta({ name: ($event.target as HTMLInputElement).value })"
+                >
+              </label>
+              <label>
+                <span>说明</span>
+                <textarea
+                  :value="preset.description"
+                  :disabled="presetIsBuiltIn"
+                  rows="2"
+                  @input="updatePresetMeta({ description: ($event.target as HTMLTextAreaElement).value })"
+                />
+              </label>
+            </div>
+
+            <div class="preset-studio">
+              <section class="preset-list-panel">
+                <div class="preset-list-head">
+                  <div>
+                    <strong>预设队列</strong>
+                    <span>{{ presetRows.length }} 条 · {{ presetTotalChars }} 字</span>
+                  </div>
+                  <button
+                    type="button"
+                    :disabled="presetIsBuiltIn"
+                    @click="addPresetSection"
+                  >
+                    新增
+                  </button>
+                </div>
+                <div class="preset-queue">
+                  <div class="preset-queue-head">
+                    <span>名称</span>
+                    <span>位置 / 身份</span>
+                    <span>字数</span>
+                    <span>操作</span>
+                  </div>
+                  <button
+                    v-for="(row, index) in presetRows"
+                    :key="row.previewId"
+                    type="button"
+                    class="preset-queue-row"
+                    :class="{
+                      disabled: row.enabled === false,
+                      selected: selectedPresetPreviewRow?.previewId === row.previewId,
+                    }"
+                    @click="selectedPresetSourceId = row.previewId"
+                  >
+                    <span class="preset-row-name">
+                      <small>{{ String(index + 1).padStart(2, '0') }}</small>
+                      <strong>{{ row.previewLabel }}</strong>
+                      <em>条目</em>
+                    </span>
+                    <span class="preset-row-meta">
+                      {{ row.previewPlacement }} / {{ roleLabel(String(row.role || 'system')) }}
+                    </span>
+                    <span class="preset-row-count">{{ row.chars }}</span>
+                    <span class="preset-row-actions">
+                      <label
+                        class="inline-check"
+                        @click.stop
+                      >
+                        <input
+                          type="checkbox"
+                          :checked="row.enabled !== false"
+                          :disabled="presetIsBuiltIn"
+                          @change="updatePresetSection(row.sectionIndex, { enabled: ($event.target as HTMLInputElement).checked })"
+                        >
+                        启用
+                      </label>
+                      <button
+                        type="button"
+                        :disabled="presetIsBuiltIn || row.sectionIndex === 0"
+                        @click.stop="movePresetSection(row.sectionIndex, -1)"
+                      >
+                        上
+                      </button>
+                      <button
+                        type="button"
+                        :disabled="presetIsBuiltIn || row.sectionIndex === (preset.sections || []).length - 1"
+                        @click.stop="movePresetSection(row.sectionIndex, 1)"
+                      >
+                        下
+                      </button>
+                      <button
+                        type="button"
+                        :disabled="presetIsBuiltIn"
+                        @click.stop="removePresetSection(row.sectionIndex)"
+                      >
+                        删
+                      </button>
+                    </span>
+                  </button>
+                </div>
+              </section>
+
+              <aside class="preset-detail-panel">
+                <div class="preset-preview-head">
+                  <strong>{{ selectedPresetPreviewRow?.previewLabel || '条目' }}</strong>
+                  <span>{{ selectedPresetPreviewRow?.previewPlacement || '' }}</span>
+                </div>
+                <div
+                  v-if="selectedPresetPreviewRow"
+                  class="preset-detail-fields"
+                >
+                  <label>
+                    <span>名称</span>
+                    <input
+                      :value="selectedPresetPreviewRow.previewLabel"
+                      :disabled="presetIsBuiltIn"
+                      @input="updatePresetSection(selectedPresetPreviewRow.sectionIndex, { label: ($event.target as HTMLInputElement).value })"
+                    >
+                  </label>
+                  <label>
+                    <span>位置</span>
+                    <select
+                      :value="selectedPresetPreviewRow.placement || 'beforeHistory'"
+                      :disabled="presetIsBuiltIn"
+                      @change="updatePresetSection(selectedPresetPreviewRow.sectionIndex, { placement: ($event.target as HTMLSelectElement).value as XbTavernPresetSection['placement'] })"
+                    >
+                      <option value="top">
+                        最前面
+                      </option>
+                      <option value="beforeCharacter">
+                        角色卡前
+                      </option>
+                      <option value="afterCharacter">
+                        角色卡后
+                      </option>
+                      <option value="beforeHistory">
+                        历史前
+                      </option>
+                      <option value="afterHistory">
+                        历史后
+                      </option>
+                      <option value="assistantPrefill">
+                        回复开头
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>消息身份</span>
+                    <select
+                      :value="selectedPresetPreviewRow.role || 'system'"
+                      :disabled="presetIsBuiltIn"
+                      @change="updatePresetSection(selectedPresetPreviewRow.sectionIndex, { role: ($event.target as HTMLSelectElement).value })"
+                    >
+                      <option value="system">
+                        规则
+                      </option>
+                      <option value="user">
+                        用户
+                      </option>
+                      <option value="assistant">
+                        助手
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <label
+                  v-if="selectedPresetPreviewRow"
+                  class="preset-text-field"
+                >
+                  <span>内容</span>
+                  <textarea
+                    :value="selectedPresetPreviewRow.content"
+                    :disabled="presetIsBuiltIn"
+                    rows="18"
+                    @input="updatePresetSection(selectedPresetPreviewRow.sectionIndex, { content: ($event.target as HTMLTextAreaElement).value })"
+                  />
+                </label>
+                <p
+                  v-if="selectedPresetPreviewRow"
+                  class="muted compact"
+                >
+                  {{ selectedPresetPreviewRow.enabled === false ? '这条已停用，不会进入发送内容。' : '这条会按左侧顺序进入发送内容。' }}
+                </p>
+                <p
+                  v-else
+                  class="muted compact"
+                >
+                  选择左侧条目后编辑。
+                </p>
+                <div
+                  v-if="selectedPresetPreviewRow"
+                  class="preset-preview-content"
+                >
+                  <strong>预览</strong>
+                  <pre>{{ selectedPresetPreviewRow.content }}</pre>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </section>
+      </section>
+    </section>
+
+    <div
+      v-if="showPromptInspector"
+      class="prompt-inspector-overlay"
+      @click.self="closePromptInspector"
+      @keydown.esc="closePromptInspector"
+    >
+      <section
+        class="prompt-inspector-modal"
+        tabindex="-1"
+      >
+        <header class="prompt-inspector-head">
           <div>
             <p class="eyebrow">
-              记忆
+              请求记录
             </p>
-            <h2>记忆管理</h2>
-            <p>{{ managerStatusLine }}</p>
+            <h2>API 请求</h2>
+            <p>{{ lastRequestRawJson ? '上一次真实调用' : '暂无真实调用' }}</p>
           </div>
           <button
             type="button"
-            @click="refreshManagerRecords()"
+            aria-label="关闭"
+            @click="closePromptInspector"
           >
-            刷新
-          </button>
-          <button
-            type="button"
-            @click="chatFocus = 'chat'"
-          >
-            聊天
+            ×
           </button>
         </header>
 
-        <section class="manager-section">
-          <div class="side-block-head">
-            <strong>记忆档案</strong>
-            <span>{{ activeMemoryFiles.length }}/{{ memoryFiles.length }}</span>
-          </div>
-          <p class="manager-index-line">
-            {{ memoryIndexStatusLine }}
-          </p>
-          <div
-            v-if="memoryFiles.length"
-            class="memory-file-grid"
+        <div
+          class="prompt-inspector-tabs"
+          aria-label="API 请求视图"
+        >
+          <button
+            type="button"
+            :class="{ active: promptInspectorTab === 'history' }"
+            @click="promptInspectorTab = 'history'"
           >
-            <div class="memory-file-list">
+            历史
+          </button>
+          <button
+            type="button"
+            :class="{ active: promptInspectorTab === 'simulate' }"
+            @click="promptInspectorTab = 'simulate'"
+          >
+            模拟
+          </button>
+        </div>
+
+        <div class="prompt-inspector-body">
+          <section
+            v-show="promptInspectorTab === 'history'"
+            class="prompt-inspector-view"
+          >
+            <div class="prompt-inspector-summary">
+              <span>{{ lastRequestRawJson ? '有记录' : '暂无记录' }}</span>
+              <span>{{ lastRequestSnapshot?.requestKind || 'history' }}</span>
+              <span>{{ lastRequestSnapshot?.providerLabel || lastRequestSnapshot?.provider || '未调用' }}</span>
+              <span>{{ lastRequestSnapshot?.model || '未选择模型' }}</span>
+            </div>
+            <pre
+              v-if="lastRequestRawJson"
+              class="prompt-request-json"
+            >{{ lastRequestRawJson }}</pre>
+            <p
+              v-else
+              class="prompt-empty-state"
+            >
+              暂无请求历史。
+            </p>
+          </section>
+
+          <section
+            v-show="promptInspectorTab === 'simulate'"
+            class="prompt-inspector-view"
+          >
+            <div class="prompt-simulate-panel">
+              <div>
+                <label for="request-simulate-input">输入</label>
+                <textarea
+                  id="request-simulate-input"
+                  v-model="simulateRequestInput"
+                  rows="5"
+                  placeholder="写一句要模拟发送的话"
+                />
+              </div>
               <button
-                v-for="file in memoryFiles"
-                :key="file.path"
                 type="button"
-                :class="{ active: selectedMemoryFile?.path === file.path, stale: file.status === 'stale' }"
-                @click="selectedMemoryFilePath = file.path"
+                @click="simulateApiRequest"
               >
-                <strong>{{ file.path }}</strong>
-                <span>{{ formatMemoryFileMeta(file) }}</span>
+                模拟
               </button>
             </div>
-            <article
-              v-if="selectedMemoryFile"
-              class="manager-card memory-file-preview"
-              :class="{ 'is-stale': selectedMemoryFile.status === 'stale' }"
-            >
-              <div class="manager-run-title">
-                <strong>{{ selectedMemoryFile.path }}</strong>
-                <small>{{ memoryFileStatusLabel(selectedMemoryFile.status) }}</small>
-              </div>
-              <div
-                class="xb-tavern-markdown memory-file-markdown"
-                :data-markdown-signature="markdownSignature(selectedMemoryFile.content)"
-                v-html="renderChatMarkdown(selectedMemoryFile.content)"
-              />
-              <details>
-                <summary>查看 Markdown 原文</summary>
-                <pre>{{ selectedMemoryFile.content }}</pre>
-              </details>
-            </article>
-          </div>
-          <p
-            v-else
-            class="muted compact"
-          >
-            还没有记忆档案。
-          </p>
-        </section>
-
-        <section class="manager-section">
-          <div class="side-block-head">
-            <strong>阶段大总结</strong>
-            <span>{{ episodeSummaries.length }}</span>
-          </div>
-          <article
-            v-for="episode in episodeSummaries"
-            :key="episode.id"
-            class="manager-card"
-          >
-            <strong>{{ episode.title }}</strong>
-            <small>第 {{ episode.startTurn }}-{{ episode.endTurn }} 轮</small>
-            <p>{{ episode.summary || '暂无摘要。' }}</p>
-            <p v-if="episode.unresolved?.length">
-              未解决：{{ episode.unresolved.join('、') }}
-            </p>
-          </article>
-          <p
-            v-if="!episodeSummaries.length"
-            class="muted compact"
-          >
-            还没有阶段大总结。
-          </p>
-        </section>
-
-        <section class="manager-section">
-          <div class="side-block-head">
-            <strong>每轮小总结</strong>
-            <span>{{ turnSummaries.length }}</span>
-          </div>
-          <article
-            v-for="summary in recentTurnSummaries"
-            :key="summary.id"
-            class="manager-card"
-          >
-            <strong>{{ formatSummarySource(summary) }}</strong>
-            <small>{{ summary.tags?.join('、') || '无标签' }}</small>
-            <p>{{ summary.summary }}</p>
-          </article>
-          <p
-            v-if="!turnSummaries.length"
-            class="muted compact"
-          >
-            还没有小总结。
-          </p>
-        </section>
-
-        <section class="manager-section">
-          <div class="side-block-head">
-            <strong>工作记录</strong>
-            <span>{{ managerRuns.length }}</span>
-          </div>
-          <article
-            v-for="run in managerRuns"
-            :key="run.id"
-            class="manager-card"
-            :class="`is-${run.status}`"
-          >
-            <div class="manager-run-title">
-              <strong>{{ managerStatusLabel(run.status) }}</strong>
-              <small>{{ formatManagerSource(run) }}</small>
-            </div>
-            <p>{{ run.inputSummary }}</p>
-            <small>{{ formatRunModelLine(run) }}</small>
-            <p v-if="run.parsedAction">
-              动作：{{ run.parsedAction }}
-            </p>
-            <p v-if="run.changedFiles?.length">
-              文件：{{ run.changedFiles.join('、') }}
-            </p>
-            <details v-if="run.outputText">
-              <summary>工作结论</summary>
-              <pre>{{ run.outputText }}</pre>
-            </details>
-            <details v-if="run.toolTrace">
-              <summary>改动记录</summary>
-              <pre>{{ formatDebugJson(run.toolTrace) }}</pre>
-            </details>
-            <p v-if="run.error">
-              {{ run.error }}
-            </p>
-            <button
-              v-if="run.status === 'failed'"
-              type="button"
-              :disabled="managerBusy"
-              @click="retryManagerRun(run)"
-            >
-              重试
-            </button>
-          </article>
-          <p
-            v-if="!managerRuns.length"
-            class="muted compact"
-          >
-            还没有工作记录。
-          </p>
-        </section>
-      </aside>
-    </section>
-
-    <section
-      v-if="activeView === 'inspect'"
-      class="xb-layout"
-    >
-      <aside class="xb-sidebar">
-        <div class="panel guide-card">
-          <h2>检查</h2>
-          <div class="guide-steps">
-            <button
-              v-for="tab in workspaceTabs"
-              :key="tab.key"
-              type="button"
-              class="guide-step"
-              :class="{ active: activeWorkspace === tab.key }"
-              @click="activeWorkspace = tab.key"
-            >
-              <strong>{{ tab.label }}</strong>
-              <span>{{ tab.hint }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <h2>当前选择</h2>
-          <p class="context-source">
-            <strong>{{ contextSourceTitle }}</strong>
-            <span>{{ contextSourceDetail }}</span>
-          </p>
-          <dl class="kv">
-            <dt>角色</dt>
-            <dd>{{ characterName }}</dd>
-            <dt>用户</dt>
-            <dd>{{ userName }}</dd>
-            <dt>世界书</dt>
-            <dd>{{ worldBookCount }} 本 / {{ worldEntryCount }} 条</dd>
-            <dt>会带上</dt>
-            <dd>{{ activatedCount }} 条</dd>
-            <dt>API</dt>
-            <dd>{{ apiRuntimeLine }}</dd>
-          </dl>
-          <label
-            class="field-label"
-            for="xb-character-select"
-          >角色卡</label>
-          <select
-            id="xb-character-select"
-            v-model="selectedCharacterId"
-            @change="refreshSelectedCharacter"
-          >
-            <option
-              v-for="character in availableCharacters"
-              :key="character.id"
-              :value="character.id"
-            >
-              {{ character.name }}
-            </option>
-          </select>
-          <button
-            type="button"
-            @click="refreshSelectedCharacter"
-          >
-            从酒馆重新读取
-          </button>
-          <button
-            v-if="usingLockedSessionContext"
-            type="button"
-            @click="useLiveContextForPreview"
-          >
-            改用刚读取资料
-          </button>
-        </div>
-
-        <div class="panel">
-          <h2>准备状态</h2>
-          <ul class="diagnostics">
-            <li
-              v-for="row in diagnosticRows"
-              :key="row"
-            >
-              {{ row }}
-            </li>
-          </ul>
-        </div>
-
-        <div class="panel">
-          <h2>会话</h2>
-          <p class="muted">
-            {{ selectedSessionTitle }}
-          </p>
-          <button
-            type="button"
-            @click="createSessionFromContext"
-          >
-            用刚读取资料开始新会话
-          </button>
-          <button
-            type="button"
-            :disabled="!selectedSessionId"
-            @click="refreshSelectedSessionSnapshot"
-          >
-            把刚读取资料写入当前会话
-          </button>
-          <button
-            v-if="usingLockedSessionContext"
-            type="button"
-            @click="useLiveContextForPreview"
-          >
-            不用旧会话，直接看刚读取资料
-          </button>
-          <div class="session-list">
-            <button
-              v-for="session in sessions"
-              :key="session.id"
-              type="button"
-              :class="{ active: session.id === selectedSessionId }"
-              @click="selectSession(session.id)"
-            >
-              {{ session.title }}
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <section class="xb-main">
-        <div class="panel workspace-panel">
-          <div class="panel-head">
-            <div>
-              <h2>{{ activeWorkspaceItem.label }}</h2>
-              <p class="muted compact">
-                {{ activeWorkspaceItem.hint }}
-              </p>
-            </div>
-            <span class="pill">
-              {{ characterName }}
-            </span>
-          </div>
-          <div class="brain-checks compact-checks">
-            <button
-              v-for="check in brainChecks"
-              :key="check.label"
-              type="button"
-              class="brain-check"
-              :class="{ ok: check.ok, warn: !check.ok }"
-              @click="openBrainCheck(check)"
-            >
-              <span class="check-mark">{{ check.ok ? '✓' : '!' }}</span>
-              <span>
-                <strong>{{ check.label }}</strong>
-                <small>{{ check.detail }}</small>
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <div
-          v-show="activeWorkspace === 'snapshot'"
-          class="panel step-panel"
-        >
-          <div class="panel-head">
-            <div>
-              <h2>资料</h2>
-              <p class="muted compact">
-                先确认小白酒馆读到的是你想测试的角色，不要在错角色上继续验。
-              </p>
-            </div>
-            <span class="pill">历史 {{ effectiveHistoryCount }} 条</span>
-          </div>
-          <div class="what-to-check">
-            <strong>你要判断：</strong>
-            <span>角色名、用户 persona、角色描述、首条消息和世界书来源是不是这次要测试的资料。</span>
-          </div>
-          <div
-            v-if="usingLockedSessionContext"
-            class="context-warning"
-          >
-            <strong>你现在看的不是刚读取资料。</strong>
-            <span>当前选中了旧会话，页面和试聊都在用会话锁定资料。刚改过世界书时，先点“改用刚读取资料”，或把刚读取资料写入当前会话。</span>
-          </div>
-          <div class="step-actions">
-            <label>
-              角色卡
-              <select
-                v-model="selectedCharacterId"
-                @change="refreshSelectedCharacter"
-              >
-                <option
-                  v-for="character in availableCharacters"
-                  :key="character.id"
-                  :value="character.id"
-                >
-                  {{ character.name }}
-                </option>
-              </select>
-            </label>
-            <button
-              type="button"
-              @click="refreshSelectedCharacter"
-            >
-              从酒馆重新读取
-            </button>
-            <button
-              type="button"
-              @click="createSessionFromContext"
-            >
-              用刚读取资料开始新会话
-            </button>
-            <button
-              v-if="usingLockedSessionContext"
-              type="button"
-              @click="useLiveContextForPreview"
-            >
-              改用刚读取资料
-            </button>
-          </div>
-          <div class="snapshot-grid">
-            <article class="snapshot-card">
-              <h3>读到的角色 / 用户</h3>
-              <dl class="field-list">
-                <template
-                  v-for="field in characterFields"
-                  :key="field[0]"
-                >
-                  <dt>{{ field[0] }}</dt>
-                  <dd>{{ shortText(String(field[1] || ''), 420) }}</dd>
-                </template>
-              </dl>
-            </article>
-            <article class="snapshot-card">
-              <h3>读到的世界书</h3>
-              <div class="source-list">
-                <span
-                  v-for="book in worldBooks"
-                  :key="book.name"
-                  class="source-row"
-                >
-                  <strong>{{ book.name || '未命名世界书' }}</strong>
-                  <small>{{ book.entries?.length || 0 }} 条</small>
-                </span>
-                <p
-                  v-if="!worldBooks.length"
-                  class="muted"
-                >
-                  这次准备资料里没有世界书。
-                </p>
-              </div>
-            </article>
-          </div>
-        </div>
-
-        <div
-          v-show="activeWorkspace === 'world'"
-          class="panel step-panel"
-        >
-          <div class="panel-head">
-            <div>
-              <h2>世界书</h2>
-              <p class="muted compact">
-                先看小白读到了哪些世界书；本次会带上哪些条目，会由输入决定。
-              </p>
-            </div>
-            <div class="panel-pills">
-              <span class="pill">{{ activatedCount }} / {{ worldEntryCount }}</span>
-              <span class="pill">{{ worldBudget.enabled ? `${worldBudget.used}/${worldBudget.limit} 字` : '无预算限制' }}</span>
-            </div>
-          </div>
-          <div class="what-to-check">
-            <strong>你要判断：</strong>
-            <span>该触发的世界书有没有触发；不该触发的有没有混进来；检查结果有没有明显报错。</span>
-          </div>
-          <div
-            v-if="usingLockedSessionContext"
-            class="context-warning"
-          >
-            <strong>世界书来自旧会话快照。</strong>
-            <span>如果你刚改了酒馆世界书，这里不会自动变化。点“改用刚读取资料”看最新资料，或回到会话区刷新当前会话资料。</span>
-            <button
-              type="button"
-              @click="useLiveContextForPreview"
-            >
-              改用刚读取资料
-            </button>
-          </div>
-          <ul class="diagnostics inline-diagnostics">
-            <li
-              v-for="row in diagnosticRows"
-              :key="row"
-            >
-              {{ row }}
-            </li>
-          </ul>
-          <section class="read-world-section">
-            <div class="message-group-head">
-              <strong>已经读到的世界书条目</strong>
-              <span>{{ worldBookEntryRows.length }} 条</span>
-            </div>
-            <div class="world-list read-world-list">
-              <article
-                v-for="entry in worldBookEntryRows"
-                :key="entry.key"
-                class="world-entry"
-              >
-                <div class="entry-head">
-                  <strong>{{ entry.title }}</strong>
-                  <span>{{ entry.bookName }}</span>
-                </div>
-                <p class="entry-meta">
-                  关键词：{{ entry.keywords || '无' }} / 二级关键词：{{ entry.secondaryKeywords || '无' }}
-                </p>
-                <p>{{ shortText(entry.content, 260) }}</p>
-              </article>
-              <p
-                v-if="!worldBookEntryRows.length"
-                class="muted"
-              >
-                这次没有读到世界书条目。
-              </p>
-            </div>
-          </section>
-          <div class="world-debug-grid">
-            <details class="debug-box">
-              <summary>高级查看：匹配用文本 · {{ buildResult.meta.scanTextChars }} 字</summary>
-              <pre>{{ shortText(scanTextPreview, 2400) }}</pre>
-            </details>
-            <div class="debug-box">
-              <strong>会放到哪里</strong>
-              <div class="position-list">
-                <span
-                  v-for="row in worldPositionRows"
-                  :key="row[0]"
-                >
-                  {{ insertionTargetLabel(row[0]) }} · {{ row[1] }}
-                </span>
-                <span v-if="!worldPositionRows.length">这次没有带上世界书</span>
-              </div>
-            </div>
-          </div>
-          <div class="message-group-head world-send-head">
-            <strong>本次试聊会带上的世界书</strong>
-            <span>由输入决定</span>
-          </div>
-          <div class="world-list">
-            <article
-              v-for="entry in activatedCandidateRows"
-              :key="entry.activationKey"
-              class="world-entry"
-              :class="{ active: true }"
-            >
-              <div class="entry-head">
-                <strong>{{ entry.title || entry.uid }}</strong>
-                <span>{{ statusLabel(entry.status) }}</span>
-              </div>
-              <small>
-                来自 {{ entry.sourceWorldBook || '未归属' }} · 放到 {{ insertionTargetLabel(entry.insertionTarget) }} · {{ entry.contentChars }} 字
-              </small>
-              <p class="entry-meta">
-                关键词：{{ entry.key.join(', ') || '无' }} / 二级关键词：{{ entry.keysecondary.join(', ') || '无' }}
-              </p>
-              <p class="entry-meta">
-                {{ candidateReason(entry) }}
-                <template v-if="entry.status === 'budget_skipped' && typeof entry.budgetRemainingBefore === 'number'">
-                  · 当时剩余 {{ entry.budgetRemainingBefore }} 字
-                </template>
-              </p>
-              <p>{{ shortText(entry.content, 360) }}</p>
-            </article>
             <p
-              v-if="!activatedCandidateRows.length"
-              class="muted"
+              v-if="simulateRequestStatus"
+              class="muted compact"
             >
-              当前输入没有触发世界书条目。
+              {{ simulateRequestStatus }}
             </p>
-          </div>
-          <details
-            v-if="skippedCandidateRows.length"
-            class="raw-json"
-          >
-            <summary>高级查看：本次不会带上的候选条目 · {{ skippedCandidateRows.length }} 条</summary>
-            <div class="world-list folded-world-list">
-              <article
-                v-for="entry in skippedCandidateRows"
-                :key="entry.activationKey"
-                class="world-entry"
-              >
-                <div class="entry-head">
-                  <strong>{{ entry.title || entry.uid }}</strong>
-                  <span>{{ statusLabel(entry.status) }}</span>
-                </div>
-                <small>
-                  来自 {{ entry.sourceWorldBook || '未归属' }} · {{ entry.contentChars }} 字
-                </small>
-                <p class="entry-meta">
-                  {{ candidateReason(entry) }}
-                </p>
-              </article>
-            </div>
-          </details>
-        </div>
-
-        <div
-          v-show="activeWorkspace === 'messages'"
-          class="panel step-panel"
-        >
-          <div class="panel-head">
-            <div>
-              <h2>本轮内容</h2>
-              <p class="muted compact">
-                小白会把固定规则、预设、角色卡、世界书、历史和你的本次输入组装成这些内容。
-              </p>
-            </div>
-            <label class="mini-select">
-              历史
-              <select v-model="historyMode">
-                <option value="squash">
-                  压缩历史
-                </option>
-                <option value="raw">
-                  逐条历史
-                </option>
-              </select>
-            </label>
-          </div>
-          <div class="what-to-check">
-            <strong>你要判断：</strong>
-            <span>最前面必须是小白固定规则；酒馆预设不能混进来；世界书和角色卡应出现在合理位置。</span>
-          </div>
-          <p class="context-source inline-source">
-            <strong>{{ contextSourceTitle }}</strong>
-            <span>{{ contextSourceDetail }}</span>
-          </p>
-          <div class="test-message-preview">
-            <strong>本次输入</strong>
-            <p>{{ currentUserMessage || '还没填写。' }}</p>
-            <button
-              type="button"
-              @click="activeWorkspace = 'runtime'"
+            <p
+              v-if="simulateRequestError"
+              class="error"
             >
-              去试聊页修改
-            </button>
-          </div>
-          <div class="message-preview">
-            <section
-              v-for="group in messageGroups"
-              :key="group.key"
-              class="message-group"
-            >
-              <div class="message-group-head">
-                <strong>{{ group.label }}</strong>
-                <span>{{ group.rows.length }} 条 · {{ group.chars }} 字 · 约 {{ group.tokenEstimate }}</span>
-              </div>
-              <details
-                v-for="row in group.rows"
-                :key="`${row.index}-${row.message.role}-${row.layer}`"
-                class="message"
-                :class="{ linked: row.sourceId && selectedPresetSourceId === row.sourceId }"
-                open
-              >
-                <summary>
-                  <span>{{ row.index + 1 }} · {{ roleLabel(row.message.role) }} · {{ row.label }}</span>
-                  <small>{{ row.chars }} 字 · 约 {{ row.tokenEstimate }}</small>
-                </summary>
-                <pre>{{ row.message.content }}</pre>
-              </details>
-            </section>
-          </div>
-          <details class="raw-json">
-            <summary>高级查看：完整入模内容</summary>
-            <pre>{{ rawMessagesJson }}</pre>
-          </details>
-        </div>
-
-        <div
-          v-show="activeWorkspace === 'runtime'"
-          class="panel step-panel"
-        >
-          <div class="panel-head">
-            <div>
-              <h2>试聊记录</h2>
-              <p class="muted compact">
-                跑一轮看看角色回复，结果会写入当前会话。
-              </p>
-            </div>
-            <button
-              type="button"
-              @click="handleChatSubmit"
-            >
-              {{ isRunning ? '停止' : '运行' }}
-            </button>
-          </div>
-          <div class="what-to-check">
-            <strong>你要判断：</strong>
-            <span>回复是否像这张角色、是否读到了该读的世界书、是否没有暴露检查内容。</span>
-          </div>
-          <div
-            v-if="usingLockedSessionContext"
-            class="context-warning"
-          >
-            <strong>这次试聊会用旧会话锁定资料。</strong>
-            <span>如果你刚改了角色卡或世界书，先点下面按钮改用刚读取资料，或刷新当前会话资料。</span>
-            <button
-              type="button"
-              @click="useLiveContextForPreview"
-            >
-              改用刚读取资料
-            </button>
-          </div>
-          <div class="run-card">
-            <div>
-              <strong>怎么试：</strong>
-              <ol>
-                <li>在下面写一句你要对角色说的话。</li>
-                <li>点“运行”。</li>
-                <li>看回复像不像这个角色、有没有吃到世界书。</li>
-              </ol>
-            </div>
-            <p class="context-source inline-source">
-              <strong>{{ contextSourceTitle }}</strong>
-              <span>{{ contextSourceDetail }}</span>
+              {{ simulateRequestError }}
             </p>
-          </div>
-          <label class="field-label">要发给角色的一句话</label>
-          <textarea
-            v-model="currentUserMessage"
-            class="input"
-            rows="3"
-          />
-          <p
-            v-if="runtimeError"
-            class="error"
-          >
-            {{ runtimeError }}
-          </p>
-          <p
-            v-if="runtimeProvider || runtimeModel"
-            class="muted"
-          >
-            本次调用：{{ runtimeProvider || '未知通道' }} / {{ runtimeModel || '未知模型' }}
-          </p>
-          <p
-            v-if="lastRequestSnapshot?.rawMessagesJson"
-            class="muted"
-          >
-            本轮内容：{{ lastRequestMatchesPreview ? '和上次调用一致' : '已经变化，需要重新试聊' }}
-          </p>
-          <pre class="runtime">{{ runtimeText || '这里显示角色回复。' }}</pre>
-          <details
-            v-if="runtimeSnapshotJson"
-            class="raw-json"
-          >
-            <summary>高级查看：本次调用记录</summary>
-            <pre>{{ runtimeSnapshotJson }}</pre>
-          </details>
-          <p class="muted">
-            这里只写入当前会话，不会改动原聊天。
-          </p>
-          <div class="session-messages">
-            <span
-              v-for="message in sessionMessages"
-              :key="`${message.sessionId}-${message.order}`"
-            >
-              {{ message.order + 1 }}. {{ roleLabel(message.role) }}
-            </span>
-          </div>
+            <pre
+              v-if="simulateRequestJson"
+              class="prompt-request-json"
+            >{{ simulateRequestJson }}</pre>
+          </section>
         </div>
       </section>
-    </section>
-
-    <section
-      v-if="activeView === 'settings'"
-      class="xb-layout settings-layout"
-    >
-      <aside class="xb-sidebar settings-sidebar">
-        <div class="panel guide-card">
-          <h2>设置</h2>
-          <div class="guide-steps">
-            <button
-              type="button"
-              class="guide-step"
-              :class="{ active: activeSettingsWorkspace === 'api' }"
-              @click="activeSettingsWorkspace = 'api'"
-            >
-              <strong>API 配置</strong>
-              <span>模型预设</span>
-            </button>
-            <button
-              type="button"
-              class="guide-step"
-              :class="{ active: activeSettingsWorkspace === 'preset' }"
-              @click="activeSettingsWorkspace = 'preset'"
-            >
-              <strong>小白预设</strong>
-              <span>规则</span>
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <section class="xb-main">
-        <div
-          v-show="activeSettingsWorkspace === 'api'"
-          class="panel step-panel api-workspace"
-        >
-          <div class="panel-head">
-            <div>
-              <h2>API 配置</h2>
-              <p class="muted compact">
-                小白酒馆使用小白助手和电纸书同一套模型预设；保存后会立刻用于后续聊天。
-              </p>
-            </div>
-            <span
-              class="pill"
-              :class="{ warning: !apiReady }"
-            >
-              {{ apiReady ? '可发模' : '需配置' }}
-            </span>
-          </div>
-          <div
-            class="what-to-check"
-            :class="{ warning: !apiReady }"
-          >
-            <strong>当前模型：</strong>
-            <span>{{ apiReady ? apiRuntimeLine : apiReadyDetail }}</span>
-          </div>
-          <div
-            ref="apiSettingsRootRef"
-            class="tavern-api-settings"
-          />
-        </div>
-
-        <div
-          v-show="activeSettingsWorkspace === 'preset'"
-          class="panel step-panel preset-workspace"
-        >
-          <div class="panel-head drawer-head">
-            <div>
-              <h2>调整小白预设</h2>
-              <p class="muted compact">
-                这里会影响聊天前给模型的补充规则。默认规则不能直接改，需要先复制一份。
-              </p>
-            </div>
-            <div class="panel-pills">
-              <span
-                v-if="presetDirty"
-                class="pill warning"
-              >未保存</span>
-              <span class="pill">{{ preset.version }} · {{ preset.id }}</span>
-            </div>
-          </div>
-          <div class="preset-toolbar">
-            <select
-              v-model="activePresetId"
-              @change="selectPreset(activePresetId)"
-            >
-              <option :value="DEFAULT_XB_TAVERN_PRESET_ID">
-                默认规则（不能直接改）
-              </option>
-              <option
-                v-for="item in userPresets"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.name }}
-              </option>
-            </select>
-            <button
-              type="button"
-              @click="deriveDefaultPreset"
-            >
-              复制一份来改
-            </button>
-            <button
-              type="button"
-              :disabled="presetIsBuiltIn"
-              @click="saveCurrentPreset"
-            >
-              保存规则
-            </button>
-            <button
-              type="button"
-              :disabled="!presetDirty"
-              @click="discardPresetChanges"
-            >
-              放弃改动
-            </button>
-            <button
-              type="button"
-              @click="resetToBuiltInPreset"
-            >
-              用回默认
-            </button>
-          </div>
-          <p
-            v-if="presetStatus"
-            class="muted compact"
-          >
-            {{ presetStatus }}
-          </p>
-          <p class="muted">
-            {{ preset.description }}
-          </p>
-          <div class="preset-editor">
-            <label>
-              名称
-              <input
-                :value="preset.name"
-                :disabled="presetIsBuiltIn"
-                @input="updatePresetMeta({ name: ($event.target as HTMLInputElement).value })"
-              >
-            </label>
-            <label>
-              描述
-              <textarea
-                :value="preset.description"
-                :disabled="presetIsBuiltIn"
-                rows="2"
-                @input="updatePresetMeta({ description: ($event.target as HTMLTextAreaElement).value })"
-              />
-            </label>
-            <label>
-              最高优先级规则
-              <textarea
-                :value="preset.systemPrompt"
-                :disabled="presetIsBuiltIn"
-                rows="4"
-                @input="updatePresetMeta({ systemPrompt: ($event.target as HTMLTextAreaElement).value })"
-              />
-            </label>
-            <label>
-              工具和行为边界
-              <textarea
-                :value="preset.toolPrompt"
-                :disabled="presetIsBuiltIn"
-                rows="3"
-                @input="updatePresetMeta({ toolPrompt: ($event.target as HTMLTextAreaElement).value })"
-              />
-            </label>
-          </div>
-          <div class="preset-editor-head">
-            <strong>可插入的补充规则</strong>
-            <button
-              type="button"
-              :disabled="presetIsBuiltIn"
-              @click="addPresetSection"
-            >
-              新增规则段
-            </button>
-          </div>
-          <div class="preset-section-editor">
-            <article
-              v-for="(section, index) in preset.sections || []"
-              :key="section.id || index"
-              class="preset-edit-card"
-              :class="{
-                disabled: section.enabled === false,
-                selected: selectedPresetSourceId === section.id,
-              }"
-              @click="selectedPresetSourceId = section.id || ''"
-            >
-              <div class="preset-card-head">
-                <label class="inline-check">
-                  <input
-                    type="checkbox"
-                    :checked="section.enabled !== false"
-                    :disabled="presetIsBuiltIn"
-                    @change="updatePresetSection(index, { enabled: ($event.target as HTMLInputElement).checked })"
-                  >
-                  启用
-                </label>
-                <span class="muted compact">
-                  {{ section.locked === false ? '可变段' : '锁定段' }}
-                </span>
-                <div class="row-actions">
-                  <button
-                    type="button"
-                    :disabled="presetIsBuiltIn || index === 0"
-                    @click.stop="movePresetSection(index, -1)"
-                  >
-                    上移
-                  </button>
-                  <button
-                    type="button"
-                    :disabled="presetIsBuiltIn || index === (preset.sections || []).length - 1"
-                    @click.stop="movePresetSection(index, 1)"
-                  >
-                    下移
-                  </button>
-                </div>
-              </div>
-              <div class="preset-edit-grid">
-                <label>
-                  标签
-                  <input
-                    :value="section.label"
-                    :disabled="presetIsBuiltIn"
-                    @input="updatePresetSection(index, { label: ($event.target as HTMLInputElement).value })"
-                  >
-                </label>
-                <label>
-                  消息身份
-                  <select
-                    :value="section.role || 'system'"
-                    :disabled="presetIsBuiltIn"
-                    @change="updatePresetSection(index, { role: ($event.target as HTMLSelectElement).value })"
-                  >
-                    <option value="system">
-                      规则消息
-                    </option>
-                    <option value="user">
-                      用户消息
-                    </option>
-                    <option value="assistant">
-                      AI 消息
-                    </option>
-                  </select>
-                </label>
-                <label>
-                  放入位置
-                  <select
-                    :value="section.placement || 'beforeHistory'"
-                    :disabled="presetIsBuiltIn"
-                    @change="updatePresetSection(index, { placement: ($event.target as HTMLSelectElement).value as XbTavernPresetSection['placement'] })"
-                  >
-                    <option value="top">
-                      最前面
-                    </option>
-                    <option value="beforeCharacter">
-                      角色卡之前
-                    </option>
-                    <option value="afterCharacter">
-                      角色卡之后
-                    </option>
-                    <option value="beforeHistory">
-                      历史之前
-                    </option>
-                    <option value="afterHistory">
-                      历史之后
-                    </option>
-                    <option value="assistantPrefill">
-                      回复开头
-                    </option>
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  :disabled="presetIsBuiltIn"
-                  @click.stop="removePresetSection(index)"
-                >
-                  删除
-                </button>
-              </div>
-              <textarea
-                :value="section.content"
-                :disabled="presetIsBuiltIn"
-                rows="4"
-                @input="updatePresetSection(index, { content: ($event.target as HTMLTextAreaElement).value })"
-              />
-            </article>
-          </div>
-          <div class="preset-list">
-            <details
-              v-for="row in presetRows"
-              :key="row.previewId"
-              class="preset-section"
-              :class="{
-                disabled: row.enabled === false,
-                selected: selectedPresetSourceId === row.previewId,
-              }"
-              @click="selectedPresetSourceId = row.previewId"
-            >
-              <summary>
-                <span>{{ row.previewPlacement }} · {{ row.previewLabel }}</span>
-                <small>{{ row.enabled === false ? '停用' : '启用' }} · {{ row.locked === false ? '可变' : '锁定' }} · {{ row.chars }} 字</small>
-              </summary>
-              <pre>{{ row.content }}</pre>
-            </details>
-          </div>
-        </div>
-      </section>
-    </section>
+    </div>
   </main>
 </template>

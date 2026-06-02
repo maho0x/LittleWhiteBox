@@ -44,6 +44,14 @@ export interface TavernRunOnceOptions {
     onStreamProgress?: (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => void;
 }
 
+export interface TavernRequestInspection {
+    provider?: string;
+    model?: string;
+    transport?: string;
+    request?: unknown;
+    [key: string]: unknown;
+}
+
 export interface TavernRequestSnapshot {
     presetName: string;
     provider: string;
@@ -53,6 +61,10 @@ export interface TavernRequestSnapshot {
     messageCount: number;
     messageChars: number;
     rawMessagesJson: string;
+    rawRequestJson: string;
+    requestKind: 'actual' | 'simulated' | 'fallback';
+    capturedAt: number;
+    requestInspection?: TavernRequestInspection;
 }
 
 export interface TavernRunOnceResult {
@@ -110,6 +122,25 @@ export interface XbTavernRunResult {
     error?: string;
 }
 
+export interface XbTavernSimulateRequestInput {
+    sessionId?: string;
+    agentConfig: Record<string, unknown>;
+    contextSnapshot: XbTavernContext;
+    preset: XbTavernPreset;
+    currentUserMessage: string;
+    runtimeState?: TavernSessionState;
+    diagnostics?: TavernDiagnostics;
+    historyMode?: XbTavernRuntimeState['historyMode'];
+}
+
+export interface XbTavernSimulateRequestResult {
+    buildResult: XbTavernMessageBuildResult;
+    buildSnapshot: XbTavernBuildSnapshot;
+    requestSnapshot: TavernRequestSnapshot;
+    provider: string;
+    model: string;
+}
+
 function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
     if (signal?.aborted) {return true;}
     if (!error || typeof error !== 'object') {return false;}
@@ -144,9 +175,21 @@ async function persistRunSessionState(
 export function buildTavernRequestSnapshot(
     agentConfig: Record<string, unknown> = {},
     messages: XbTavernMessage[] = [],
-    override: Partial<Pick<TavernRequestSnapshot, 'provider' | 'model'>> = {},
+    override: Partial<Pick<TavernRequestSnapshot, 'provider' | 'model' | 'requestKind'>> & {
+        requestInspection?: TavernRequestInspection | null;
+    } = {},
 ): TavernRequestSnapshot {
     const providerConfig = resolveXbTavernProviderConfig(agentConfig);
+    const requestInspection = override.requestInspection || null;
+    const rawMessagesJson = JSON.stringify(messages, null, 2);
+    const requestForJson = requestInspection || {
+        provider: String(override.provider || providerConfig.provider || ''),
+        model: String(override.model || providerConfig.model || ''),
+        transport: 'unavailable',
+        request: {
+            messages,
+        },
+    };
     return {
         presetName: providerConfig.currentPresetName,
         provider: String(override.provider || providerConfig.provider || ''),
@@ -155,7 +198,52 @@ export function buildTavernRequestSnapshot(
         toolMode: providerConfig.toolMode,
         messageCount: messages.length,
         messageChars: messages.reduce((sum, message) => sum + String(message.content || '').length, 0),
-        rawMessagesJson: JSON.stringify(messages, null, 2),
+        rawMessagesJson,
+        rawRequestJson: JSON.stringify(requestForJson, null, 2),
+        requestKind: override.requestKind || 'actual',
+        capturedAt: Date.now(),
+        ...(requestInspection ? { requestInspection } : {}),
+    };
+}
+
+async function inspectTavernRequest(input: {
+    agentConfig: Record<string, unknown>;
+    messages: XbTavernMessage[];
+    signal?: AbortSignal;
+    onStreamProgress?: TavernRunOnceOptions['onStreamProgress'];
+    requestKind?: TavernRequestSnapshot['requestKind'];
+}): Promise<{
+    task: ReturnType<ReturnType<typeof createXbTavernAgentRuntime>['buildChatTask']>;
+    adapter: { chat: (task: unknown) => Promise<Record<string, unknown>>; inspectRequest?: (task: unknown) => Promise<TavernRequestInspection> | TavernRequestInspection };
+    providerConfig: ReturnType<typeof assertXbTavernProviderReady>;
+    requestSnapshot: TavernRequestSnapshot;
+}> {
+    const providerConfig = assertXbTavernProviderReady(input.agentConfig);
+    const runtime = createXbTavernAgentRuntime(providerConfig);
+    const adapter = createAgentAdapter(providerConfig as unknown as Record<string, unknown>, {
+        missingApiKeyMessage: '请先在 API 配置里选择模型/填写 Key。',
+    }) as {
+        chat: (task: unknown) => Promise<Record<string, unknown>>;
+        inspectRequest?: (task: unknown) => Promise<TavernRequestInspection> | TavernRequestInspection;
+    };
+    const task = runtime.buildChatTask({
+        messages: input.messages,
+        signal: input.signal,
+        onStreamProgress: input.onStreamProgress,
+    });
+    const requestInspection = typeof adapter.inspectRequest === 'function'
+        ? await adapter.inspectRequest(task)
+        : null;
+    return {
+        task,
+        adapter,
+        providerConfig,
+        requestSnapshot: buildTavernRequestSnapshot(input.agentConfig, input.messages, {
+            provider: String(requestInspection?.provider || providerConfig.provider || ''),
+            model: String(requestInspection?.model || providerConfig.model || ''),
+            requestInspection,
+            requestKind: input.requestKind || 'actual',
+        }),
     };
 }
 
@@ -250,7 +338,7 @@ async function ensureRunSession(input: XbTavernRunTurnInput, buildSnapshot?: XbT
     const contextSnapshot = input.contextSnapshot || {};
     const character = contextSnapshot.character || {};
     return await createTavernSession({
-        title: `${character.name || '未选择角色'} · 小白酒馆`,
+        title: String(character.name || '未选择角色'),
         characterId: String(character.id || ''),
         characterName: String(character.name || '未选择角色'),
         contextSnapshot,
@@ -265,30 +353,88 @@ async function ensureRunSession(input: XbTavernRunTurnInput, buildSnapshot?: XbT
 }
 
 export async function runTavernOnce(options: TavernRunOnceOptions): Promise<TavernRunOnceResult> {
-    const providerConfig = assertXbTavernProviderReady(options.agentConfig);
-    const runtime = createXbTavernAgentRuntime(providerConfig);
-    const adapter = createAgentAdapter(providerConfig as unknown as Record<string, unknown>, {
-        missingApiKeyMessage: '请先在 API 配置里选择模型/填写 Key。',
-    });
-    const result = await adapter.chat(runtime.buildChatTask({
+    const inspected = await inspectTavernRequest({
+        agentConfig: options.agentConfig,
         messages: options.messages,
         signal: options.signal,
         onStreamProgress: options.onStreamProgress,
-    }));
+        requestKind: 'actual',
+    });
+    let result: Record<string, unknown>;
+    try {
+        result = await inspected.adapter.chat(inspected.task);
+    } catch (error) {
+        const requestInspection = (error as { requestInspection?: TavernRequestInspection } | null)?.requestInspection;
+        if (requestInspection && error && typeof error === 'object') {
+            (error as { requestSnapshot?: TavernRequestSnapshot }).requestSnapshot = buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                provider: String(requestInspection.provider || inspected.providerConfig.provider || ''),
+                model: String(requestInspection.model || inspected.providerConfig.model || ''),
+                requestInspection,
+                requestKind: 'actual',
+            });
+        }
+        throw error;
+    }
+    const finalInspection = (result?.requestInspection || inspected.requestSnapshot.requestInspection || null) as TavernRequestInspection | null;
     const text = String(result?.text || '');
-    const provider = String(result?.provider || providerConfig.provider || '');
-    const model = String(result?.model || providerConfig.model || '');
+    const provider = String(result?.provider || finalInspection?.provider || inspected.providerConfig.provider || '');
+    const model = String(result?.model || finalInspection?.model || inspected.providerConfig.model || '');
     return {
         text,
-        thoughts: result?.thoughts,
+        thoughts: result?.thoughts as Array<{ label?: string; text?: string }> | undefined,
         model,
         provider,
-        finishReason: result?.finishReason,
+        finishReason: result?.finishReason as string | undefined,
         providerPayload: result?.providerPayload,
         requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
             provider,
             model,
+            requestInspection: finalInspection,
+            requestKind: 'actual',
         }),
+    };
+}
+
+export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInput): Promise<XbTavernSimulateRequestResult> {
+    const session = input.sessionId ? await getTavernSession(input.sessionId) : null;
+    const sessionMessages = session ? await listTavernMessages(session.id) : [];
+    const lockedContext = session?.contextSnapshot || input.contextSnapshot || {};
+    const sessionState = normalizeTavernSessionState(session?.state || input.runtimeState || {});
+    const contextForBuild: XbTavernContext = {
+        ...lockedContext,
+        history: session ? buildContextHistory(sessionMessages) : (input.contextSnapshot.history || []),
+    };
+    const memoryQuery = buildXbTavernMemoryQuery(contextForBuild, input.currentUserMessage);
+    const brain = buildXbTavernBrain({
+        context: contextForBuild,
+        preset: input.preset,
+        currentUserMessage: input.currentUserMessage,
+        historyMode: input.historyMode || 'squash',
+        turn: sessionState.turn,
+        entryStates: sessionState.worldEntryStates,
+        memoryContext: session
+            ? await retrieveXbTavernMemoryContext({
+                sessionId: session.id,
+                queryText: memoryQuery,
+                ignoredTerms: buildXbTavernMemoryIgnoredTerms(contextForBuild),
+            })
+            : undefined,
+        diagnostics: input.diagnostics || {},
+    });
+    const inspected = await inspectTavernRequest({
+        agentConfig: input.agentConfig,
+        messages: brain.buildResult.messages,
+        onStreamProgress: () => {},
+        requestKind: 'simulated',
+    });
+    const provider = inspected.requestSnapshot.provider;
+    const model = inspected.requestSnapshot.model;
+    return {
+        buildResult: brain.buildResult,
+        buildSnapshot: brain.buildSnapshot,
+        requestSnapshot: inspected.requestSnapshot,
+        provider,
+        model,
     };
 }
 
@@ -352,7 +498,26 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             presetId: String(input.preset.id || baseSession.presetId || ''),
             presetName: String(input.preset.name || baseSession.presetName || ''),
         }) || baseSession;
-    const requestSnapshot = buildTavernRequestSnapshot(input.agentConfig, buildResult.messages);
+
+    let latestStreamText = '';
+    const handleStreamProgress = (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => {
+        if (typeof snapshot.text === 'string') {latestStreamText = snapshot.text;}
+        input.onStreamProgress?.(snapshot);
+    };
+
+    let requestSnapshot = buildTavernRequestSnapshot(input.agentConfig, buildResult.messages);
+    try {
+        requestSnapshot = (await inspectTavernRequest({
+            agentConfig: input.agentConfig,
+            messages: buildResult.messages,
+            onStreamProgress: handleStreamProgress,
+            requestKind: 'actual',
+        })).requestSnapshot;
+    } catch {
+        requestSnapshot = buildTavernRequestSnapshot(input.agentConfig, buildResult.messages, {
+            requestKind: 'fallback',
+        });
+    }
     const presetId = String(input.preset.id || session.presetId || '');
     const presetName = String(input.preset.name || session.presetName || '');
     const userMessage = reusedUserMessage || await appendTavernMessage(session.id, {
@@ -363,14 +528,8 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             presetId,
             presetName,
             requestSnapshot,
-        });
+    });
     await notifyRunCallback(() => input.onUserMessageSaved?.(session.id, userMessage));
-
-    let latestStreamText = '';
-    const handleStreamProgress = (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => {
-        if (typeof snapshot.text === 'string') {latestStreamText = snapshot.text;}
-        input.onStreamProgress?.(snapshot);
-    };
 
     try {
         const executeRunOnce = input.executeRunOnce || runTavernOnce;
@@ -441,6 +600,10 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             managerStatus,
         };
     } catch (error) {
+        const failedRequestSnapshot = (error as { requestSnapshot?: TavernRequestSnapshot } | null)?.requestSnapshot;
+        if (failedRequestSnapshot) {
+            requestSnapshot = failedRequestSnapshot;
+        }
         const aborted = isAbortLikeError(error, input.signal);
         const partialText = String(latestStreamText || '').trim();
         if (aborted && partialText) {
