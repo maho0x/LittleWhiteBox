@@ -6827,6 +6827,8 @@ test('Book agent injects a light brake after repeated tool failures', async () =
     };
     let round = 0;
     let sawLightBrake = false;
+    let lightBrakeMessageIndex = -1;
+    let lightBrakeMessageCount = 0;
     const runner = createEbookAgentRunner({
         state,
         async refreshBooksAndFiles() {
@@ -6867,6 +6869,13 @@ test('Book agent injects a light brake after repeated tool failures', async () =
                         && /Read/.test(message.content)
                         && /book_file_not_found/.test(message.content)
                     ));
+                    assert.equal(task.messages[0]?.content, EBOOK_SYSTEM_PROMPT);
+                    assert.equal(task.messages[1]?.content, buildBookContextPrompt({ files: state.files }));
+                    lightBrakeMessageCount = task.messages.length;
+                    lightBrakeMessageIndex = task.messages.findIndex((message) => (
+                        message.role === 'system'
+                        && /工具失败提示/.test(message.content)
+                    ));
                     return {
                         text: '已停止重复读取不存在的章节。',
                         toolCalls: [],
@@ -6879,8 +6888,101 @@ test('Book agent injects a light brake after repeated tool failures', async () =
     await runner.runAgent('故意连续读不存在的章节。');
 
     assert.equal(sawLightBrake, true);
+    assert.equal(lightBrakeMessageIndex >= 2, true);
+    assert.equal(lightBrakeMessageIndex, lightBrakeMessageCount - 1);
     assert.equal(state.messages.at(-1).content, '已停止重复读取不存在的章节。');
     assert.equal(state.messages.filter((message) => message.role === 'tool' && /book_file_not_found/.test(message.content)).length, 3);
+});
+
+test('Book agent places non-session final answer reminder after history and before current user', async () => {
+    await resetDb();
+    const book = await createBook('结论提醒顺序测试');
+    const state = {
+        config: {},
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: '',
+        viewMode: 'studio',
+        editorContent: '',
+        savedContent: '',
+        messages: [],
+        toolTrace: [],
+        historySummary: '',
+        archivedTurnCount: 0,
+        isBusy: false,
+        activeController: null,
+        status: '就绪',
+        toast: '',
+    };
+    let round = 0;
+    let reminderMessageIndex = -1;
+    let messageCountAtReminder = 0;
+    const runner = createEbookAgentRunner({
+        state,
+        async refreshBooksAndFiles() {
+            state.files = await listBookFiles(book.id);
+        },
+        render() {},
+        showToast() {},
+        persistConversation() {},
+        isEditorDirty() {
+            return false;
+        },
+        getActiveProviderConfig() {
+            return {
+                provider: 'test',
+                temperature: 0.2,
+                maxTokens: 1000,
+                reasoningEnabled: false,
+                reasoningEffort: 'medium',
+            };
+        },
+        createAdapter() {
+            return {
+                async chat(task) {
+                    round += 1;
+                    if (round === 1) {
+                        return {
+                            text: '',
+                            toolCalls: [{
+                                id: 'read-outline',
+                                name: EBOOK_TOOL_NAMES.READ,
+                                arguments: '{"filePath":"book/outline.md","limit":2}',
+                            }],
+                        };
+                    }
+                    if (round === 2) {
+                        return {
+                            text: '',
+                            toolCalls: [],
+                        };
+                    }
+                    if (round === 3) {
+                        assert.equal(task.messages[0]?.content, EBOOK_SYSTEM_PROMPT);
+                        assert.equal(task.messages[1]?.content, buildBookContextPrompt({ files: state.files }));
+                        messageCountAtReminder = task.messages.length;
+                        reminderMessageIndex = task.messages.findIndex((message) => (
+                            message.role === 'system'
+                            && /你已经拿到了本轮全部工具结果/.test(message.content)
+                        ));
+                        return {
+                            text: '已经读取大纲并给出结论。',
+                            toolCalls: [],
+                        };
+                    }
+                    throw new Error(`unexpected round ${round}`);
+                },
+            };
+        },
+    });
+
+    await runner.runAgent('读取大纲后直接告诉我。');
+
+    assert.equal(reminderMessageIndex >= 2, true);
+    assert.equal(reminderMessageIndex, messageCountAtReminder - 1);
+    assert.equal(state.messages.at(-1).content, '已经读取大纲并给出结论。');
 });
 
 test('Light brake can fire again for the same failure pattern after reset', () => {

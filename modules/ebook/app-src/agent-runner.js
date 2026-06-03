@@ -340,14 +340,16 @@ export function createEbookAgentRunner(deps = {}) {
         ]
             .filter(Boolean)
             .map((content) => ({ role: 'system', content }));
-        const history = buildEbookProviderMessagesFromHistory(state.messages, {
+        const providerMessages = buildEbookProviderMessagesFromHistory(state.messages, {
             latestUserContextText: turnContextPrompt,
         });
+        // Keep the stable cache prefix limited to the two fixed system messages.
+        // Transient reminders are produced mid loop, so they belong at the replay tail.
         return [
             { role: 'system', content: EBOOK_SYSTEM_PROMPT },
             { role: 'system', content: contextPrompt },
+            ...providerMessages,
             ...extraSystemMessages,
-            ...history,
         ];
     }
 
