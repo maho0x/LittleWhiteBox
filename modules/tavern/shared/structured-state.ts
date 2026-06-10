@@ -548,7 +548,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'Existing-map remove/modify/replace/meta/reset/init-replace require baseRevision. add can be used without baseRevision for incremental new elements, but include baseRevision when you are coordinating with other recent edits.',
                     'add with an existing identical element is satisfied; add with the same id but different content fails. remove of a missing id is satisfied with a warning. modify/replace require an existing id.',
                     'Do not update the map for guesses, future plans, or events that did not happen in RP.',
-                    'Map updates are auxiliary; automatic after-turn managers must still maintain memory/turns/*.md separately.',
+                    'Map updates are auxiliary; automatic after-turn managers must still write the readable per-exchange memory file with MemoryWrite or MemoryEdit.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',

@@ -13,21 +13,21 @@ import {
     getTavernManagerToolDefinitions,
     listTavernMemoryFiles,
     rebuildTavernMemoryDerivedIndex,
+    buildTurnMemoryPath,
     type TavernMemoryToolResult,
 } from '../../shared/memory-files';
 import {
     createTavernManagerRun,
     deleteTavernManagerMessages,
-    listTavernEpisodeSummaries,
     listTavernManagerMemorySnapshots,
     listTavernManagerStateSnapshots,
     listTavernManagerMessages,
     listTavernMessages,
-    listTavernTurnSummaries,
     rollbackManagerRunMemoryWrites,
     rollbackManagerRunStateWrites,
     rollbackManagerRunsForMessageRange,
     rollbackManagerStateRunsForMessageRange,
+    touchRunningTavernManagerRun,
     updateTavernManagerRun,
     type TavernEpisodeSummaryRecord,
     type TavernManagerMessageRecord,
@@ -46,13 +46,22 @@ const resolveConversationTokens = (contextTokens as unknown as {
     }) => Promise<number>;
 }).resolveConversationTokens;
 
+type TavernManagerStreamSnapshot = {
+    text?: string;
+    thoughts?: Array<{ label?: string; text?: string }>;
+    toolCalls?: unknown[];
+    toolCallDraft?: boolean;
+};
+
 export interface XbTavernManagerOnceOptions {
     agentConfig: Record<string, unknown>;
-    messages: XbTavernMessage[];
+    messages?: XbTavernMessage[];
     tools?: unknown[];
     toolChoice?: 'auto' | 'none' | string;
+    toolResponses?: Array<{ id?: string; name?: string; response?: unknown }>;
+    finalAnswerReminderText?: string;
     signal?: AbortSignal;
-    onStreamProgress?: (text: string) => void;
+    onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
 }
 
 export interface XbTavernManagerOnceResult {
@@ -60,6 +69,7 @@ export interface XbTavernManagerOnceResult {
     provider?: string;
     model?: string;
     toolCalls?: unknown[];
+    thoughts?: Array<{ label?: string; text?: string }>;
     providerPayload?: unknown;
 }
 
@@ -104,7 +114,7 @@ export interface XbTavernManagerChatInput {
     assistantPreset?: TavernAssistantPreset;
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
-    onStreamProgress?: (text: string) => void;
+    onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
 }
 
 export interface XbTavernManagerChatResult {
@@ -115,6 +125,7 @@ export interface XbTavernManagerChatResult {
     model: string;
     changedFiles: string[];
     changedStates: string[];
+    protocolMessages: XbTavernMessage[];
     error?: string;
 }
 
@@ -131,6 +142,7 @@ export interface EnsureTavernManagerChatBudgetInput {
     agentConfig: Record<string, unknown>;
     assistantPreset?: TavernAssistantPreset;
     question: string;
+    history?: TavernManagerMessageRecord[];
     signal?: AbortSignal;
     onCompactionStart?: (snapshot: XbTavernManagerCompactionSnapshot) => void;
     onCompactionProgress?: (snapshot: XbTavernManagerCompactionSnapshot) => void;
@@ -206,6 +218,7 @@ function buildResidentMemoryBlock(memoryFiles: Array<{ path: string; status: str
 
 function buildAutoManagerUserPrompt(input: {
     turn: number;
+    turnMemoryPath: string;
     userMessage: TavernMessageRecord;
     assistantMessage: TavernMessageRecord;
     memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>;
@@ -214,9 +227,7 @@ function buildAutoManagerUserPrompt(input: {
         buildResidentMemoryBlock(input.memoryFiles),
         '',
         '[本轮 RP 原文]',
-        `turn: ${input.turn}`,
-        `userOrder: ${input.userMessage.order}`,
-        `assistantOrder: ${input.assistantMessage.order}`,
+        `建议流水路径：${input.turnMemoryPath}`,
         '',
         '[用户消息]',
         input.userMessage.content,
@@ -226,8 +237,9 @@ function buildAutoManagerUserPrompt(input: {
         '',
         '[本轮要求]',
         '1. 先按需读取相关记忆文件，再维护本轮记忆。',
-        '2. 必须写或改 turns 文件；必要时同步更新 session/state/episode/inbox。',
-        '3. 最终只用自然语言简短交代结果。',
+        '2. 如需记录本轮流水，优先写入上面的建议路径；正文写法由助手预设决定，不需要固定标题。',
+        '3. 必要时同步更新 session/state/episode/inbox 和结构化状态。',
+        '4. 最终只用自然语言简短交代结果。',
     ].join('\n');
 }
 
@@ -250,37 +262,53 @@ function buildInputSummary(input: { trigger?: string; turn?: number; userOrder?:
     return `turn ${Math.max(0, Number(input.turn) || 0)}; messages ${Number(input.userOrder)}/${Number(input.assistantOrder)}; user ${String(input.text || '').length} chars`;
 }
 
-function changedTurnFiles(paths: string[] = []): string[] {
-    return (Array.isArray(paths) ? paths : []).filter((path) => /^memory\/turns\/.+\.md$/i.test(String(path || '')));
+function resolveTurnMemoryPath(input: Pick<XbTavernManagerRunInput, 'userMessage' | 'assistantMessage'>): string {
+    return buildTurnMemoryPath(
+        input.userMessage.order,
+        Number(input.assistantMessage.createdAt) || Number(input.userMessage.createdAt) || Date.now(),
+    );
 }
 
-async function runManagerOnce(options: XbTavernManagerOnceOptions): Promise<XbTavernManagerOnceResult> {
-    const providerConfig = resolveActiveProviderConfig(options.agentConfig || {}, {
-        role: 'delegate',
-        timeoutMs: 15 * 60 * 1000,
-    });
-    const adapter = createAgentAdapter(providerConfig, {
-        missingApiKeyMessage: '请先在 API 配置里填写记忆管理员 API。',
-    });
-    const result = await adapter.chat({
-        systemPrompt: options.messages[0]?.content || '',
-        messages: options.messages.slice(1),
+async function runManagerOnceWithAdapter(
+    adapter: { chat: (task: Record<string, unknown>) => Promise<Record<string, unknown>> },
+    providerConfig: Record<string, unknown>,
+    options: XbTavernManagerOnceOptions,
+): Promise<XbTavernManagerOnceResult> {
+    const messages = Array.isArray(options.messages) ? options.messages : [];
+    const task: Record<string, unknown> = {
+        systemPrompt: messages[0]?.content || '',
+        messages,
         tools: Array.isArray(options.tools) ? options.tools : [],
         toolChoice: options.toolChoice || (options.tools?.length ? 'auto' : 'none'),
         temperature: providerConfig.temperature,
         maxTokens: providerConfig.maxTokens,
-        signal: options.signal,
-        onStreamProgress: (snapshot: { text?: string }) => {
-            if (typeof snapshot.text === 'string') {
-                options.onStreamProgress?.(snapshot.text);
-            }
+        reasoning: {
+            enabled: providerConfig.reasoningEnabled,
+            effort: providerConfig.reasoningEffort,
         },
-    });
+        signal: options.signal,
+        onStreamProgress: (snapshot: TavernManagerStreamSnapshot) => {
+            options.onStreamProgress?.({
+                ...(typeof snapshot.text === 'string' ? { text: snapshot.text } : {}),
+                ...(Array.isArray(snapshot.thoughts) ? { thoughts: normalizeManagerThoughtBlocks(snapshot.thoughts) } : {}),
+                ...(Array.isArray(snapshot.toolCalls) ? { toolCalls: snapshot.toolCalls } : {}),
+                ...(snapshot.toolCallDraft ? { toolCallDraft: true } : {}),
+            });
+        },
+    };
+    if (Array.isArray(options.toolResponses) && options.toolResponses.length) {
+        task.toolResponses = options.toolResponses;
+    }
+    if (String(options.finalAnswerReminderText || '').trim()) {
+        task.finalAnswerReminderText = String(options.finalAnswerReminderText || '').trim();
+    }
+    const result = await adapter.chat(task);
     return {
         text: String(result?.text || '').trim(),
         provider: String(result?.provider || providerConfig.provider || ''),
         model: String(result?.model || providerConfig.model || ''),
         toolCalls: Array.isArray(result?.toolCalls) ? result.toolCalls : [],
+        thoughts: normalizeManagerThoughtBlocks(result?.thoughts),
         providerPayload: result?.providerPayload,
     };
 }
@@ -303,8 +331,32 @@ function isStateToolName(name = ''): boolean {
     return Object.values(TAVERN_STATE_TOOL_NAMES).includes(name as typeof TAVERN_STATE_TOOL_NAMES[keyof typeof TAVERN_STATE_TOOL_NAMES]);
 }
 
-function hasFailedMemoryTool(toolTrace: Array<Record<string, unknown>> = []): boolean {
+function hasFailedTool(toolTrace: Array<Record<string, unknown>> = []): boolean {
     return toolTrace.some((item) => item.ok === false);
+}
+
+function normalizeManagerThoughtBlocks(value: unknown): Array<{ label?: string; text?: string }> {
+    if (!Array.isArray(value)) {return [];}
+    const thoughts: Array<{ label: string; text: string }> = [];
+    value.forEach((item, index) => {
+            const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+            const text = String(record.text || record.content || record.thinking || '').trim();
+            if (!text) {return;}
+            thoughts.push({
+                label: String(record.label || record.summary || `思考 ${index + 1}`).trim() || `思考 ${index + 1}`,
+                text,
+            });
+        });
+    return thoughts;
+}
+
+async function persistRunningManagerToolTrace(managerRunId = '', toolTrace: Array<Record<string, unknown>> = []): Promise<void> {
+    const id = String(managerRunId || '').trim();
+    if (!id) {return;}
+    await updateTavernManagerRun(id, {
+        status: 'running',
+        toolTrace: toolTrace.map((item) => ({ ...item })),
+    });
 }
 
 function isManagerAbortLike(error: unknown, signal?: AbortSignal): boolean {
@@ -352,12 +404,13 @@ async function runManagerAgentWithTools(input: {
     caller: 'auto' | 'chat';
     messages: XbTavernMessage[];
     managerRunId?: string;
+    turn?: number;
     userOrder?: number;
     assistantOrder?: number;
     beforeWriteGuard?: () => Promise<void> | void;
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
-    onStreamProgress?: (text: string) => void;
+    onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
 }): Promise<{
     text: string;
     provider: string;
@@ -365,46 +418,83 @@ async function runManagerAgentWithTools(input: {
     toolTrace: Array<Record<string, unknown>>;
     changedFiles: string[];
     changedStates: string[];
+    protocolMessages: XbTavernMessage[];
 }> {
-    const executeManagerOnce = input.executeManagerOnce || runManagerOnce;
     const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
         role: 'delegate',
         timeoutMs: 15 * 60 * 1000,
     });
+    const defaultAdapter = input.executeManagerOnce
+        ? null
+        : createAgentAdapter(providerConfig, {
+            missingApiKeyMessage: '请先在 API 配置里填写记忆管理员 API。',
+        }) as { chat: (task: Record<string, unknown>) => Promise<Record<string, unknown>>; supportsSessionToolLoop?: boolean };
+    const executeManagerOnce = input.executeManagerOnce
+        || ((options: XbTavernManagerOnceOptions) => runManagerOnceWithAdapter(defaultAdapter!, providerConfig, options));
+    const supportsSessionToolLoop = !!defaultAdapter?.supportsSessionToolLoop
+        || (input.executeManagerOnce as { supportsSessionToolLoop?: boolean } | undefined)?.supportsSessionToolLoop === true;
     const tools = getTavernManagerToolDefinitions();
     const toolTrace: Array<Record<string, unknown>> = [];
+    const protocolMessages: XbTavernMessage[] = [];
     const changedFiles = new Set<string>();
     const changedStates = new Set<string>();
     let finalText = '';
     let resultProvider = '';
     let resultModel = '';
     let reminded = false;
+    let pendingToolResponses: Array<{ id?: string; name?: string; response?: unknown }> | null = null;
+    let pendingFinalAnswerReminderText = '';
 
     for (let round = 1; round <= MAX_MANAGER_TOOL_ROUNDS; round += 1) {
         throwIfManagerAborted(input.signal);
+        let streamText = '';
+        let streamThoughts: Array<{ label?: string; text?: string }> = [];
         const result = await executeManagerOnce({
             agentConfig: input.agentConfig,
             messages: input.messages,
             tools,
             toolChoice: 'auto',
+            ...(supportsSessionToolLoop && Array.isArray(pendingToolResponses) && pendingToolResponses.length
+                ? { toolResponses: pendingToolResponses }
+                : {}),
+            ...(supportsSessionToolLoop && pendingFinalAnswerReminderText
+                ? { finalAnswerReminderText: pendingFinalAnswerReminderText }
+                : {}),
             signal: input.signal,
-            onStreamProgress: input.onStreamProgress,
+            onStreamProgress: (snapshot) => {
+                if (typeof snapshot.text === 'string') {streamText = snapshot.text;}
+                if (Array.isArray(snapshot.thoughts)) {streamThoughts = normalizeManagerThoughtBlocks(snapshot.thoughts);}
+                input.onStreamProgress?.({
+                    ...(typeof snapshot.text === 'string' ? { text: snapshot.text } : {}),
+                    ...(Array.isArray(snapshot.thoughts) ? { thoughts: streamThoughts } : {}),
+                    ...(Array.isArray(snapshot.toolCalls) ? { toolCalls: snapshot.toolCalls } : {}),
+                    ...(snapshot.toolCallDraft ? { toolCallDraft: true } : {}),
+                });
+            },
         });
+        pendingToolResponses = null;
+        pendingFinalAnswerReminderText = '';
         throwIfManagerAborted(input.signal);
-        finalText = String(result.text || '').trim();
+        finalText = String(result.text || streamText || '').trim();
         resultProvider = String(result.provider || resultProvider || providerConfig.provider || '');
         resultModel = String(result.model || resultModel || providerConfig.model || '');
         const resultRecord = result as unknown as Record<string, unknown>;
+        const resultThoughts = normalizeManagerThoughtBlocks(result.thoughts?.length ? result.thoughts : streamThoughts);
         const toolCalls = resolveResultToolCalls(resultRecord, providerConfig, {
             fallbackPrefix: 'tavern-manager-tool',
         });
         if (!toolCalls.length) {
             if (!hasVisibleText(finalText) && toolTrace.length && !reminded) {
                 reminded = true;
-                input.messages.push({
-                    role: 'system',
-                    content: '你已经拿到了工具结果。现在不要继续调用工具，直接简短说明本轮处理结论。',
-                });
+                const reminder = '你已经拿到了工具结果。现在不要继续调用工具，直接简短说明本轮处理结论。';
+                if (supportsSessionToolLoop) {
+                    pendingFinalAnswerReminderText = reminder;
+                } else {
+                    input.messages.push({
+                        role: 'system',
+                        content: reminder,
+                    });
+                }
                 continue;
             }
             return {
@@ -414,16 +504,44 @@ async function runManagerAgentWithTools(input: {
                 toolTrace,
                 changedFiles: [...changedFiles],
                 changedStates: [...changedStates],
+                protocolMessages: [
+                    ...protocolMessages,
+                    {
+                        role: 'assistant',
+                        content: finalText,
+                        thoughts: resultThoughts,
+                        providerPayload: result.providerPayload,
+                    },
+                ],
             };
         }
 
-        input.messages.push(buildProviderAssistantToolCallMessage(resultRecord, toolCalls, {
+        const assistantToolMessage = buildProviderAssistantToolCallMessage(resultRecord, toolCalls, {
             fallbackPrefix: 'tavern-manager-tool',
-        }) as unknown as XbTavernMessage);
+        }) as unknown as XbTavernMessage;
+        assistantToolMessage.thoughts = resultThoughts;
+        input.messages.push(assistantToolMessage);
+        protocolMessages.push(assistantToolMessage);
 
+        const toolResponses: Array<{ id?: string; name?: string; response?: unknown }> = [];
         for (const toolCall of toolCalls) {
             const args = safeJsonParse(toolCall.arguments, {});
             throwIfManagerAborted(input.signal);
+            const traceEntry: Record<string, unknown> = {
+                id: String(toolCall.id || ''),
+                round,
+                name: toolCall.name,
+                status: 'running',
+                ok: true,
+                args: summarizeToolArguments(args),
+                path: '',
+                summary: '工具运行中，等待返回。',
+                preface: finalText,
+                thoughts: resultThoughts,
+                startedAt: Date.now(),
+            };
+            toolTrace.push(traceEntry);
+            await persistRunningManagerToolTrace(input.managerRunId, toolTrace);
             const toolResult = isStateToolName(toolCall.name)
                 ? await executeTavernStateTool(input.sessionId, toolCall.name, args, {
                     caller: input.caller,
@@ -435,6 +553,9 @@ async function runManagerAgentWithTools(input: {
                 : await executeTavernMemoryTool(input.sessionId, toolCall.name, args, {
                     caller: input.caller,
                     managerRunId: input.managerRunId,
+                    turn: input.turn,
+                    sourceUserOrder: input.userOrder,
+                    sourceAssistantOrder: input.assistantOrder,
                     beforeWriteGuard: input.beforeWriteGuard,
                 });
             const resultPath = 'path' in toolResult ? toolResult.path : '';
@@ -445,20 +566,35 @@ async function runManagerAgentWithTools(input: {
             if (toolResult.changed && resultStateKey) {
                 changedStates.add(resultStateKey);
             }
-            toolTrace.push({
-                round,
-                name: toolCall.name,
+            Object.assign(traceEntry, {
+                status: 'resolved',
                 ok: toolResult.ok,
                 args: summarizeToolArguments(args),
                 path: resultPath || resultStateKey,
                 summary: summarizeToolResult(toolResult),
                 error: toolResult.error || '',
+                finishedAt: Date.now(),
             });
-            input.messages.push({
+            if (Number(traceEntry.startedAt)) {
+                traceEntry.elapsedMs = Math.max(0, Number(traceEntry.finishedAt) - Number(traceEntry.startedAt));
+            }
+            await persistRunningManagerToolTrace(input.managerRunId, toolTrace);
+            const toolMessage: XbTavernMessage = {
                 role: 'tool',
                 tool_call_id: toolCall.id,
+                toolName: toolCall.name,
                 content: safeJson(toolResult),
-            } as XbTavernMessage);
+            };
+            input.messages.push(toolMessage);
+            protocolMessages.push(toolMessage);
+            toolResponses.push({
+                id: toolCall.id,
+                name: toolCall.name,
+                response: toolResult,
+            });
+        }
+        if (supportsSessionToolLoop) {
+            pendingToolResponses = toolResponses;
         }
     }
 
@@ -518,6 +654,20 @@ async function createOrUpdateManagerRun(input: {
     return record;
 }
 
+function startManagerRunHeartbeat(managerRunId = '', signal?: AbortSignal): () => void {
+    const id = String(managerRunId || '').trim();
+    if (!id) {return () => undefined;}
+    let stopped = false;
+    const timer = setInterval(() => {
+        if (stopped || signal?.aborted) {return;}
+        void touchRunningTavernManagerRun(id);
+    }, 4000);
+    return () => {
+        stopped = true;
+        clearInterval(timer);
+    };
+}
+
 async function finalizeManagerRun(record: TavernManagerRunRecord, patch: Partial<TavernManagerRunRecord>): Promise<TavernManagerRunRecord> {
     return await updateTavernManagerRun(record.id, patch) || record;
 }
@@ -525,12 +675,14 @@ async function finalizeManagerRun(record: TavernManagerRunRecord, patch: Partial
 async function buildAutoManagerMessages(input: XbTavernManagerRunInput): Promise<XbTavernMessage[]> {
     await ensureTavernMemoryDefaults(input.sessionId);
     const memoryFiles = await listTavernMemoryFiles(input.sessionId, { includeStale: true });
+    const turnMemoryPath = resolveTurnMemoryPath(input);
     return [
         { role: 'system', content: buildManagerSystemPrompt(input.assistantPreset) },
         {
             role: 'user',
             content: buildAutoManagerUserPrompt({
                 turn: input.turn,
+                turnMemoryPath,
                 userMessage: input.userMessage,
                 assistantMessage: input.assistantMessage,
                 memoryFiles,
@@ -550,9 +702,32 @@ async function buildChatManagerMessages(input: {
     const history = Array.isArray(input.history) ? input.history : await listTavernManagerMessages(input.sessionId);
     const messages: XbTavernMessage[] = [{ role: 'system', content: buildManagerSystemPrompt(input.assistantPreset) }];
     history.forEach((message) => {
+        const canReplayToolCalls = message.role === 'assistant'
+            && message.error !== true
+            && !['aborted', 'error'].includes(String(message.finishReason || '').trim());
+        const toolCalls = canReplayToolCalls && Array.isArray(message.toolCalls) ? message.toolCalls : [];
         messages.push({
             role: message.role,
             content: String(message.content || ''),
+            ...(message.name ? { name: message.name } : {}),
+            ...(Array.isArray(message.thoughts) ? { thoughts: message.thoughts } : {}),
+            ...('providerPayload' in message ? { providerPayload: message.providerPayload } : {}),
+            ...(toolCalls.length ? {
+                toolCalls,
+                tool_calls: toolCalls.map((toolCall) => ({
+                    id: toolCall.id || '',
+                    type: 'function',
+                    function: {
+                        name: toolCall.name || '',
+                        arguments: toolCall.arguments || '{}',
+                    },
+                })),
+            } : {}),
+            ...(message.role === 'tool' ? {
+                tool_call_id: message.toolCallId || '',
+                toolName: message.toolName || '',
+                toolDisplay: message.toolDisplay,
+            } : {}),
         });
     });
     messages.push({
@@ -578,7 +753,7 @@ async function runManagerTask(input: {
     beforeWriteGuard?: () => Promise<void> | void;
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
-    onStreamProgress?: (text: string) => void;
+    onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
     userOrder?: number;
     assistantOrder?: number;
 }): Promise<{
@@ -590,6 +765,7 @@ async function runManagerTask(input: {
     toolTrace: Array<Record<string, unknown>>;
     changedFiles: string[];
     changedStates: string[];
+    protocolMessages: XbTavernMessage[];
     error?: string;
 }> {
     const managerRun = await createOrUpdateManagerRun({
@@ -609,6 +785,8 @@ async function runManagerTask(input: {
     let toolTrace: Array<Record<string, unknown>> = [];
     let changedFiles: string[] = [];
     let changedStates: string[] = [];
+    let protocolMessages: XbTavernMessage[] = [];
+    const stopHeartbeat = startManagerRunHeartbeat(managerRun.id, input.signal);
     try {
         const result = await runManagerAgentWithTools({
             sessionId: input.sessionId,
@@ -616,6 +794,7 @@ async function runManagerTask(input: {
             caller: input.caller,
             messages: input.messages,
             managerRunId: managerRun.id,
+            turn: input.turn,
             userOrder: input.userOrder,
             assistantOrder: input.assistantOrder,
             beforeWriteGuard: input.beforeWriteGuard,
@@ -629,7 +808,8 @@ async function runManagerTask(input: {
         toolTrace = result.toolTrace;
         changedFiles = result.changedFiles;
         changedStates = result.changedStates;
-        if (hasFailedMemoryTool(toolTrace)) {
+        protocolMessages = result.protocolMessages;
+        if (input.caller !== 'auto' && hasFailedTool(toolTrace)) {
             throw new Error('manager_memory_tool_failed');
         }
         if (input.requireChangedFiles && !changedFiles.length) {
@@ -656,6 +836,7 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
+            protocolMessages,
         };
     } catch (error) {
         const errorText = error instanceof Error ? error.message : String(error || 'manager_failed');
@@ -670,7 +851,7 @@ async function runManagerTask(input: {
             changedStates,
             error: errorText,
         });
-        const rolledBack = ['cancelled', 'superseded'].includes(status)
+        const rolledBack = input.caller === 'auto' || ['cancelled', 'superseded'].includes(status)
             ? await rollbackManagerRunIfWroteMemory(managerRun.id)
             : null;
         if (!rolledBack?.conflicts.length) {
@@ -685,8 +866,11 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
+            protocolMessages,
             error: errorText,
         };
+    } finally {
+        stopHeartbeat();
     }
 }
 
@@ -694,7 +878,7 @@ export function splitTavernManagerMessagesIntoTurns(messages: TavernManagerMessa
     const turns: TavernManagerMessageRecord[][] = [];
     let currentTurn: TavernManagerMessageRecord[] = [];
     (messages || []).forEach((message) => {
-        if (!message || !['user', 'assistant'].includes(message.role)) {return;}
+        if (!message || !['user', 'assistant', 'tool'].includes(message.role)) {return;}
         if (message.role === 'user' && currentTurn.length) {
             turns.push(currentTurn);
             currentTurn = [message];
@@ -737,14 +921,18 @@ async function estimateManagerChatTokens(input: {
 export async function ensureTavernManagerChatBudget(input: EnsureTavernManagerChatBudgetInput): Promise<{
     compacted: boolean;
     currentTokens: number;
+    history: TavernManagerMessageRecord[];
     preservedTurns?: number;
 }> {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {
-        return { compacted: false, currentTokens: 0 };
+        return { compacted: false, currentTokens: 0, history: [] };
     }
     throwIfAborted(input.signal);
-    let history = await listTavernManagerMessages(sessionId);
+    const usesProvidedHistory = Array.isArray(input.history);
+    let history = usesProvidedHistory
+        ? [...input.history].sort((left, right) => left.order - right.order)
+        : await listTavernManagerMessages(sessionId);
     let currentTokens = await estimateManagerChatTokens({
         sessionId,
         agentConfig: input.agentConfig,
@@ -753,7 +941,7 @@ export async function ensureTavernManagerChatBudget(input: EnsureTavernManagerCh
         history,
     });
     if (currentTokens <= TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS) {
-        return { compacted: false, currentTokens };
+        return { compacted: false, currentTokens, history };
     }
     input.onCompactionStart?.({
         currentTokens,
@@ -779,7 +967,9 @@ export async function ensureTavernManagerChatBudget(input: EnsureTavernManagerCh
             if (removedOrders.length) {
                 await deleteTavernManagerMessages(sessionId, removedOrders);
             }
-            history = await listTavernManagerMessages(sessionId);
+            history = usesProvidedHistory
+                ? history.filter((message) => !removedOrders.includes(message.order))
+                : await listTavernManagerMessages(sessionId);
         }
         const nextTokens = await estimateManagerChatTokens({
             sessionId,
@@ -807,7 +997,7 @@ export async function ensureTavernManagerChatBudget(input: EnsureTavernManagerCh
                 preservedTurns,
                 status,
             });
-            return { compacted: true, currentTokens: nextTokens, preservedTurns };
+            return { compacted: true, currentTokens: nextTokens, history, preservedTurns };
         }
     }
 
@@ -816,7 +1006,7 @@ export async function ensureTavernManagerChatBudget(input: EnsureTavernManagerCh
         triggerTokens: TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS,
         status: '当前管理员这一轮上下文本身已经过长，无法继续自动收缩。',
     });
-    return { compacted: false, currentTokens };
+    return { compacted: false, currentTokens, history };
 }
 
 export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput): Promise<XbTavernManagerRunResult> {
@@ -860,7 +1050,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             messages,
             managerRunId: managerRun.id,
             caller: 'auto',
-            requireChangedFiles: true,
+            requireChangedFiles: false,
             beforeWriteGuard: async () => {
                 throwIfManagerAborted(input.signal);
                 await assertManagerSourceMessagesCurrent(input);
@@ -876,39 +1066,12 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             };
         }
         await assertManagerSourceMessagesCurrent(input);
-        const refreshedTurns = await listTavernTurnSummaries(sessionId);
-        const turnSummary = refreshedTurns.find((summary) => (
-            summary.userOrder === input.userMessage.order
-            && summary.assistantOrder === input.assistantMessage.order
-        ));
-        if (!turnSummary) {
-            const error = changedTurnFiles(result.changedFiles || []).length
-                ? 'manager_turn_memory_invalid'
-                : 'manager_turn_memory_required';
-            const failed = await finalizeManagerRun(result.managerRun, {
-                status: 'failed',
-                error,
-                changedFiles: result.changedFiles,
-                changedStates: result.changedStates,
-            });
-            const rolledBack = await rollbackManagerRunIfWroteMemory(failed.id);
-            if (!rolledBack?.conflicts.length) {
-                await rebuildTavernMemoryDerivedIndex(sessionId);
-            }
-            return {
-                ok: false,
-                managerRun: rolledBack?.managerRun || failed,
-                error,
-            };
-        }
-        const refreshedEpisodes = await listTavernEpisodeSummaries(sessionId);
-        const episodeSummary = refreshedEpisodes[refreshedEpisodes.length - 1];
+        const changedFiles = [...(result.changedFiles || [])];
+        const completedRun = result.managerRun;
         return {
             ok: true,
-            managerRun: result.managerRun,
-            turnSummary,
-            episodeSummary,
-            changedFiles: result.changedFiles,
+            managerRun: completedRun,
+            changedFiles,
             changedStates: result.changedStates,
         };
     } catch (error) {
@@ -918,9 +1081,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             status,
             error: errorText,
         });
-        const rolledBack = ['cancelled', 'superseded'].includes(status)
-            ? await rollbackManagerRunIfWroteMemory(managerRun.id)
-            : null;
+        const rolledBack = await rollbackManagerRunIfWroteMemory(managerRun.id);
         if (!rolledBack?.conflicts.length) {
             await rebuildTavernMemoryDerivedIndex(sessionId);
         }
@@ -969,6 +1130,7 @@ export async function runXbTavernManagerChat(input: XbTavernManagerChatInput): P
         model: result.model,
         changedFiles: result.changedFiles,
         changedStates: result.changedStates,
+        protocolMessages: result.protocolMessages,
         error: result.error,
     };
 }

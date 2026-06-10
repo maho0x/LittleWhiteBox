@@ -8,11 +8,9 @@ import db, {
     createTavernSession,
     deleteTavernMessages,
     getTavernSession,
-    listTavernEpisodeSummaries,
     listTavernManagerRuns,
     listTavernMessages,
     listTavernTurnSummaries,
-    upsertTavernTurnSummary,
 } from '../shared/session-db';
 import {
     executeTavernMemoryTool,
@@ -162,6 +160,7 @@ test('xb tavern run turn can trigger manager summary with delegate config', asyn
         executeManagerOnce: async (options) => {
             managerCalls += 1;
             managerPrompt = JSON.stringify(options.messages);
+            const turnMemoryPath = managerPrompt.match(/memory\/turns\/\d{8}-\d+\.md/)?.[0] || '';
             const delegateConfig = options.agentConfig.delegateConfig as { provider?: string } | undefined;
             managerProvider = String(delegateConfig?.provider || '');
             if (managerCalls === 1) {
@@ -173,30 +172,20 @@ test('xb tavern run turn can trigger manager summary with delegate config', asyn
                         id: 'write-turn',
                         name: 'MemoryWrite',
                         arguments: {
-                            filePath: 'memory/turns/20260601-0000.md',
+                            filePath: turnMemoryPath,
                             content: [
-                                '# Turn 1',
+                                '# 去码头',
                                 '',
-                                '- Turn: 1',
-                                '- Source: messages 0/1',
-                                '',
-                                '## Summary',
                                 '两人决定去码头，Aster 接受行动。',
                                 '',
-                                '## State',
+                                '状态：',
                                 'Aster 更主动。',
                                 '',
-                                '## Relationship',
+                                '关系：',
                                 '信任增加。',
                                 '',
-                                '## Location Time Items',
+                                '地点与物品：',
                                 '目标地点变成码头。',
-                                '',
-                                '## Hooks',
-                                '- 抵达码头',
-                                '',
-                                '## Tags',
-                                '- 码头',
                             ].join('\n'),
                         },
                     }, {
@@ -239,10 +228,11 @@ test('xb tavern run turn can trigger manager summary with delegate config', asyn
     assert.match(managerPrompt, /## Work Loop/);
     assert.match(managerPrompt, /## Source Strategy/);
     assert.match(managerPrompt, /## Structured State/);
-    assert.match(managerPrompt, /自动 after-turn 优先写本轮 turns 流水/);
+    assert.match(managerPrompt, /建议流水路径：memory\/turns\/\d{8}-0000\.md/);
+    assert.match(managerPrompt, /自动 after-turn 按需要用 MemoryWrite 或 MemoryEdit 记录本轮流水/);
     assert.match(managerPrompt, /MemoryGrep；如果要找“RP 原文里是否发生过某件事”，用 ChatHistory grep/);
-    assert.match(managerPrompt, /必须写成可派生格式/);
-    assert.match(managerPrompt, /- Source: messages userOrder\/assistantOrder/);
+    assert.doesNotMatch(managerPrompt, /可派生格式/);
+    assert.doesNotMatch(managerPrompt, /messages userOrder\/assistantOrder/);
     assert.doesNotMatch(managerPrompt, /ChatHistory recent 读取最新消息/);
     assert.doesNotMatch(managerPrompt, /MemoryEdit `edits` 必须是真正的非空数组/);
     const summaries = await listTavernTurnSummaries(result.sessionId);
@@ -250,9 +240,6 @@ test('xb tavern run turn can trigger manager summary with delegate config', asyn
     assert.equal(summaries[0]?.userOrder, 0);
     assert.equal(summaries[0]?.assistantOrder, 1);
     assert.match(summaries[0]?.summary || '', /码头/);
-    const episodes = await listTavernEpisodeSummaries(result.sessionId);
-    assert.equal(episodes.length, 1);
-    assert.equal(episodes[0]?.title, '去码头');
     const runs = await listTavernManagerRuns(result.sessionId);
     assert.equal(runs[0]?.status, 'completed');
     assert.equal(runs[0]?.model, 'manager-model');
@@ -267,21 +254,12 @@ test('xb tavern run turn retrieves relevant old memory beyond recent summaries',
             character: { id: 'char-1', name: 'Aster' },
         },
     });
-    await upsertTavernTurnSummary({
-        sessionId: session.id,
-        turn: 1,
-        userOrder: 0,
-        assistantOrder: 1,
-        summary: 'Aster 把银钥匙藏在码头钟楼下面。',
-        tags: ['银钥匙', '码头钟楼'],
+    await writeTavernMemoryFile(session.id, 'memory/turns/20260601-0000.md', '# 本轮记忆\n\nAster 把银钥匙藏在码头钟楼下面。', {
+        source: 'manager',
     });
     for (let index = 2; index <= 13; index += 1) {
-        await upsertTavernTurnSummary({
-            sessionId: session.id,
-            turn: index,
-            userOrder: index * 2,
-            assistantOrder: index * 2 + 1,
-            summary: `无关闲聊 ${index}。`,
+        await writeTavernMemoryFile(session.id, `memory/turns/20260601-${String(index).padStart(4, '0')}.md`, `# 本轮记忆\n\n无关闲聊 ${index}。`, {
+            source: 'manager',
         });
     }
 
@@ -911,7 +889,7 @@ test('xb tavern memory recall does not inject raw turn and episode markdown twic
         memoryFiles: [{
             sessionId: 'session',
             path: 'memory/turns/20260601-0000.md',
-            content: '# Turn 1\n\n## Summary\nAster 把银钥匙藏在码头钟楼下面。',
+            content: '# 银钥匙\n\nAster 把银钥匙藏在码头钟楼下面。',
             status: 'active' as const,
             source: 'manager',
             createdAt: 1,
@@ -919,7 +897,7 @@ test('xb tavern memory recall does not inject raw turn and episode markdown twic
         }, {
             sessionId: 'session',
             path: 'memory/episodes/001.md',
-            content: '# 码头钟楼\n\n## Summary\n围绕银钥匙和码头钟楼的阶段。',
+            content: '# 码头钟楼\n\n围绕银钥匙和码头钟楼的阶段。',
             status: 'active' as const,
             source: 'manager',
             createdAt: 1,
@@ -1072,6 +1050,65 @@ test('xb tavern simulated request builds raw API JSON without saving chat messag
     assert.match(result.requestSnapshot.rawRequestJson, /"stream": true/);
     assert.match(result.requestSnapshot.rawRequestJson, /只模拟，不发送。/);
     assert.deepEqual(await listTavernMessages(session.id), []);
+});
+
+test('xb tavern world entry substitution skips null worldbook records', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const loreEntry = {
+        uid: 'lore-1',
+        key: ['Aster'],
+        content: '{{char}} meets {{user}} in the old hall.',
+        sourceWorldBook: 'BrokenLore',
+        world: 'BrokenLore',
+        position: 0,
+    };
+    const contextSnapshot = {
+        character: { id: 'char-1', name: 'Aster', description: 'A careful scout.' },
+        user: { name: 'Player' },
+        worldBooks: [
+            null,
+            { name: 'BrokenLore', entries: [null, loreEntry] },
+        ],
+        worldEntries: [null, loreEntry],
+    } as unknown as Parameters<typeof simulateXbTavernRequest>[0]['contextSnapshot'];
+    const session = await createTavernSession({
+        title: 'Aster',
+        characterId: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot,
+        presetId: preset.id,
+        presetName: preset.name,
+    });
+    const result = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig: {
+            currentPresetName: '酒馆 OpenAI',
+            presets: {
+                '酒馆 OpenAI': {
+                    provider: 'sillytavern-openai-compatible',
+                    modelConfigs: {
+                        'sillytavern-openai-compatible': {
+                            model: 'gpt-test',
+                        },
+                    },
+                },
+            },
+        },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'Aster 继续前进。',
+        applySubstituteParams: async (items: TavernSubstituteParamsItem[]) => ({
+            items: items.map((item) => ({
+                id: item.id,
+                text: item.text.replace(/\{\{char\}\}/g, 'Aster').replace(/\{\{user\}\}/g, 'Player'),
+                changed: item.text.includes('{{'),
+            })),
+            changedCount: items.filter((item) => item.text.includes('{{')).length,
+        }),
+    });
+    assert.match(result.buildSnapshot.rawMessagesJson, /Aster meets Player in the old hall\./);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /null/);
 });
 
 test('xb tavern simulated request injects map digest without full map JSON', async () => {

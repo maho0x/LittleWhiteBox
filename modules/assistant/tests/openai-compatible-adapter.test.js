@@ -832,6 +832,75 @@ test('openai-compatible adapter keeps reasoning_content captured from stream chu
     }
 });
 
+test('openai-compatible tagged-json streaming hides raw tool JSON and emits tool draft progress', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/openai-compatible',
+        model: 'compat-test',
+        toolMode: 'tagged-json',
+    });
+
+    const chunks = [
+        {
+            model: 'compat-test',
+            choices: [{
+                index: 0,
+                delta: { role: 'assistant', content: '我先查一下。' },
+            }],
+        },
+        {
+            model: 'compat-test',
+            choices: [{
+                index: 0,
+                delta: { content: '\n<tool_call>{"name":"Read"' },
+            }],
+        },
+        {
+            model: 'compat-test',
+            choices: [{
+                index: 0,
+                delta: { content: ',"arguments":{"path":"memory/state.md"}}</tool_call>' },
+                finish_reason: 'stop',
+            }],
+        },
+    ];
+    const stream = {
+        async *[Symbol.asyncIterator]() {
+            for (const chunk of chunks) {
+                yield chunk;
+            }
+        },
+        finalChatCompletion: async () => ({
+            choices: [{
+                message: {
+                    role: 'assistant',
+                    content: '我先查一下。\n<tool_call>{"name":"Read","arguments":{"path":"memory/state.md"}}</tool_call>',
+                },
+            }],
+        }),
+    };
+    adapter.client.chat.completions.create = async () => stream;
+
+    const progress = [];
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: '查状态' }],
+        tools: [{
+            function: {
+                name: 'Read',
+                description: 'Read memory.',
+                parameters: { type: 'object', properties: { path: { type: 'string' } } },
+            },
+        }],
+        onStreamProgress: (snapshot) => progress.push(snapshot),
+    });
+
+    assert.equal(progress.some((snapshot) => String(snapshot.text || '').includes('<tool_call>')), false);
+    assert.equal(progress.some((snapshot) => snapshot.toolCallDraft === true), true);
+    assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
+    assert.equal(result.text, '我先查一下。');
+    assert.equal(result.toolCalls?.[0]?.name, 'Read');
+});
+
 test('openai-compatible adapter accepts CRLF-delimited SSE events in native streaming mode', async () => {
     const adapter = new OpenAICompatibleAdapter({
         apiKey: 'test-key',

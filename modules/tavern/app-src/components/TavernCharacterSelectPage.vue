@@ -222,22 +222,6 @@ defineExpose({ scrollSelectedIntoView });
           class="character-preview-panel dossier-view"
         >
           <div class="dossier-header">
-            <div class="dossier-portrait">
-              <img
-                v-if="avatarAvailable(selectedCharacter.avatar)"
-                :src="selectedCharacter.avatar"
-                loading="lazy"
-                decoding="async"
-                alt=""
-                @error="$emit('avatar-error', selectedCharacter.avatar)"
-              >
-              <span
-                v-else
-                class="no-avatar-text"
-              >{{ selectedCharacter.name.slice(0, 1) }}</span>
-              <div class="portrait-overlay" />
-            </div>
-
             <div class="dossier-identity">
               <p class="sys-mono">
                 ID: {{ selectedCharacter.id.substring(0, 8) || 'UNKNOWN' }}
@@ -290,10 +274,10 @@ defineExpose({ scrollSelectedIntoView });
                   </div>
                 </dd>
               </div>
-              <div class="data-section">
-                <div class="data-section-title">
+              <details class="data-section">
+                <summary class="data-section-title">
                   高级定义
-                </div>
+                </summary>
                 <div class="data-row">
                   <dt>性格摘要 <span>Personality summary</span></dt>
                   <dd>
@@ -326,7 +310,7 @@ defineExpose({ scrollSelectedIntoView });
                     </div>
                   </dd>
                 </div>
-              </div>
+              </details>
             </dl>
           </div>
         </main>

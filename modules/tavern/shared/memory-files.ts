@@ -4,20 +4,14 @@ import {
     listTavernMessages,
     tavernMemoryFilesTable,
     tavernMemoryIndexesTable,
-    tavernEpisodeSummariesTable,
     tavernSessionsTable,
-    tavernTurnSummariesTable,
     ensureTavernManagerMemorySnapshot,
     updateTavernManagerMemorySnapshotAfter,
-    listTavernTurnSummaries,
-    upsertTavernEpisodeSummary,
     upsertTavernTurnSummary,
-    type TavernEpisodeSummaryRecord,
     type TavernMemoryFileRecord,
     type TavernMemoryFileStatus,
     type TavernMemoryIndexRecord,
     type TavernMessageRecord,
-    type TavernTurnSummaryRecord,
 } from './session-db';
 
 export const TAVERN_MEMORY_TOOL_NAMES = {
@@ -206,7 +200,7 @@ function defaultMemoryFiles(sessionId = '', characterName = ''): TavernMemoryFil
                 '## Unresolved',
                 '- 暂无。',
                 '',
-                '## Turn Summary IDs',
+                '## 相关流水',
                 '- 暂无。',
             ].join('\n'),
         },
@@ -260,9 +254,6 @@ export async function writeTavernMemoryFile(sessionId = '', pathInput = '', cont
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('memory_session_required');}
     const path = normalizeTavernMemoryPath(pathInput);
-    if (String(options.source || '').trim() === 'user' && /^memory\/turns\/.+\.md$/i.test(path)) {
-        throw new Error('memory_turns_user_write_forbidden');
-    }
     const timestamp = now();
     const existing = await tavernMemoryFilesTable.get([id, path]);
     const record: TavernMemoryFileRecord = {
@@ -304,88 +295,29 @@ export async function getTavernMemoryIndex(sessionId = '', kind = 'markdown-deri
     return await tavernMemoryIndexesTable.get([id, kind]) || null;
 }
 
-function parseListSection(content = '', heading = ''): string[] {
-    const body = parseSection(content, heading);
-    return body.split('\n')
-        .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
-        .filter((line) => line && !['暂无。', '暂无'].includes(line))
-        .slice(0, 40);
+function isTurnMemoryPath(path = ''): boolean {
+    return /^memory\/turns\/.+\.md$/i.test(String(path || ''));
 }
 
-function parseSection(content = '', heading = ''): string {
-    const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = String(content || '').match(new RegExp(`(?:^|\\n)##\\s+${escaped}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`, 'i'));
-    return String(match?.[1] || '').trim();
-}
-
-function parseTitle(content = '', fallback = '未命名'): string {
-    const match = String(content || '').match(/^\s*#\s+(.+?)\s*$/m);
-    return normalizeInline(match?.[1] || fallback, 120) || fallback;
-}
-
-function parseTurnRange(content = ''): { startTurn: number; endTurn: number } {
-    const match = String(content || '').match(/Range:\s*turn\s*(\d+)\s*-\s*(\d+)/i);
-    const startTurn = Math.max(0, Number(match?.[1]) || 0);
-    const endTurn = Math.max(startTurn, Number(match?.[2]) || startTurn);
-    return { startTurn, endTurn };
-}
-
-function parseSourceOrders(content = ''): { turn: number; userOrder: number; assistantOrder: number } {
-    const turnMatch = String(content || '').match(/(?:^|\n)-\s*Turn:\s*(\d+)/i);
-    const sourceMatch = String(content || '').match(/(?:^|\n)-\s*Source:\s*messages\s*(\d+)\s*\/\s*(\d+)/i);
-    return {
-        turn: Number.isFinite(Number(turnMatch?.[1])) ? Math.max(0, Number(turnMatch?.[1])) : -1,
-        userOrder: Number.isFinite(Number(sourceMatch?.[1])) ? Number(sourceMatch?.[1]) : -1,
-        assistantOrder: Number.isFinite(Number(sourceMatch?.[2])) ? Number(sourceMatch?.[2]) : -1,
-    };
-}
-
-function parseTurnFile(file: TavernMemoryFileRecord): Partial<TavernTurnSummaryRecord> | null {
-    if (!/^memory\/turns\/.+\.md$/.test(file.path) || file.status === 'stale') {return null;}
-    const source = parseSourceOrders(file.content);
-    if (!Number.isInteger(source.turn) || source.turn < 0
-        || !Number.isInteger(source.userOrder) || source.userOrder < 0
-        || !Number.isInteger(source.assistantOrder) || source.assistantOrder < 0) {
-        return null;
-    }
-    const summary = normalizeBody(parseSection(file.content, 'Summary'), 2000);
-    if (!summary || summary === '暂无。') {return null;}
-    return {
-        id: `md-turn-${file.sessionId}-${source.userOrder}-${source.assistantOrder}`,
+async function upsertTurnSummaryForMemoryFile(file: TavernMemoryFileRecord, options: {
+    turn?: number;
+    sourceUserOrder?: number;
+    sourceAssistantOrder?: number;
+    tags?: string[];
+} = {}): Promise<void> {
+    if (!isTurnMemoryPath(file.path)) {return;}
+    const userOrder = Number(options.sourceUserOrder);
+    const assistantOrder = Number(options.sourceAssistantOrder);
+    if (!Number.isInteger(userOrder) || !Number.isInteger(assistantOrder)) {return;}
+    await upsertTavernTurnSummary({
         sessionId: file.sessionId,
-        turn: source.turn,
-        userOrder: source.userOrder,
-        assistantOrder: source.assistantOrder,
-        summary,
-        characterState: normalizeBody(parseSection(file.content, 'State'), 1200),
-        relationshipChange: normalizeBody(parseSection(file.content, 'Relationship'), 1200),
-        locationTimeItems: normalizeBody(parseSection(file.content, 'Location Time Items'), 1200),
-        hooks: parseListSection(file.content, 'Hooks').slice(0, 12),
-        tags: parseListSection(file.content, 'Tags').slice(0, 12),
+        turn: toNonNegativeInteger(options.turn, 0),
+        userOrder,
+        assistantOrder,
+        summary: normalizeBody(file.content, 2000),
+        tags: options.tags || [],
         status: 'active',
-    };
-}
-
-function parseEpisodeFile(file: TavernMemoryFileRecord): Partial<TavernEpisodeSummaryRecord> | null {
-    if (!/^memory\/episodes\/.+\.md$/.test(file.path) || file.status === 'stale') {return null;}
-    const title = parseTitle(file.content, file.path.split('/').pop() || '阶段');
-    const { startTurn, endTurn } = parseTurnRange(file.content);
-    const summary = normalizeBody(parseSection(file.content, 'Summary'), 4000);
-    if (!summary || summary === '暂无。') {return null;}
-    return {
-        id: `md-episode-${file.sessionId}-${file.path}`,
-        sessionId: file.sessionId,
-        title,
-        summary,
-        startTurn,
-        endTurn,
-        turnSummaryIds: parseListSection(file.content, 'Turn Summary IDs')
-            .filter((item) => item.startsWith('md-turn-') || item.startsWith('turn-summary-'))
-            .slice(0, 100),
-        keyChanges: parseListSection(file.content, 'Key Changes').slice(0, 20),
-        unresolved: parseListSection(file.content, 'Unresolved').slice(0, 20),
-        status: 'active',
-    };
+    });
 }
 
 function buildFingerprint(files: TavernMemoryFileRecord[]): string {
@@ -398,54 +330,12 @@ function buildFingerprint(files: TavernMemoryFileRecord[]): string {
     return `${files.length}:${hash.toString(16)}`;
 }
 
-async function staleMissingMarkdownDerivedRecords(sessionId: string, activeTurnIds: Set<string>, activeEpisodeIds: Set<string>, timestamp: number): Promise<void> {
-    const turnPrefix = `md-turn-${sessionId}-`;
-    const episodePrefix = `md-episode-${sessionId}-memory/`;
-    const [turns, episodes] = await Promise.all([
-        tavernTurnSummariesTable.where('sessionId').equals(sessionId).toArray(),
-        tavernEpisodeSummariesTable.where('sessionId').equals(sessionId).toArray(),
-    ]);
-    await Promise.all(turns
-        .filter((summary) => summary.status !== 'stale'
-            && summary.id.startsWith(turnPrefix)
-            && !activeTurnIds.has(summary.id))
-        .map((summary) => tavernTurnSummariesTable.update(summary.id, {
-            status: 'stale',
-            updatedAt: timestamp,
-        })));
-    await Promise.all(episodes
-        .filter((episode) => episode.status !== 'stale'
-            && episode.id.startsWith(episodePrefix)
-            && !activeEpisodeIds.has(episode.id))
-        .map((episode) => tavernEpisodeSummariesTable.update(episode.id, {
-            status: 'stale',
-            updatedAt: timestamp,
-        })));
-}
-
 export async function rebuildTavernMemoryDerivedIndex(sessionId = ''): Promise<TavernMemoryIndexRecord> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('memory_session_required');}
     const timestamp = now();
     try {
         const files = await listTavernMemoryFiles(id, { includeStale: true });
-        const turnRecords = files.map(parseTurnFile).filter(Boolean) as Partial<TavernTurnSummaryRecord>[];
-        const turnIds = new Set<string>();
-        for (const turn of turnRecords) {
-            const saved = await upsertTavernTurnSummary(turn);
-            turnIds.add(saved.id);
-        }
-        const activeTurnIds = new Set((await listTavernTurnSummaries(id)).map((summary) => summary.id));
-        turnIds.forEach((turnId) => activeTurnIds.add(turnId));
-        const episodeIds = new Set<string>();
-        for (const episode of files.map(parseEpisodeFile).filter(Boolean) as Partial<TavernEpisodeSummaryRecord>[]) {
-            const saved = await upsertTavernEpisodeSummary({
-                ...episode,
-                turnSummaryIds: (episode.turnSummaryIds || []).filter((summaryId) => activeTurnIds.has(summaryId)),
-            });
-            episodeIds.add(saved.id);
-        }
-        await staleMissingMarkdownDerivedRecords(id, turnIds, episodeIds, timestamp);
         const record: TavernMemoryIndexRecord = {
             sessionId: id,
             kind: 'markdown-derived',
@@ -521,16 +411,16 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
                 name: TAVERN_MEMORY_TOOL_NAMES.WRITE,
                 description: [
                     'Create or replace one current-session memory Markdown file under `memory/...`.',
-                    'Use for new turn files, new episode files, new inbox/state/session files, or intentional whole-file rewrites where most content is new.',
+                    'Use for the current per-exchange memory file, new episode files, inbox/state/session files, or intentional whole-file rewrites where most content is new.',
                     'Read the target file first when it already exists. Write replaces the complete file, so include every original line that should survive.',
-                    'Automatic after-turn managers must write `memory/turns/*.md` in the derived format: `- Turn: N`, `- Source: messages userOrder/assistantOrder`, and `## Summary` are required.',
-                    'Chat manager calls cannot write `memory/turns/*.md`; only automatic after-turn management owns turn流水 files.',
+                    'Automatic after-turn managers receive the exact `memory/turns/...md` target path in the prompt and should write that file with normal Markdown.',
+                    'Chat manager calls may update memory files when the user asks to fix or inspect memory.',
                     'Use MemoryEdit instead for small corrections inside an existing file.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
                     properties: {
-                        filePath: { type: 'string', description: 'Canonical path under memory/. Chat manager calls cannot write memory/turns/*.md.' },
+                        filePath: { type: 'string', description: 'Canonical path under memory/.' },
                         content: { type: 'string', description: 'Complete Markdown file content to save.' },
                     },
                     required: ['filePath', 'content'],
@@ -555,12 +445,11 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
                     'If an oldString has multiple matches, expand the fragment with more context or set replaceAll:true only when every match should change.',
                     'Set newString to an empty string to delete the matched fragment or line range.',
                     'If most of the file should change, use MemoryWrite instead of many tiny edits.',
-                    'Chat manager calls cannot edit `memory/turns/*.md`.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
                     properties: {
-                        filePath: { type: 'string', description: 'Canonical path under memory/. Chat manager calls cannot edit memory/turns/*.md.' },
+                        filePath: { type: 'string', description: 'Canonical path under memory/.' },
                         edits: {
                             type: 'array',
                             description: 'Real non-empty JSON array, not a quoted JSON string. Each item should choose exactly one mode: oldString/newString, startLine/endLine/newString, or insertAtLine/newString.',
@@ -660,12 +549,6 @@ export function getTavernManagerToolDefinitions(): Array<{ type: 'function'; fun
     ];
 }
 
-function assertManagerWriteAllowed(path: string, caller: TavernManagerToolCaller = 'auto') {
-    if (caller === 'chat' && /^memory\/turns\/.+\.md$/i.test(path)) {
-        throw new Error('manager_chat_turn_write_forbidden');
-    }
-}
-
 function isManagerControlError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error || '');
     const name = error instanceof Error ? error.name : '';
@@ -714,6 +597,9 @@ export async function executeTavernMemoryTool(
     options: {
         caller?: TavernManagerToolCaller;
         managerRunId?: string;
+        turn?: number;
+        sourceUserOrder?: number;
+        sourceAssistantOrder?: number;
         beforeWriteGuard?: () => Promise<void> | void;
     } = {},
 ): Promise<TavernMemoryToolResult> {
@@ -759,7 +645,6 @@ export async function executeTavernMemoryTool(
         }
         if (toolName === TAVERN_MEMORY_TOOL_NAMES.WRITE) {
             const path = getToolPath(args);
-            assertManagerWriteAllowed(path, options.caller);
             await options.beforeWriteGuard?.();
             if (options.managerRunId) {
                 await ensureTavernManagerMemorySnapshot({ managerRunId: options.managerRunId, sessionId: id, path });
@@ -768,6 +653,7 @@ export async function executeTavernMemoryTool(
             if (options.managerRunId) {
                 await updateTavernManagerMemorySnapshotAfter({ managerRunId: options.managerRunId, sessionId: id, path: file.path });
             }
+            await upsertTurnSummaryForMemoryFile(file, options);
             const saved = await getTavernMemoryFile(id, file.path);
             if (!saved || saved.content !== file.content) {
                 return {
@@ -782,7 +668,6 @@ export async function executeTavernMemoryTool(
         }
         if (toolName === TAVERN_MEMORY_TOOL_NAMES.EDIT) {
             const path = getToolPath(args);
-            assertManagerWriteAllowed(path, options.caller);
             const file = await getTavernMemoryFile(id, path);
             if (!file) {return { ok: false, summary: `${path} 不存在。`, path, error: 'memory_file_not_found' };}
             const result = applyTextEdits(file.content, args.edits) as {
@@ -824,6 +709,7 @@ export async function executeTavernMemoryTool(
                         details: editResults,
                     };
                 }
+                await upsertTurnSummaryForMemoryFile(saved, options);
             }
             return {
                 ok: !!result.ok,
@@ -988,50 +874,6 @@ export async function executeTavernMemoryTool(
             error: error instanceof Error ? error.message : String(error || 'memory_tool_failed'),
         };
     }
-}
-
-export async function writeTurnMemoryFromMessages(input: {
-    sessionId: string;
-    turn: number;
-    userMessage: TavernMessageRecord;
-    assistantMessage: TavernMessageRecord;
-    summary?: string;
-    characterState?: string;
-    relationshipChange?: string;
-    locationTimeItems?: string;
-    hooks?: string[];
-    tags?: string[];
-}): Promise<TavernMemoryFileRecord> {
-    const path = buildTurnMemoryPath(input.userMessage.order, input.assistantMessage.createdAt || Date.now());
-    const list = (items?: string[]) => (items || []).map((item) => `- ${item}`).join('\n') || '- 暂无。';
-    const content = [
-        `# Turn ${input.turn}`,
-        '',
-        `- Turn: ${input.turn}`,
-        `- Source: messages ${input.userMessage.order}/${input.assistantMessage.order}`,
-        '',
-        '## Summary',
-        input.summary || '本轮发生了新的对话，需要管理员后续整理。',
-        '',
-        '## State',
-        input.characterState || '',
-        '',
-        '## Relationship',
-        input.relationshipChange || '',
-        '',
-        '## Location Time Items',
-        input.locationTimeItems || '',
-        '',
-        '## Hooks',
-        list(input.hooks),
-        '',
-        '## Tags',
-        list(input.tags),
-    ].join('\n');
-    return writeTavernMemoryFile(input.sessionId, path, content, {
-        source: 'manager',
-        staleFromOrder: input.userMessage.order,
-    });
 }
 
 export function cloneMemoryFile(file: TavernMemoryFileRecord): TavernMemoryFileRecord {

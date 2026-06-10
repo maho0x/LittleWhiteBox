@@ -172,6 +172,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -247,6 +249,8 @@ export class AnthropicAdapter {
                 signal: task.signal,
             });
             const thoughtMap = new Map();
+            const toolDraftMap = new Map();
+            let streamText = '';
             const buildThoughts = () => Array.from(thoughtMap.entries())
                 .sort(([left], [right]) => left.localeCompare(right))
                 .map(([key, text]) => ({
@@ -254,24 +258,73 @@ export class AnthropicAdapter {
                     text,
                 }))
                 .filter((item) => item.text);
+            const buildToolDrafts = () => Array.from(toolDraftMap.entries())
+                .sort(([left], [right]) => Number(left) - Number(right))
+                .map(([, toolCall]) => ({
+                    id: toolCall.id || 'anthropic-tool-draft',
+                    name: toolCall.name || '工具调用',
+                    arguments: toolCall.inputJson || '{}',
+                    draft: true,
+                }))
+                .filter((item) => item.name);
+            const emitToolDraftProgress = () => {
+                const toolCalls = buildToolDrafts();
+                if (!toolCalls.length) return;
+                emitStreamProgress(task, {
+                    text: streamText,
+                    thoughts: buildThoughts(),
+                    toolCalls,
+                    toolCallDraft: true,
+                });
+            };
 
             stream.on('text', (_delta, snapshot) => {
+                streamText = snapshot || '';
                 emitStreamProgress(task, {
-                    text: snapshot || '',
+                    text: streamText,
                     thoughts: buildThoughts(),
+                    ...(buildToolDrafts().length ? { toolCalls: buildToolDrafts(), toolCallDraft: true } : {}),
                 });
             });
             stream.on('thinking', (_delta, snapshot) => {
                 thoughtMap.set('thinking:0', snapshot || '');
                 emitStreamProgress(task, {
                     thoughts: buildThoughts(),
+                    ...(buildToolDrafts().length ? { text: streamText, toolCalls: buildToolDrafts(), toolCallDraft: true } : {}),
                 });
+            });
+            stream.on('streamEvent', (event) => {
+                if (event?.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+                    const initialInput = event.content_block.input && typeof event.content_block.input === 'object'
+                        ? event.content_block.input
+                        : {};
+                    toolDraftMap.set(event.index, {
+                        id: event.content_block.id || `anthropic-tool-draft-${event.index + 1}`,
+                        name: event.content_block.name || '工具调用',
+                        inputJson: Object.keys(initialInput).length ? JSON.stringify(initialInput) : '',
+                    });
+                    emitToolDraftProgress();
+                    return;
+                }
+                if (event?.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
+                    const existing = toolDraftMap.get(event.index) || {
+                        id: `anthropic-tool-draft-${event.index + 1}`,
+                        name: '工具调用',
+                        inputJson: '',
+                    };
+                    toolDraftMap.set(event.index, {
+                        ...existing,
+                        inputJson: `${existing.inputJson || ''}${event.delta.partial_json || ''}`,
+                    });
+                    emitToolDraftProgress();
+                }
             });
             stream.on('contentBlock', (contentBlock) => {
                 if (contentBlock?.type !== 'redacted_thinking') return;
                 thoughtMap.set('redacted:0', contentBlock.data || '');
                 emitStreamProgress(task, {
                     thoughts: buildThoughts(),
+                    ...(buildToolDrafts().length ? { text: streamText, toolCalls: buildToolDrafts(), toolCallDraft: true } : {}),
                 });
             });
             response = await stream.finalMessage();

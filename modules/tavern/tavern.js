@@ -184,6 +184,22 @@ function replyHostResult(requestId = "", payload = {}) {
     ...payload
   });
 }
+function hostErrorPayload(error, fallback = "host_request_failed") {
+  if (error instanceof Error) {
+    return {
+      ok: false,
+      error: error.message || fallback,
+      errorName: error.name || "Error",
+      errorStack: error.stack || ""
+    };
+  }
+  return {
+    ok: false,
+    error: String(error || fallback),
+    errorName: "",
+    errorStack: ""
+  };
+}
 function handleHostRequestHeaders(payload = {}) {
   replyHostResult(String(payload.requestId || ""), {
     ok: true,
@@ -237,10 +253,7 @@ async function handleDrawGenerate(payload = {}) {
       result
     });
   } catch (error) {
-    replyHostResult(requestId, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error || "draw_failed")
-    });
+    replyHostResult(requestId, hostErrorPayload(error, "draw_failed"));
   } finally {
     if (requestId) {
       pendingDrawRequests.delete(requestId);
@@ -288,10 +301,7 @@ async function handleDrawImage(payload = {}) {
       }
     });
   } catch (error) {
-    replyHostResult(requestId, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error || "image_lookup_failed")
-    });
+    replyHostResult(requestId, hostErrorPayload(error, "image_lookup_failed"));
   }
 }
 function handleCancelRequest(payload = {}) {
@@ -322,10 +332,7 @@ async function handleChatPresetRequest(type, payload = {}) {
       await sendConfigToFrame();
     }
   } catch (error) {
-    replyHostResult(requestId, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error || "chat_preset_failed")
-    });
+    replyHostResult(requestId, hostErrorPayload(error, "chat_preset_failed"));
   }
 }
 async function handleContextRequest(type, payload = {}) {
@@ -340,10 +347,7 @@ async function handleContextRequest(type, payload = {}) {
       result
     });
   } catch (error) {
-    replyHostResult(requestId, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error || "context_request_failed")
-    });
+    replyHostResult(requestId, hostErrorPayload(error, "context_request_failed"));
   }
 }
 async function handleWorldbookRequest(type, payload = {}) {
@@ -364,10 +368,7 @@ async function handleWorldbookRequest(type, payload = {}) {
       result
     });
   } catch (error) {
-    replyHostResult(requestId, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error || "worldbook_failed")
-    });
+    replyHostResult(requestId, hostErrorPayload(error, "worldbook_failed"));
   }
 }
 async function handleRegexRequest(type, payload = {}) {
@@ -388,10 +389,7 @@ async function handleRegexRequest(type, payload = {}) {
       result
     });
   } catch (error) {
-    replyHostResult(requestId, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error || "regex_failed")
-    });
+    replyHostResult(requestId, hostErrorPayload(error, "regex_failed"));
   }
 }
 async function handleSubstituteParamsRequest(type, payload = {}) {
@@ -406,10 +404,7 @@ async function handleSubstituteParamsRequest(type, payload = {}) {
       result
     });
   } catch (error) {
-    replyHostResult(requestId, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error || "substitute_params_failed")
-    });
+    replyHostResult(requestId, hostErrorPayload(error, "substitute_params_failed"));
   }
 }
 async function createOverlay() {

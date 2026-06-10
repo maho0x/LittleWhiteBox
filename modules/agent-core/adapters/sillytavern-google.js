@@ -241,6 +241,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -266,7 +268,11 @@ function createGoogleStreamAccumulator(task, config = {}) {
             if (nextThoughts.length) {
                 thoughts = nextThoughts;
             }
-            emitStreamProgress(task, { text, thoughts });
+            emitStreamProgress(task, {
+                text,
+                thoughts,
+                ...(toolCalls.length ? { toolCalls, toolCallDraft: true } : {}),
+            });
         },
         result() {
             const content = normalizeContent({

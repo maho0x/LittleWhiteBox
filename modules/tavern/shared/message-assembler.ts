@@ -31,6 +31,24 @@ export interface XbTavernMessage {
     content: string;
     name?: string;
     thoughts?: Array<{ label?: string; text?: string }>;
+    providerPayload?: unknown;
+    tool_calls?: Array<{
+        id?: string;
+        type?: string;
+        function?: {
+            name?: string;
+            arguments?: string;
+        };
+    }>;
+    toolCalls?: Array<{
+        id?: string;
+        name?: string;
+        arguments?: string;
+    }>;
+    tool_call_id?: string;
+    toolCallId?: string;
+    toolName?: string;
+    toolDisplay?: unknown;
 }
 
 export interface XbTavernCharacter {

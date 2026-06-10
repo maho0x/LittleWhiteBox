@@ -8,8 +8,6 @@ import { listTavernStructuredStateDigests } from './structured-state';
 import * as stopwordsBase from '../../story-summary/vector/utils/stopwords-base.js';
 import * as stopwordsPatch from '../../story-summary/vector/utils/stopwords-patch.js';
 import {
-    listTavernEpisodeSummaries,
-    listTavernTurnSummaries,
     type TavernMemoryFileRecord,
     type TavernEpisodeSummaryRecord,
     type TavernTurnSummaryRecord,
@@ -469,9 +467,15 @@ function memoryFileTitle(file: TavernMemoryFileRecord): string {
 }
 
 function memoryFileFields(file: TavernMemoryFileRecord): WeightedMemoryField[] {
+    const path = String(file.path || '');
+    const pathWeight = path === 'memory/state.md' ? 2.2
+        : path === 'memory/session.md' ? 2.0
+            : path.startsWith('memory/episodes/') ? 1.8
+                : path.startsWith('memory/turns/') ? 1.6
+                    : 1.4;
     return [
-        weightedField(file.path, 1.4),
-        weightedField(memoryFileTitle(file), 1.4),
+        weightedField(file.path, pathWeight),
+        weightedField(memoryFileTitle(file), pathWeight),
         weightedField(file.content, 1.0),
     ];
 }
@@ -479,7 +483,9 @@ function memoryFileFields(file: TavernMemoryFileRecord): WeightedMemoryField[] {
 function isRecallMemoryFile(file: TavernMemoryFileRecord): boolean {
     const path = String(file.path || '');
     if (file.status === 'stale') {return false;}
-    return ['memory/session.md', 'memory/state.md', 'memory/inbox.md'].includes(path);
+    return ['memory/session.md', 'memory/state.md', 'memory/inbox.md'].includes(path)
+        || path.startsWith('memory/episodes/')
+        || path.startsWith('memory/turns/');
 }
 
 function byTurn(left: TavernTurnSummaryRecord, right: TavernTurnSummaryRecord): number {
@@ -586,11 +592,11 @@ export function selectXbTavernMemoryContext(input: XbTavernMemorySelectionInput 
             id: file.path,
             score: scoreDocument(memoryFileDocumentById.get(file.path), queryTokens, idf, averageLength),
         }))
-        .filter((item) => alwaysKeepMemoryPaths.has(item.file.path))
+        .filter((item) => alwaysKeepMemoryPaths.has(item.file.path) || item.score >= MEMORY_RECALL_MIN_SCORE)
         .sort((left, right) => left.file.path.localeCompare(right.file.path))
         .map((item) => ({
             ...item.file,
-            recallReason: 'fixed',
+            recallReason: alwaysKeepMemoryPaths.has(item.file.path) ? 'fixed' : 'matched',
             recallScore: item.score,
         }));
 
@@ -638,18 +644,14 @@ export async function retrieveXbTavernMemoryContext(input: {
 }): Promise<XbTavernMemoryContext> {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {return {};}
-    const [episodeSummaries, turnSummaries, memoryFiles, structuredStates] = await Promise.all([
-        listTavernEpisodeSummaries(sessionId),
-        listTavernTurnSummaries(sessionId),
+    const [memoryFiles, structuredStates] = await Promise.all([
         listTavernMemoryFiles(sessionId),
         listTavernStructuredStateDigests(sessionId),
     ]);
-    if (!episodeSummaries.length && !turnSummaries.length && !memoryFiles.some(isRecallMemoryFile) && !structuredStates.length) {return {};}
+    if (!memoryFiles.some(isRecallMemoryFile) && !structuredStates.length) {return {};}
     await ensureXbTavernMemoryTokenizerReady();
     return {
         ...selectXbTavernMemoryContext({
-            episodeSummaries,
-            turnSummaries,
             memoryFiles,
             queryText: input.queryText,
             ignoredTerms: input.ignoredTerms,

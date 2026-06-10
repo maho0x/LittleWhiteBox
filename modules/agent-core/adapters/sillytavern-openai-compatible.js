@@ -8,6 +8,7 @@ import { redactRequestSecrets } from './request-inspection.js';
 import {
     accumulateStreamedAssistantSnapshot,
     applyToolCallDelta,
+    buildTaggedToolCallDraft,
     buildToolCallResultsFromOpenAI,
     buildNativeMessages,
     buildProviderPayload,
@@ -25,6 +26,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -125,9 +128,14 @@ export class SillyTavernOpenAICompatibleAdapter {
 
             const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
             const { thinkTagged, cleanedText } = cleanTextForToolMode(snapshot.content, standardToolCalls);
+            const progressToolCalls = standardToolCalls.length
+                ? buildToolCallResultsFromOpenAI(snapshot.toolCalls, 'st-openai-tool')
+                : buildTaggedToolCallDraft(thinkTagged.cleaned);
             emitStreamProgress(task, {
                 text: cleanedText,
                 thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
+                ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
             });
         }, { signal: task.signal, onRequest: options.onRequest });
 

@@ -159,7 +159,20 @@ function buildStreamProgressSnapshot(content = []) {
             text: block.type === 'thinking' ? (block.thinking || '') : (block.data || ''),
         }))
         .filter((item) => item.text);
-    return { text, thoughts };
+    const toolCalls = source
+        .filter((block) => block?.type === 'tool_use' && block.name)
+        .map((block, index) => ({
+            id: block.id || `st-claude-tool-${index + 1}`,
+            name: block.name,
+            arguments: block.inputJson !== undefined
+                ? block.inputJson
+                : JSON.stringify(block.input || {}),
+        }));
+    return {
+        text,
+        thoughts,
+        ...(toolCalls.length ? { toolCalls, toolCallDraft: true } : {}),
+    };
 }
 
 function parseContentResult(content = [], options = {}) {
@@ -201,6 +214,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -224,6 +239,8 @@ function createClaudeStreamAccumulator(task, config = {}) {
         emitStreamProgress(task, {
             text: result.text,
             thoughts: result.thoughts,
+            ...(Array.isArray(result.toolCalls) ? { toolCalls: result.toolCalls } : {}),
+            ...(result.toolCallDraft ? { toolCallDraft: true } : {}),
         });
     };
 

@@ -16,7 +16,9 @@ const {
     cancelEditMessage,
     canDrawMessage,
     canEditMessage,
+    canEditManagerMessage,
     canRerunMessage,
+    canRerunManagerMessage,
     canSendManagerMessage,
     canSendMessage,
     chatAutoScroll,
@@ -30,8 +32,10 @@ const {
     chatSubtitle,
     chatWorkspacePanel,
     copyMessage,
+    copyManagerMessage,
     currentUserMessage,
     deleteMessageTurn,
+    deleteManagerMessageTurn,
     drawMessage,
     drawMessageStatusClass,
     drawMessageStatusText,
@@ -40,6 +44,10 @@ const {
     editingMessageDraft,
     enterMemoryEditMode,
     episodeSummaries,
+    formatRunActivityLine,
+    formatRunInputLine,
+    formatRunMapLine,
+    formatRunMemoryLine,
     formatManagerSource,
     formatMemoryFileMeta,
     formatMessageTime,
@@ -55,6 +63,7 @@ const {
     handleEditInput,
     handleEditKeydown,
     handleManagerComposeKeydown,
+    handleManagerEditKeydown,
     handleManagerScroll,
     handleManagerSubmit,
     handleManagerTouchMove,
@@ -63,12 +72,15 @@ const {
     hiddenManagerRunCount,
     homeThemeDark,
     isEditingMessage,
+    isEditingManagerMessage,
     isDrawingMessage,
     isEditingMessageDirty,
+    isEditingManagerMessageDirty,
     isManagerAssistantRunning,
     isRunning,
     latestErrorMessage,
     managerAutoScroll,
+    managerActionFeedback,
     managerBusy,
     managerChatMessages,
     managerCompactionOverlay,
@@ -79,8 +91,14 @@ const {
     managerComposeTextareaRef,
     managerScrollControlsActive,
     managerScrollRef,
+    managerRunTone,
     managerStatusLabel,
     managerStatusLine,
+    managerToolStatusLabel,
+    managerToolTone,
+    managerToolTraceItems,
+    managerToolTurnPreview,
+    managerToolTurnSummary,
     markdownSignature,
     memoryEditorDirty,
     memoryEditorDocumentAvailable,
@@ -102,6 +120,7 @@ const {
     rememberBrokenAvatar,
     renderChatMarkdown,
     rerunFromMessage,
+    rerunFromManagerMessage,
     retryManagerRun,
     revealOlderChatMessages,
     revealOlderManagerMessages,
@@ -109,6 +128,7 @@ const {
     runtimeText,
     runtimeThoughts,
     saveEditMessage,
+    saveEditManagerMessage,
     saveSelectedMemoryFile,
     scrollChatToBottom,
     scrollChatToTop,
@@ -121,6 +141,7 @@ const {
     showManagerScrollBottom,
     showManagerScrollTop,
     startEditMessage,
+    startEditManagerMessage,
     thoughtBlocks,
     thoughtSummaryLabel,
     toolTraceSummary,
@@ -129,6 +150,7 @@ const {
     updateManagerScrollButtons,
     visibleChatMessages,
     visibleCharacterAvatar,
+    visibleManagerChatItems,
     visibleManagerChatMessages,
     visibleManagerRuns,
     visibleUserAvatar,
@@ -142,6 +164,9 @@ const currentStateFile = computed(() => (
 ));
 const currentStateContent = computed(() => String(currentStateFile.value?.content || '').trim());
 const currentStatePreviewHtml = computed(() => renderChatMarkdown(currentStateContent.value));
+const liveManagerRun = computed(() => (
+    (managerRuns.value || []).find((run: { status?: string }) => ['queued', 'running'].includes(String(run.status || ''))) || null
+));
 const currentStatePreviewSignature = computed(() => markdownSignature(currentStateContent.value));
 
 function setChatScrollRef(element: Element | null) {
@@ -240,17 +265,29 @@ onUpdated(() => {
             <div class="chat-head-actions">
               <button
                 type="button"
+                class="contract-trigger"
+                title="契约"
+                aria-label="契约"
+              >
+                契约
+              </button>
+              <button
+                type="button"
                 class="prompt-inspector-trigger"
+                title="请求日志"
+                aria-label="请求日志"
                 @click="openPromptInspector('history')"
               >
-                请求日志
+                日志
               </button>
               <button
                 type="button"
                 class="chat-flip-trigger"
+                title="助手聊天"
+                aria-label="助手聊天"
                 @click="chatFocus = 'manager'"
               >
-                助手聊天
+                助手
               </button>
             </div>
           </header>
@@ -554,17 +591,20 @@ onUpdated(() => {
             <div class="manager-head-actions">
               <button
                 type="button"
-                class="prompt-inspector-trigger"
-                @click="openPromptInspector('history')"
+                class="contract-trigger"
+                title="契约"
+                aria-label="契约"
               >
-                请求日志
+                契约
               </button>
               <button
                 type="button"
                 class="chat-flip-trigger"
+                title="角色聊天"
+                aria-label="角色聊天"
                 @click="chatFocus = 'chat'"
               >
-                角色聊天
+                角色
               </button>
             </div>
           </header>
@@ -603,23 +643,230 @@ onUpdated(() => {
               >
                 展开较早记录 {{ managerMessageWindow.hiddenBefore }} 条
               </div>
-              <article
-                v-for="message in visibleManagerChatMessages"
-                :key="`${message.sessionId}-${message.order}`"
-                :data-manager-anchor-key="`msg:${message.sessionId}:${message.order}`"
-                class="manager-card manager-message"
-                :class="message.role === 'user' ? 'manager-message-user' : 'manager-message-assistant'"
+              <template
+                v-for="item in visibleManagerChatItems"
+                :key="item.key"
               >
-                <div class="manager-run-title">
-                  <strong>{{ message.role === 'user' ? roleLabel('user') : '助手' }}</strong>
-                  <small>{{ formatMessageTime(message.createdAt) }}</small>
+                <article
+                  v-if="item.kind === 'message'"
+                  :data-manager-anchor-key="item.anchorKey"
+                  class="manager-card manager-message"
+                  :class="item.message.role === 'user' ? 'manager-message-user' : 'manager-message-assistant'"
+                >
+                  <div class="manager-run-title">
+                    <strong>{{ item.message.role === 'user' ? roleLabel('user') : '助手' }}</strong>
+                    <small>{{ formatMessageTime(item.message.createdAt) }}</small>
+                  </div>
+                  <div
+                    v-if="isEditingManagerMessage(item.message)"
+                    class="message-edit-panel manager-message-edit-panel"
+                  >
+                    <textarea
+                      v-model="editingMessageDraft"
+                      class="message-edit-box"
+                      rows="6"
+                      :data-manager-message-editor="`manager:${item.message.sessionId}:${item.message.order}`"
+                      @input="handleEditInput"
+                      @keydown="handleManagerEditKeydown($event, item.message)"
+                    />
+                    <div class="message-edit-actions">
+                      <button
+                        type="button"
+                        :disabled="!isEditingManagerMessageDirty(item.message)"
+                        @click="saveEditManagerMessage(item.message)"
+                      >
+                        {{ item.message.role === 'user' ? '保存' : '保存修改' }}
+                      </button>
+                      <button
+                        v-if="item.message.role === 'user'"
+                        type="button"
+                        :disabled="!isEditingManagerMessageDirty(item.message)"
+                        @click="saveEditManagerMessage(item.message, { rerun: true })"
+                      >
+                        保存并重发
+                      </button>
+                      <button
+                        type="button"
+                        @click="cancelEditMessage"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    v-if="!isEditingManagerMessage(item.message)"
+                    class="xb-tavern-markdown"
+                    :data-markdown-signature="markdownSignature(item.message.content)"
+                    v-html="renderChatMarkdown(item.message.content)"
+                  />
+                  <div
+                    v-if="!isEditingManagerMessage(item.message)"
+                    class="message-actions manager-message-actions"
+                  >
+                    <button
+                      type="button"
+                      :class="managerActionFeedback(item.message, 'copy')"
+                      title="复制"
+                      aria-label="复制"
+                      @click="copyManagerMessage(item.message)"
+                    >
+                      ⧉
+                    </button>
+                    <button
+                      type="button"
+                      :disabled="!canEditManagerMessage(item.message)"
+                      :class="managerActionFeedback(item.message, 'edit')"
+                      title="编辑"
+                      aria-label="编辑"
+                      @click="startEditManagerMessage(item.message)"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      :disabled="!canRerunManagerMessage(item.message)"
+                      :class="managerActionFeedback(item.message, 'rerun')"
+                      :title="item.message.role === 'user' ? '从这里重问助手' : '重新生成这条助手回复'"
+                      :aria-label="item.message.role === 'user' ? '从这里重问助手' : '重新生成这条助手回复'"
+                      @click="rerunFromManagerMessage(item.message)"
+                    >
+                      ↻
+                    </button>
+                    <button
+                      type="button"
+                      :disabled="isManagerAssistantRunning"
+                      :class="managerActionFeedback(item.message, 'delete')"
+                      title="删除"
+                      aria-label="删除"
+                      @click="deleteManagerMessageTurn(item.message)"
+                    >
+                      ⌫
+                    </button>
+                  </div>
+                </article>
+
+                <details
+                  v-else
+                  class="manager-tool-turn manager-tool-turn-history"
+                  :data-manager-anchor-key="item.anchorKey"
+                >
+                  <summary>
+                    <span>{{ item.rounds.length > 1 ? `工具轮 ${item.rounds.length} 轮` : '工具轮' }}</span>
+                    <small>{{ managerToolTurnSummary(item) }}</small>
+                    <em>{{ managerToolTurnPreview(item) }}</em>
+                  </summary>
+                  <div class="manager-tool-turn-body">
+                    <div
+                      v-for="(round, roundIndex) in item.rounds"
+                      :key="`${item.key}-round-${round.assistantMessage.order}`"
+                      class="manager-tool-round"
+                    >
+                      <div class="manager-tool-round-title">
+                        <strong>第 {{ Number(roundIndex) + 1 }} 轮 · {{ round.calls.length }} 个工具</strong>
+                        <span>{{ formatMessageTime(round.assistantMessage.createdAt) }}</span>
+                      </div>
+                      <details
+                        v-if="thoughtBlocks(round.assistantMessage.thoughts).length"
+                        class="manager-tool-thoughts"
+                      >
+                        <summary>{{ thoughtSummaryLabel(thoughtBlocks(round.assistantMessage.thoughts), false) }}</summary>
+                        <div
+                          v-for="(thought, thoughtIndex) in thoughtBlocks(round.assistantMessage.thoughts)"
+                          :key="`${item.key}-round-${roundIndex}-thought-${thoughtIndex}`"
+                          class="chat-thought-block"
+                        >
+                          <strong>{{ thought.label }}</strong>
+                          <pre>{{ thought.text }}</pre>
+                        </div>
+                      </details>
+                      <div
+                        v-if="round.assistantMessage.content"
+                        class="manager-tool-preface xb-tavern-markdown"
+                        :data-markdown-signature="markdownSignature(round.assistantMessage.content)"
+                        v-html="renderChatMarkdown(round.assistantMessage.content)"
+                      />
+                      <div
+                        v-for="call in round.calls"
+                        :key="call.id"
+                        class="manager-tool-item"
+                        :class="call.ok ? 'is-resolved' : 'is-error'"
+                      >
+                        <div class="manager-tool-head">
+                          <span>{{ call.name }}</span>
+                          <em>{{ call.toolMessage ? (call.ok ? '已返回' : '失败') : '等待返回' }}</em>
+                        </div>
+                        <small v-if="call.argumentsText">{{ call.argumentsText }}</small>
+                        <p>{{ call.resultText }}</p>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+              </template>
+
+              <details
+                v-if="liveManagerRun"
+                class="manager-tool-turn manager-tool-turn-live"
+                data-manager-anchor-key="meta:live-manager-run"
+                open
+              >
+                <summary>
+                  <span>正在处理</span>
+                  <small>{{ toolTraceSummary(liveManagerRun.toolTrace) || managerStatusLabel(liveManagerRun.status) }}</small>
+                </summary>
+                <div class="manager-tool-turn-body">
+                  <div class="manager-tool-round">
+                    <div class="manager-tool-round-title">
+                      <strong>{{ managerStatusLabel(liveManagerRun.status) }}</strong>
+                      <span>{{ formatRunActivityLine(liveManagerRun) }}</span>
+                    </div>
+                    <p v-if="formatRunMemoryLine(liveManagerRun)">
+                      {{ formatRunMemoryLine(liveManagerRun) }}
+                    </p>
+                    <p v-if="formatRunMapLine(liveManagerRun)">
+                      {{ formatRunMapLine(liveManagerRun) }}
+                    </p>
+                    <div
+                      v-for="tool in managerToolTraceItems(liveManagerRun.toolTrace)"
+                      :key="tool.id"
+                      class="manager-tool-item"
+                      :class="managerToolTone(tool)"
+                    >
+                      <div class="manager-tool-head">
+                        <span>{{ tool.name }}</span>
+                        <em>{{ managerToolStatusLabel(tool) }}<template v-if="tool.elapsedLabel"> · {{ tool.elapsedLabel }}</template></em>
+                      </div>
+                      <details
+                        v-if="tool.thoughts.length"
+                        class="manager-tool-thoughts"
+                        open
+                      >
+                        <summary>{{ thoughtSummaryLabel(tool.thoughts, tool.status === 'running') }}</summary>
+                        <div
+                          v-for="(thought, thoughtIndex) in tool.thoughts"
+                          :key="`${tool.id}-thought-${thoughtIndex}`"
+                          class="chat-thought-block"
+                        >
+                          <strong>{{ thought.label }}</strong>
+                          <pre>{{ thought.text }}</pre>
+                        </div>
+                      </details>
+                      <div
+                        v-if="tool.preface"
+                        class="manager-tool-preface xb-tavern-markdown"
+                        :data-markdown-signature="markdownSignature(tool.preface)"
+                        v-html="renderChatMarkdown(tool.preface)"
+                      />
+                      <small v-if="tool.args">{{ tool.args }}</small>
+                      <p v-if="tool.summary">
+                        {{ tool.summary }}
+                      </p>
+                      <p v-if="tool.path">
+                        {{ tool.path }}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div
-                  class="xb-tavern-markdown"
-                  :data-markdown-signature="markdownSignature(message.content)"
-                  v-html="renderChatMarkdown(message.content)"
-                />
-              </article>
+              </details>
 
               <details
                 v-if="memoryFiles.length || episodeSummaries.length || managerRuns.length || turnSummaries.length"
@@ -665,29 +912,69 @@ onUpdated(() => {
                   :key="run.id"
                   :data-manager-anchor-key="`run:${run.id}`"
                   class="manager-card manager-message manager-message-run"
-                  :class="`is-${run.status}`"
+                  :class="[`is-${run.status}`, `tone-${managerRunTone(run)}`]"
                 >
                   <div class="manager-run-title">
                     <strong>{{ managerStatusLabel(run.status) }}</strong>
                     <small>{{ formatManagerSource(run) }}</small>
                   </div>
-                  <p>{{ run.inputSummary }}</p>
+                  <p>{{ formatRunInputLine(run) }}</p>
                   <small>{{ formatRunModelLine(run) }}</small>
+                  <small class="manager-run-activity">{{ formatRunActivityLine(run) }}</small>
                   <p v-if="run.parsedAction">
                     动作：{{ run.parsedAction }}
                   </p>
-                  <p v-if="run.changedFiles?.length">
-                    文件：{{ run.changedFiles.join('、') }}
-                  </p>
-                  <p v-if="run.changedStates?.length">
-                    状态：{{ run.changedStates.join('、') }}
-                  </p>
+                  <p>{{ formatRunMemoryLine(run) }}</p>
+                  <p>{{ formatRunMapLine(run) }}</p>
                   <p v-if="run.outputText">
                     结论：{{ shortText(run.outputText, 220) }}
                   </p>
                   <p v-if="run.toolTrace">
                     {{ toolTraceSummary(run.toolTrace) }}
                   </p>
+                  <div
+                    v-if="managerToolTraceItems(run.toolTrace).length"
+                    class="manager-tool-list"
+                  >
+                    <div
+                      v-for="tool in managerToolTraceItems(run.toolTrace)"
+                      :key="tool.id"
+                      class="manager-tool-item"
+                      :class="managerToolTone(tool)"
+                    >
+                      <div class="manager-tool-head">
+                        <span>{{ tool.name }}</span>
+                        <em>{{ managerToolStatusLabel(tool) }}<template v-if="tool.elapsedLabel"> · {{ tool.elapsedLabel }}</template></em>
+                      </div>
+                      <details
+                        v-if="tool.thoughts.length"
+                        class="manager-tool-thoughts"
+                      >
+                        <summary>{{ thoughtSummaryLabel(tool.thoughts, false) }}</summary>
+                        <div
+                          v-for="(thought, thoughtIndex) in tool.thoughts"
+                          :key="`${tool.id}-stored-thought-${thoughtIndex}`"
+                          class="chat-thought-block"
+                        >
+                          <strong>{{ thought.label }}</strong>
+                          <pre>{{ thought.text }}</pre>
+                        </div>
+                      </details>
+                      <div
+                        v-if="tool.preface"
+                        class="manager-tool-preface xb-tavern-markdown"
+                        :data-markdown-signature="markdownSignature(tool.preface)"
+                        v-html="renderChatMarkdown(tool.preface)"
+                      />
+                      <small v-if="tool.args">{{ tool.args }}</small>
+                      <p v-if="tool.summary">
+                        {{ tool.summary }}
+                      </p>
+                      <p v-if="tool.path">
+                        {{ tool.path }}
+                      </p>
+                    </div>
+                  </div>
                   <p v-if="run.error">
                     {{ run.error }}
                   </p>
@@ -719,14 +1006,14 @@ onUpdated(() => {
                 >
                   <div class="manager-run-title">
                     <strong>{{ formatSummarySource(summary) }}</strong>
-                    <small>{{ summary.tags?.join('、') || '无标签' }}</small>
+                    <small v-if="summary.tags?.length">{{ summary.tags.join('、') }}</small>
                   </div>
                   <p>{{ summary.summary }}</p>
                 </article>
               </details>
 
               <p
-                v-if="!managerChatMessages.length"
+                v-if="!visibleManagerChatItems.length"
                 data-manager-anchor-key="empty"
                 class="chat-empty"
               >

@@ -6,7 +6,12 @@ interface TavernAgentAdapterChatOptions {
     temperature?: unknown;
     maxTokens?: unknown;
     signal?: AbortSignal;
-    onStreamProgress?: (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => void;
+    onStreamProgress?: (snapshot: {
+        text?: string;
+        thoughts?: Array<{ label?: string; text?: string }>;
+        toolCalls?: unknown[];
+        toolCallDraft?: boolean;
+    }) => void;
 }
 
 interface TavernAgentAdapterChatResult {

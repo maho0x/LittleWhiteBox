@@ -125,17 +125,49 @@
 }
 
 .prompt-inspector-overlay {
+    --prompt-overlay-bg: rgba(9, 9, 8, 0.62);
+    --prompt-surface: #121312;
+    --prompt-surface-soft: #171817;
+    --prompt-surface-raised: #1d1e1c;
+    --prompt-code-bg: #0c0d0d;
+    --prompt-code-line: rgba(184, 178, 166, 0.035);
+    --prompt-border: rgba(184, 178, 166, 0.16);
+    --prompt-border-strong: rgba(184, 178, 166, 0.28);
+    --prompt-text: #c6c0b4;
+    --prompt-body: #aaa397;
+    --prompt-muted: #817c73;
+    --prompt-accent: #8fb4bd;
+    --prompt-accent-soft: rgba(143, 180, 189, 0.10);
+    --prompt-danger: #d88490;
     position: fixed;
     inset: 0;
     z-index: 80;
     display: grid;
     place-items: center;
-    background:
-        linear-gradient(90deg, rgba(20, 20, 20, 0.18) 1px, transparent 1px),
-        rgba(18, 17, 15, 0.46);
-    background-size: 44px 44px, auto;
-    backdrop-filter: blur(7px);
+    background: var(--prompt-overlay-bg);
+    backdrop-filter: blur(10px) saturate(0.86);
     padding: clamp(14px, 3vw, 34px);
+}
+
+.xb-os-shell.theme-light .prompt-inspector-overlay {
+    --prompt-overlay-bg: rgba(39, 41, 38, 0.24);
+    --prompt-surface: #f7f8f4;
+    --prompt-surface-soft: #eef1eb;
+    --prompt-surface-raised: #fbfcf8;
+    --prompt-code-bg: #fdfdf9;
+    --prompt-code-line: rgba(56, 66, 62, 0.055);
+    --prompt-border: rgba(53, 62, 58, 0.14);
+    --prompt-border-strong: rgba(53, 62, 58, 0.26);
+    --prompt-text: #202521;
+    --prompt-body: #3f4742;
+    --prompt-muted: #687069;
+    --prompt-accent: #5a1d1d;
+    --prompt-accent-soft: rgba(90, 29, 29, 0.075);
+    --prompt-danger: #9b2d2d;
+}
+
+.xb-os-shell.theme-dark .prompt-inspector-overlay {
+    --prompt-overlay-bg: rgba(4, 4, 4, 0.68);
 }
 
 .prompt-inspector-modal {
@@ -144,50 +176,49 @@
     min-height: 430px;
     display: grid;
     grid-template-rows: auto auto minmax(0, 1fr);
-    border: 1px solid var(--xb-ink);
-    border-radius: 0;
-    background:
-        linear-gradient(90deg, transparent 50%, rgba(234, 232, 223, 0.76) 50%),
-        var(--xb-paper);
-    color: var(--xb-ink);
-    box-shadow: 18px 18px 0 rgba(26, 26, 26, 0.10);
+    border: 1px solid var(--prompt-border-strong);
+    border-radius: 8px;
+    background: var(--prompt-surface);
+    color: var(--prompt-text);
+    box-shadow: 0 26px 80px rgba(0, 0, 0, 0.34);
     overflow: hidden;
 }
 
 .prompt-inspector-head {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 24px;
-    border-bottom: 2px solid var(--xb-ink);
-    padding: clamp(20px, 3vw, 30px) clamp(20px, 3vw, 34px) 18px;
+    gap: 18px;
+    border-bottom: 1px solid var(--prompt-border);
+    background: var(--prompt-surface-raised);
+    padding: 18px clamp(20px, 3vw, 30px);
 }
 
 .prompt-inspector-head .eyebrow {
-    margin: 0 0 8px;
-    color: var(--xb-stamp);
+    margin: 0 0 5px;
+    color: var(--prompt-accent);
     font-family: var(--xb-font-mono);
     font-size: 11px;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
 }
 
 .prompt-inspector-head h2 {
     margin: 0;
-    color: var(--xb-ink);
-    font-family: var(--xb-font-serif);
-    font-size: 52px;
-    font-weight: 600;
+    color: var(--prompt-text);
+    font-family: var(--xb-font-ui);
+    font-size: 22px;
+    font-weight: 650;
     letter-spacing: 0;
-    line-height: 0.96;
+    line-height: 1.15;
 }
 
 .prompt-inspector-head p:last-child {
-    margin: 12px 0 0;
-    color: var(--xb-ink-soft);
-    font-family: var(--xb-font-serif);
-    font-size: 18px;
-    line-height: 1.5;
+    margin: 6px 0 0;
+    color: var(--prompt-muted);
+    font-family: var(--xb-font-ui);
+    font-size: 12px;
+    line-height: 1.35;
 }
 
 .prompt-inspector-head > button {
@@ -195,10 +226,10 @@
     min-width: 42px;
     height: 42px;
     min-height: 42px;
-    border: 1px solid var(--xb-rule);
+    border: 1px solid var(--prompt-border);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.34);
-    color: var(--xb-ink-soft);
+    background: var(--prompt-surface-soft);
+    color: var(--prompt-muted);
     font-family: var(--xb-font-mono);
     font-size: 24px;
     line-height: 1;
@@ -208,17 +239,17 @@
 .prompt-inspector-head > button:hover:not(:disabled),
 .prompt-inspector-head > button:focus-visible {
     outline: none;
-    border-color: var(--xb-stamp);
-    background: var(--xb-stamp-soft);
-    color: var(--xb-stamp);
+    border-color: var(--prompt-accent);
+    background: var(--prompt-accent-soft);
+    color: var(--prompt-accent);
 }
 
 .prompt-inspector-tabs {
     display: flex;
     align-items: center;
     gap: 0;
-    border-bottom: 1px solid var(--xb-rule);
-    background: rgba(251, 250, 246, 0.42);
+    border-bottom: 1px solid var(--prompt-border);
+    background: var(--prompt-surface);
     padding: 0 clamp(20px, 3vw, 34px);
     overflow-x: auto;
 }
@@ -226,10 +257,10 @@
 .prompt-inspector-tabs button {
     min-height: 48px;
     border: 0;
-    border-right: 1px solid var(--xb-rule);
+    border-right: 1px solid var(--prompt-border);
     border-radius: 0;
     background: transparent;
-    color: var(--xb-ink-soft);
+    color: var(--prompt-muted);
     font-family: var(--xb-font-mono);
     font-size: 11px;
     letter-spacing: 0.13em;
@@ -239,25 +270,26 @@
 }
 
 .prompt-inspector-tabs button:first-child {
-    border-left: 1px solid var(--xb-rule);
+    border-left: 1px solid var(--prompt-border);
 }
 
 .prompt-inspector-tabs button.active {
-    border-color: var(--xb-ink);
-    background: var(--xb-ink);
-    color: var(--xb-paper);
+    border-color: var(--prompt-accent);
+    background: var(--prompt-accent);
+    color: #fffaf2;
 }
 
 .prompt-inspector-tabs button:hover:not(:disabled):not(.active),
 .prompt-inspector-tabs button:focus-visible:not(.active) {
     outline: none;
-    background: var(--xb-stamp-soft);
-    color: var(--xb-stamp);
+    background: var(--prompt-accent-soft);
+    color: var(--prompt-accent);
 }
 
 .prompt-inspector-body {
     min-height: 0;
     overflow: auto;
+    background: var(--prompt-surface);
     padding: clamp(18px, 3vw, 32px);
 }
 
@@ -274,13 +306,13 @@
 }
 
 .prompt-inspector-summary span {
-    border: 1px solid var(--xb-rule);
-    border-radius: 0;
-    background: var(--xb-paper-plain);
-    color: var(--xb-ink-soft);
+    border: 1px solid var(--prompt-border);
+    border-radius: 999px;
+    background: var(--prompt-surface-soft);
+    color: var(--prompt-muted);
     font-family: var(--xb-font-mono);
     font-size: 10px;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     padding: 7px 10px;
 }
@@ -289,14 +321,14 @@
     min-height: 340px;
     max-height: min(62vh, 620px);
     margin: 0;
-    border: 1px solid var(--xb-rule-strong);
-    border-radius: 0;
+    border: 1px solid var(--prompt-border);
+    border-radius: 8px;
     background:
-        linear-gradient(rgba(216, 212, 199, 0.28) 1px, transparent 1px),
-        var(--xb-paper-plain);
+        linear-gradient(var(--prompt-code-line) 1px, transparent 1px),
+        var(--prompt-code-bg);
     background-size: 100% 28px;
-    color: var(--xb-text-main);
-    box-shadow: inset 5px 0 0 var(--xb-stamp-soft);
+    color: var(--prompt-body);
+    box-shadow: inset 4px 0 0 var(--prompt-accent-soft);
     font-family: var(--xb-font-mono);
     font-size: 12px;
     line-height: 1.65;
@@ -309,7 +341,7 @@
 }
 
 .xb-os-shell.theme-light .prompt-request-json {
-    color: #24231f;
+    color: #262b27;
 }
 
 .prompt-empty-state {
@@ -317,12 +349,12 @@
     display: grid;
     place-items: center;
     margin: 0;
-    border: 1px dashed var(--xb-rule-strong);
-    border-radius: 0;
-    background: rgba(251, 250, 246, 0.50);
-    color: var(--xb-ink-faint);
-    font-family: var(--xb-font-serif);
-    font-size: 20px;
+    border: 1px dashed var(--prompt-border-strong);
+    border-radius: 8px;
+    background: var(--prompt-surface-soft);
+    color: var(--prompt-muted);
+    font-family: var(--xb-font-ui);
+    font-size: 14px;
 }
 
 .prompt-simulate-panel {
@@ -330,14 +362,14 @@
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
     gap: 14px;
-    border-bottom: 1px solid var(--xb-rule);
+    border-bottom: 1px solid var(--prompt-border);
     padding-bottom: 18px;
 }
 
 .prompt-simulate-panel label {
     display: block;
     margin: 0 0 8px;
-    color: var(--xb-ink-soft);
+    color: var(--prompt-muted);
     font-family: var(--xb-font-mono);
     font-size: 11px;
     letter-spacing: 0.12em;
@@ -348,28 +380,28 @@
     width: 100%;
     min-width: 0;
     resize: vertical;
-    border: 0;
-    border-bottom: 1px solid var(--xb-ink);
-    border-radius: 0;
-    background: transparent;
-    color: var(--xb-ink);
-    font-family: var(--xb-font-serif);
-    font-size: 20px;
+    border: 1px solid var(--prompt-border);
+    border-radius: 8px;
+    background: var(--prompt-code-bg);
+    color: var(--prompt-text);
+    font-family: var(--xb-font-ui);
+    font-size: 14px;
     line-height: 1.55;
-    padding: 8px 0;
+    padding: 12px 14px;
 }
 
 .prompt-simulate-panel textarea:focus {
     outline: none;
-    border-bottom-color: var(--xb-stamp);
+    border-color: var(--prompt-accent);
+    box-shadow: 0 0 0 2px var(--prompt-accent-soft);
 }
 
 .prompt-simulate-panel button {
     min-height: 42px;
-    border: 1px solid var(--xb-ink);
+    border: 1px solid var(--prompt-border-strong);
     border-radius: 999px;
-    background: transparent;
-    color: var(--xb-ink);
+    background: var(--prompt-surface-raised);
+    color: var(--prompt-text);
     font-family: var(--xb-font-mono);
     font-size: 11px;
     letter-spacing: 0.14em;
@@ -380,8 +412,9 @@
 .prompt-simulate-panel button:hover:not(:disabled),
 .prompt-simulate-panel button:focus-visible {
     outline: none;
-    background: var(--xb-ink);
-    color: var(--xb-paper);
+    border-color: var(--prompt-accent);
+    background: var(--prompt-accent);
+    color: #fffaf2;
 }
 
 @media (max-width: 760px) {
@@ -405,7 +438,7 @@
         width: 100%;
         height: calc(100vh - 20px);
         min-height: 0;
-        box-shadow: 8px 8px 0 rgba(26, 26, 26, 0.10);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
     }
 
     .prompt-inspector-head {
@@ -413,11 +446,11 @@
     }
 
     .prompt-inspector-head h2 {
-        font-size: 44px;
+        font-size: 20px;
     }
 
     .prompt-inspector-head p:last-child {
-        font-size: 16px;
+        font-size: 12px;
     }
 
     .prompt-inspector-tabs {

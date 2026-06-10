@@ -20,6 +20,7 @@ import {
 import { createAgentAdapter } from '../../agent-core/provider-config.js';
 import { resolveResultToolCalls } from '../../agent-core/runtime/protocol.js';
 import { pullModelsForProvider } from '../../agent-core/ui/settings-panel.js';
+import { buildNativeMessages } from '../../agent-core/adapters/openai-compatible.js';
 
 function createSseResponse(events = [], delimiter = '\n\n') {
     const payload = events.map((event) => `data: ${JSON.stringify(event)}${delimiter}`).join('') + `data: [DONE]${delimiter}`;
@@ -87,6 +88,28 @@ test('host OpenAI-compatible payloads use SillyTavern backend fields without lea
     assert.equal(Object.hasOwn(payload, 'temperature'), false);
     assert.equal(payload.tool_choice, 'auto');
     assert.equal(payload.tools.length, 1);
+});
+
+test('OpenAI-compatible native messages keep task system prompt in the actual request', async () => {
+    const messages = buildNativeMessages({
+        systemPrompt: 'You are the background manager.',
+        messages: [{ role: 'user', content: 'hello' }],
+    });
+    assert.deepEqual(messages.slice(0, 2), [
+        { role: 'system', content: 'You are the background manager.' },
+        { role: 'user', content: 'hello' },
+    ]);
+
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        model: 'compat-model',
+        toolMode: 'native',
+    });
+    const inspection = await adapter.inspectRequest({
+        systemPrompt: 'You are the background manager.',
+        messages: [{ role: 'user', content: 'hello' }],
+    });
+    assert.equal(inspection.request.body.messages[0]?.role, 'system');
+    assert.equal(inspection.request.body.messages[0]?.content, 'You are the background manager.');
 });
 
 test('host Claude and Google payloads select the matching SillyTavern chat-completions source', () => {
@@ -277,6 +300,7 @@ test('sillytavern Claude adapter streams tool calls through host generate endpoi
     });
     const originalFetch = globalThis.fetch;
     const requests = [];
+    const progress = [];
     globalThis.fetch = async (url, options = {}) => {
         requests.push({
             url: String(url),
@@ -325,7 +349,7 @@ test('sillytavern Claude adapter streams tool calls through host generate endpoi
                     parameters: { type: 'object', properties: { filePath: { type: 'string' } } },
                 },
             }],
-            onStreamProgress: () => {},
+            onStreamProgress: (snapshot) => progress.push(snapshot),
         });
 
         assert.equal(requests[0].url, HOST_CHAT_COMPLETIONS_GENERATE_ENDPOINT);
@@ -411,6 +435,7 @@ test('sillytavern Claude adapter preserves malformed final tool input for tool-l
         model: 'claude-sonnet-4-0',
     });
     const originalFetch = globalThis.fetch;
+    const progress = [];
     const rawArguments = '{"filePath":"book/outline.md","edits":[';
     globalThis.fetch = async () => createSseResponse([
         {
@@ -440,7 +465,7 @@ test('sillytavern Claude adapter preserves malformed final tool input for tool-l
                     parameters: { type: 'object', properties: {} },
                 },
             }],
-            onStreamProgress: () => {},
+            onStreamProgress: (snapshot) => progress.push(snapshot),
         });
 
         assert.deepEqual(result.toolCalls, [{
@@ -1110,6 +1135,7 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
 
     const originalFetch = globalThis.fetch;
     const requests = [];
+    const progress = [];
     globalThis.fetch = async (url, options = {}) => {
         requests.push({
             url: String(url),
@@ -1171,7 +1197,7 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
                     },
                 },
             }],
-            onStreamProgress: () => {},
+            onStreamProgress: (snapshot) => progress.push(snapshot),
         });
 
         assert.equal(requests.length, 1);
@@ -1188,7 +1214,73 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
             name: 'Read',
             arguments: '{"path":"local/test.txt"}',
         }]);
+        assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
+        assert.equal(progress.some((snapshot) => String(snapshot.text || '').includes('我先读文件。')), true);
         assert.equal(result.providerPayload?.openaiCompatibleMessage?.reasoning_content, '先读取一个轻量文件确认工具链。');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern OpenAI-compatible tagged-json streaming hides raw tool JSON and emits tool draft progress', async () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'compat-model',
+        toolMode: 'tagged-json',
+    });
+
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    globalThis.fetch = async () => createSseResponse([
+        {
+            model: 'compat-model',
+            choices: [{
+                index: 0,
+                delta: { role: 'assistant', content: '我先查一下。' },
+            }],
+        },
+        {
+            model: 'compat-model',
+            choices: [{
+                index: 0,
+                delta: { content: '\n<tool_call>{"name":"Read"' },
+            }],
+        },
+        {
+            model: 'compat-model',
+            choices: [{
+                index: 0,
+                delta: { content: ',"arguments":{"path":"local/test.txt"}}</tool_call>' },
+                finish_reason: 'stop',
+            }],
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '读文件' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Read',
+                    description: 'Read file.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            path: { type: 'string' },
+                        },
+                    },
+                },
+            }],
+            onStreamProgress: (snapshot) => progress.push(snapshot),
+        });
+
+        assert.equal(progress.some((snapshot) => String(snapshot.text || '').includes('<tool_call>')), false);
+        assert.equal(progress.some((snapshot) => snapshot.toolCallDraft === true), true);
+        assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
+        assert.equal(result.text, '我先查一下。');
+        assert.equal(result.toolCalls?.[0]?.name, 'Read');
     } finally {
         globalThis.fetch = originalFetch;
     }

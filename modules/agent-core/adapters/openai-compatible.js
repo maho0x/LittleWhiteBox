@@ -166,6 +166,18 @@ export function stripTaggedToolCallsForDisplay(text = '') {
     return source.slice(0, firstToolTag).trim();
 }
 
+export function buildTaggedToolCallDraft(text = '') {
+    const source = String(text || '');
+    if (!/<tool_call\b/i.test(source)) return [];
+    const nameMatch = source.match(/["']?name["']?\s*:\s*["']([^"']+)/i);
+    return [{
+        id: 'tagged-json-draft',
+        name: nameMatch?.[1] || '工具调用',
+        arguments: '{}',
+        draft: true,
+    }];
+}
+
 function collectThoughtsFromUnknown(thoughts, value, label) {
     if (!value) return;
     if (typeof value === 'string') {
@@ -455,6 +467,14 @@ export function buildNativeMessages(task, model = '') {
         return ensureReasoningContentForToolCalls(baseMessage, model);
     });
 
+    const systemPrompt = String(task.systemPrompt || '').trim();
+    if (systemPrompt && normalizedMessages[0]?.role !== 'system') {
+        normalizedMessages.unshift({
+            role: 'system',
+            content: systemPrompt,
+        });
+    }
+
     return normalizedMessages;
 }
 
@@ -559,6 +579,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -804,12 +826,17 @@ export class OpenAICompatibleAdapter {
 
             const thinkTagged = extractThinkTaggedContent(snapshot.content);
             const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
+            const progressToolCalls = standardToolCalls.length
+                ? buildToolCallResultsFromOpenAI(snapshot.toolCalls)
+                : buildTaggedToolCallDraft(thinkTagged.cleaned);
             const cleanedText = standardToolCalls.length
                 ? thinkTagged.cleaned
                 : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
             emitStreamProgress(task, {
                 text: cleanedText,
                 thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
+                ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
             });
         });
 
@@ -884,12 +911,17 @@ export class OpenAICompatibleAdapter {
 
                 const thinkTagged = extractThinkTaggedContent(snapshot.content);
                 const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
+                const progressToolCalls = standardToolCalls.length
+                    ? buildToolCallResultsFromOpenAI(snapshot.toolCalls)
+                    : buildTaggedToolCallDraft(thinkTagged.cleaned);
                 const cleanedText = standardToolCalls.length
                     ? thinkTagged.cleaned
                     : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
                 emitStreamProgress(task, {
                     text: cleanedText,
                     thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                    ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
+                    ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
                 });
             }
             const finalCompletion = typeof stream.finalChatCompletion === 'function'

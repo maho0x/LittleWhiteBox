@@ -203,6 +203,27 @@ function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
         || /abort|aborted|cancelled|canceled/i.test(message);
 }
 
+function wrapTavernStageError(stage: string, error: unknown): Error {
+    if (error instanceof Error && /^\[xb-tavern:[^\]]+\]/.test(error.message)) {
+        return error;
+    }
+    const message = error instanceof Error ? error.message : String(error || 'unknown_error');
+    const wrapped = new Error(`[xb-tavern:${stage}] ${message}`);
+    wrapped.name = error instanceof Error ? error.name : 'Error';
+    if (error instanceof Error && error.stack) {
+        wrapped.stack = `${wrapped.name}: ${wrapped.message}\nCaused by: ${error.stack}`;
+    }
+    return wrapped;
+}
+
+async function runTavernStage<T>(stage: string, task: () => Promise<T> | T): Promise<T> {
+    try {
+        return await task();
+    } catch (error) {
+        throw wrapTavernStageError(stage, error);
+    }
+}
+
 async function notifyRunCallback(callback: (() => void | Promise<void>) | undefined): Promise<void> {
     if (!callback) {return;}
     try {
@@ -439,13 +460,21 @@ function textList(value: unknown): string[] {
     return [String(value)];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function recordList(value: unknown): Array<Record<string, unknown>> {
+    return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
 async function substituteWorldEntryPromptFields(input: {
     applySubstituteParams?: TavernApplySubstituteParams;
-    entries: Array<Record<string, unknown>>;
+    entries: unknown;
     options: TavernSubstituteParamsOptions;
     scope: string;
 }): Promise<Array<Record<string, unknown>>> {
-    const entries = Array.isArray(input.entries) ? input.entries : [];
+    const entries = recordList(input.entries);
     const items: TavernSubstituteParamsItem[] = [];
     const refs: Array<{ entryIndex: number; field: 'content' | 'key' | 'keysecondary' | 'secondary_keys'; valueIndex?: number; id: string }> = [];
     entries.forEach((entry, entryIndex) => {
@@ -496,25 +525,26 @@ async function substituteContextWorldEntriesForPrompt(input: {
     if (!input.applySubstituteParams) {return input.context;}
     const context: XbTavernContext = {
         ...input.context,
-        worldEntries: input.context.worldEntries
+        worldEntries: Array.isArray(input.context.worldEntries)
             ? await substituteWorldEntryPromptFields({
                 applySubstituteParams: input.applySubstituteParams,
-                entries: input.context.worldEntries as Array<Record<string, unknown>>,
+                entries: input.context.worldEntries,
                 options: input.options,
                 scope: 'worldEntries',
             }) as XbTavernContext['worldEntries']
             : input.context.worldEntries,
     };
     if (Array.isArray(input.context.worldBooks)) {
-        context.worldBooks = await Promise.all(input.context.worldBooks.map(async (book, bookIndex) => ({
+        const worldBooks = await Promise.all(recordList(input.context.worldBooks).map(async (book, bookIndex) => ({
             ...book,
             entries: await substituteWorldEntryPromptFields({
                 applySubstituteParams: input.applySubstituteParams,
-                entries: (Array.isArray(book.entries) ? book.entries : []) as Array<Record<string, unknown>>,
+                entries: book.entries,
                 options: input.options,
                 scope: `worldBooks:${bookIndex}`,
             }) as typeof book.entries,
         })));
+        context.worldBooks = worldBooks as XbTavernContext['worldBooks'];
     }
     return context;
 }
@@ -920,7 +950,7 @@ async function ensureRunSession(input: XbTavernRunTurnInput, buildSnapshot?: XbT
 }
 
 export async function runTavernOnce(options: TavernRunOnceOptions): Promise<TavernRunOnceResult> {
-    const inspected = await inspectTavernRequest({
+    const inspected = await runTavernStage('provider_request_inspection', () => inspectTavernRequest({
         agentConfig: options.agentConfig,
         messages: options.messages,
         chatPreset: options.chatPreset,
@@ -928,10 +958,10 @@ export async function runTavernOnce(options: TavernRunOnceOptions): Promise<Tave
         signal: options.signal,
         onStreamProgress: options.onStreamProgress,
         requestKind: 'actual',
-    });
+    }));
     let result: Record<string, unknown>;
     try {
-        result = await inspected.adapter.chat(inspected.task);
+        result = await runTavernStage('provider_chat', () => inspected.adapter.chat(inspected.task));
     } catch (error) {
         const requestInspection = (error as { requestInspection?: TavernRequestInspection } | null)?.requestInspection;
         if (requestInspection && error && typeof error === 'object') {
@@ -975,21 +1005,21 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
     const liveContext = resolveSessionContext(session, input.contextSnapshot);
     assertUsableTavernContext(liveContext);
     const sessionState = normalizeTavernSessionState(session?.state || input.runtimeState || {});
-    const inputRegex = await applySingleTavernRegex({
+    const inputRegex = await runTavernStage('simulate_user_input_regex', () => applySingleTavernRegex({
         applyRegex: input.applyRegex,
         placement: 'userInput',
         id: 'simulate',
         text: input.currentUserMessage,
-    });
+    }));
     const regexApplications: TavernRegexApplicationSummary = {};
     addRegexSummary(regexApplications, inputRegex.summary);
     const substituteOptions = buildSubstituteParamsOptions(liveContext);
-    const currentUserMessage = await applySingleTavernSubstituteParams({
+    const currentUserMessage = await runTavernStage('simulate_user_input_substitute', () => applySingleTavernSubstituteParams({
         applySubstituteParams: input.applySubstituteParams,
         id: 'userInput:simulate',
         text: inputRegex.text,
         options: substituteOptions,
-    });
+    }));
     const contextForBuildRaw: XbTavernContext = {
         ...liveContext,
         worldSettings: {
@@ -998,33 +1028,34 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         },
         history: session ? buildContextHistory(sessionMessages) : (input.contextSnapshot.history || []),
     };
-    const nativeContext = await injectNativeWorldInfoRuntime({
+    const nativeContext = await runTavernStage('simulate_native_worldbook_runtime', () => injectNativeWorldInfoRuntime({
         getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
         context: contextForBuildRaw,
         currentUserMessage,
         trigger: String(input.generationTrigger || 'normal'),
         timedState: sessionState.nativeWorldInfoTimedState,
-    });
-    const contextForBuild = await substituteContextWorldEntriesForPrompt({
+    }));
+    const contextForBuild = await runTavernStage('simulate_world_entry_substitute', () => substituteContextWorldEntriesForPrompt({
         applySubstituteParams: input.applySubstituteParams,
         context: nativeContext.context,
         options: substituteOptions,
-    });
-    const memoryQuery = buildXbTavernMemoryQuery(contextForBuild, currentUserMessage);
-    const brain = await buildXbTavernBrainAsync({
+    }));
+    const memoryQuery = await runTavernStage('simulate_memory_query', () => buildXbTavernMemoryQuery(contextForBuild, currentUserMessage));
+    const memoryContext = session
+        ? await runTavernStage('simulate_memory_retrieval', () => retrieveXbTavernMemoryContext({
+            sessionId: session.id,
+            queryText: memoryQuery,
+            ignoredTerms: buildXbTavernMemoryIgnoredTerms(contextForBuild),
+        }))
+        : undefined;
+    const brain = await runTavernStage('simulate_brain_build', () => buildXbTavernBrainAsync({
         context: contextForBuild,
         chatPreset,
         currentUserMessage,
         historyMode: input.historyMode || 'raw',
         turn: sessionState.turn,
         entryStates: sessionState.worldEntryStates,
-        memoryContext: session
-            ? await retrieveXbTavernMemoryContext({
-                sessionId: session.id,
-                queryText: memoryQuery,
-                ignoredTerms: buildXbTavernMemoryIgnoredTerms(contextForBuild),
-            })
-            : undefined,
+        memoryContext,
         diagnostics: input.diagnostics || {},
         regexApplications,
         transformConversationMessages: async (messages) => {
@@ -1068,15 +1099,15 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
                 };
             });
         },
-    });
-    const inspected = await inspectTavernRequest({
+    }));
+    const inspected = await runTavernStage('simulate_request_inspection', () => inspectTavernRequest({
         agentConfig: input.agentConfig,
         messages: brain.buildResult.messages,
         chatPreset,
         onStreamProgress: () => {},
         requestKind: 'simulated',
         regexApplications,
-    });
+    }));
     const provider = inspected.requestSnapshot.provider;
     const model = inspected.requestSnapshot.model;
     return {
@@ -1134,22 +1165,22 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     const regexApplications: TavernRegexApplicationSummary = {};
     const inputRegex = reusedUserMessage
         ? { text: rawCurrentUserMessage, summary: undefined }
-        : await applySingleTavernRegex({
+        : await runTavernStage('turn_user_input_regex', () => applySingleTavernRegex({
             applyRegex: input.applyRegex,
             placement: 'userInput',
             id: 'turn',
             text: rawCurrentUserMessage,
-        });
+        }));
     addRegexSummary(regexApplications, inputRegex.summary);
     const substituteOptions = buildSubstituteParamsOptions(liveContext);
     const currentUserMessage = reusedUserMessage
         ? inputRegex.text
-        : await applySingleTavernSubstituteParams({
+        : await runTavernStage('turn_user_input_substitute', () => applySingleTavernSubstituteParams({
             applySubstituteParams: input.applySubstituteParams,
             id: 'userInput:turn',
             text: inputRegex.text,
             options: substituteOptions,
-        });
+        }));
     const generationTrigger = String(input.generationTrigger || (reusedUserMessage ? 'regenerate' : 'normal'));
     const contextForBuildRaw: XbTavernContext = {
         ...liveContext,
@@ -1159,31 +1190,32 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         },
         history: buildContextHistory(historyMessages),
     };
-    const nativeContext = await injectNativeWorldInfoRuntime({
+    const nativeContext = await runTavernStage('turn_native_worldbook_runtime', () => injectNativeWorldInfoRuntime({
         getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
         context: contextForBuildRaw,
         currentUserMessage,
         trigger: generationTrigger,
         timedState: sessionState.nativeWorldInfoTimedState,
-    });
-    const contextForBuild = await substituteContextWorldEntriesForPrompt({
+    }));
+    const contextForBuild = await runTavernStage('turn_world_entry_substitute', () => substituteContextWorldEntriesForPrompt({
         applySubstituteParams: input.applySubstituteParams,
         context: nativeContext.context,
         options: substituteOptions,
-    });
-    const memoryQuery = buildXbTavernMemoryQuery(contextForBuild, currentUserMessage);
-    const brain = await buildXbTavernBrainAsync({
+    }));
+    const memoryQuery = await runTavernStage('turn_memory_query', () => buildXbTavernMemoryQuery(contextForBuild, currentUserMessage));
+    const memoryContext = await runTavernStage('turn_memory_retrieval', () => retrieveXbTavernMemoryContext({
+        sessionId: baseSession.id,
+        queryText: memoryQuery,
+        ignoredTerms: buildXbTavernMemoryIgnoredTerms(contextForBuild),
+    }));
+    const brain = await runTavernStage('turn_brain_build', () => buildXbTavernBrainAsync({
         context: contextForBuild,
         chatPreset,
         currentUserMessage,
         historyMode: input.historyMode || 'raw',
         turn: sessionState.turn,
         entryStates: sessionState.worldEntryStates,
-        memoryContext: await retrieveXbTavernMemoryContext({
-            sessionId: baseSession.id,
-            queryText: memoryQuery,
-            ignoredTerms: buildXbTavernMemoryIgnoredTerms(contextForBuild),
-        }),
+        memoryContext,
         diagnostics: input.diagnostics || {},
         regexApplications,
         transformConversationMessages: async (messages) => {
@@ -1227,7 +1259,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 };
             });
         },
-    });
+    }));
     const { buildResult, buildSnapshot } = brain;
     const session = await updateTavernSessionSnapshot(baseSession.id, {
         contextSnapshot: liveContext,

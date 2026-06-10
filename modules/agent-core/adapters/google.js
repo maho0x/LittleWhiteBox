@@ -403,6 +403,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -585,6 +587,7 @@ export class GoogleAdapter {
                             label: `思考块 ${index + 1}`,
                             text: value,
                         })),
+                    ...(streamedToolCalls.length ? { toolCalls: streamedToolCalls, toolCallDraft: true } : {}),
                 });
             }
 

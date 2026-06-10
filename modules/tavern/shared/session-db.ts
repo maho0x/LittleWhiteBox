@@ -76,14 +76,21 @@ export interface TavernMessageRecord {
 export interface TavernManagerMessageRecord {
     sessionId: string;
     order: number;
-    role: 'user' | 'assistant';
+    role: XbTavernMessage['role'];
     content: string;
+    name?: string;
     error?: boolean;
     createdAt: number;
     updatedAt: number;
     provider?: string;
     model?: string;
     finishReason?: string;
+    thoughts?: Array<{ label?: string; text?: string }>;
+    providerPayload?: unknown;
+    toolCalls?: Array<{ id?: string; name?: string; arguments?: string }>;
+    toolCallId?: string;
+    toolName?: string;
+    toolDisplay?: unknown;
 }
 
 export interface TavernTurnSummaryRecord {
@@ -250,12 +257,28 @@ export type TavernAppendMessageInput = XbTavernMessage & {
 };
 
 export type TavernAppendManagerMessageInput = {
-    role: 'user' | 'assistant';
+    role: XbTavernMessage['role'];
     content: string;
+    name?: string;
     error?: boolean;
     provider?: string;
     model?: string;
     finishReason?: string;
+    thoughts?: Array<{ label?: string; text?: string }>;
+    providerPayload?: unknown;
+    toolCalls?: Array<{ id?: string; name?: string; arguments?: string }>;
+    tool_calls?: Array<{
+        id?: string;
+        type?: string;
+        function?: {
+            name?: string;
+            arguments?: string;
+        };
+    }>;
+    toolCallId?: string;
+    tool_call_id?: string;
+    toolName?: string;
+    toolDisplay?: unknown;
 };
 
 export interface TavernMetaRecord {
@@ -395,6 +418,29 @@ function normalizeStringArray(value: unknown, limit = 12): string[] {
         .map((item) => String(item || '').trim())
         .filter(Boolean)
         .slice(0, limit);
+}
+
+function normalizeManagerMessageRole(value: unknown): XbTavernMessage['role'] {
+    const role = String(value || '').trim();
+    return role === 'assistant' || role === 'tool' || role === 'system' ? role : 'user';
+}
+
+function normalizeManagerToolCalls(input: TavernAppendManagerMessageInput | Partial<TavernManagerMessageRecord>): Array<{ id?: string; name?: string; arguments?: string }> | undefined {
+    const direct = Array.isArray(input.toolCalls) ? input.toolCalls : [];
+    const provider = 'tool_calls' in input && Array.isArray(input.tool_calls) ? input.tool_calls : [];
+    const normalized = [
+        ...direct.map((toolCall) => ({
+            id: String(toolCall?.id || ''),
+            name: String(toolCall?.name || ''),
+            arguments: String(toolCall?.arguments || '{}'),
+        })),
+        ...provider.map((toolCall) => ({
+            id: String(toolCall?.id || ''),
+            name: String(toolCall?.function?.name || ''),
+            arguments: String(toolCall?.function?.arguments || '{}'),
+        })),
+    ].filter((toolCall) => toolCall.name);
+    return normalized.length ? normalized : undefined;
 }
 
 function createTurnSummaryId(sessionId = '', userOrder = -1, assistantOrder = -1): string {
@@ -765,14 +811,21 @@ export async function appendTavernManagerMessage(
     const record: TavernManagerMessageRecord = {
         sessionId: id,
         order,
-        role: message.role === 'assistant' ? 'assistant' : 'user',
+        role: normalizeManagerMessageRole(message.role),
         content: String(message.content || ''),
+        name: message.name ? String(message.name) : undefined,
         error: message.error === true,
         createdAt: timestamp,
         updatedAt: timestamp,
         provider: 'provider' in message ? String(message.provider || '') : undefined,
         model: 'model' in message ? String(message.model || '') : undefined,
         finishReason: 'finishReason' in message ? String(message.finishReason || '') : undefined,
+        thoughts: 'thoughts' in message ? cloneSerializable(message.thoughts, undefined) : undefined,
+        providerPayload: 'providerPayload' in message ? cloneSerializable(message.providerPayload, undefined) : undefined,
+        toolCalls: normalizeManagerToolCalls(message),
+        toolCallId: String(message.toolCallId || message.tool_call_id || '').trim() || undefined,
+        toolName: String(message.toolName || '').trim() || undefined,
+        toolDisplay: 'toolDisplay' in message ? cloneSerializable(message.toolDisplay, undefined) : undefined,
     };
     await db.transaction('rw', tavernManagerMessagesTable, tavernSessionsTable, async () => {
         await tavernManagerMessagesTable.put(record);
@@ -784,7 +837,9 @@ export async function appendTavernManagerMessage(
 export async function updateTavernManagerMessage(
     sessionId = '',
     order = -1,
-    patch: Partial<Pick<TavernManagerMessageRecord, 'content' | 'error' | 'provider' | 'model' | 'finishReason'>>,
+    patch: Partial<Pick<TavernManagerMessageRecord, 'content' | 'error' | 'provider' | 'model' | 'finishReason' | 'thoughts' | 'providerPayload' | 'toolCalls' | 'toolCallId' | 'toolName' | 'toolDisplay'>> & {
+        clearProtocolPayload?: boolean;
+    },
 ): Promise<TavernManagerMessageRecord | null> {
     const id = String(sessionId || '').trim();
     const messageOrder = Number(order);
@@ -800,6 +855,19 @@ export async function updateTavernManagerMessage(
     if ('provider' in patch) {update.provider = String(patch.provider || '');}
     if ('model' in patch) {update.model = String(patch.model || '');}
     if ('finishReason' in patch) {update.finishReason = String(patch.finishReason || '');}
+    if ('thoughts' in patch) {update.thoughts = cloneSerializable(patch.thoughts, undefined);}
+    if ('providerPayload' in patch) {update.providerPayload = cloneSerializable(patch.providerPayload, undefined);}
+    if ('toolCalls' in patch) {update.toolCalls = normalizeManagerToolCalls(patch);}
+    if ('toolCallId' in patch) {update.toolCallId = String(patch.toolCallId || '').trim();}
+    if ('toolName' in patch) {update.toolName = String(patch.toolName || '').trim();}
+    if ('toolDisplay' in patch) {update.toolDisplay = cloneSerializable(patch.toolDisplay, undefined);}
+    if (patch.clearProtocolPayload === true) {
+        update.providerPayload = undefined;
+        update.toolCalls = undefined;
+        update.toolCallId = undefined;
+        update.toolName = undefined;
+        update.toolDisplay = undefined;
+    }
     await tavernManagerMessagesTable.update([id, messageOrder], update);
     await tavernSessionsTable.update(id, { updatedAt: timestamp });
     return await tavernManagerMessagesTable.get([id, messageOrder]) || null;
@@ -974,6 +1042,17 @@ export async function updateTavernManagerRun(
     if ('assistantOrder' in patch) {update.assistantOrder = Number(patch.assistantOrder);}
     await tavernManagerRunsTable.update(id, update);
     await tavernSessionsTable.update(existing.sessionId, { updatedAt: now() });
+    return await tavernManagerRunsTable.get(id) || null;
+}
+
+export async function touchRunningTavernManagerRun(managerRunId = ''): Promise<TavernManagerRunRecord | null> {
+    const id = String(managerRunId || '').trim();
+    if (!id) {return null;}
+    const existing = await tavernManagerRunsTable.get(id);
+    if (!existing || existing.status !== 'running') {return existing || null;}
+    const timestamp = now();
+    await tavernManagerRunsTable.update(id, { updatedAt: timestamp });
+    await tavernSessionsTable.update(existing.sessionId, { updatedAt: timestamp });
     return await tavernManagerRunsTable.get(id) || null;
 }
 
@@ -1310,6 +1389,15 @@ export async function rollbackManagerRunMemoryWrites(managerRunId = ''): Promise
         derivedAt: now(),
         updatedAt: now(),
     });
+    if (Number.isInteger(Number(run.userOrder)) && Number.isInteger(Number(run.assistantOrder))) {
+        const summaries = await tavernTurnSummariesTable.where('sessionId').equals(run.sessionId).toArray();
+        await Promise.all(summaries
+            .filter((summary) => summary.userOrder === run.userOrder && summary.assistantOrder === run.assistantOrder)
+            .map((summary) => tavernTurnSummariesTable.update(summary.id, {
+                status: 'stale',
+                updatedAt: now(),
+            })));
+    }
     await updateTavernManagerRun(id, {
         status: 'rolled_back',
         error: mergeRollbackError(run.error, conflicts),
