@@ -47,13 +47,11 @@
     gap: 34px;
     overflow: auto;
     background:
-        repeating-linear-gradient(
-            0deg,
+        repeating-linear-gradient(0deg,
             transparent,
             transparent 39px,
             rgba(26, 26, 26, 0.025) 39px,
-            rgba(26, 26, 26, 0.025) 40px
-        ),
+            rgba(26, 26, 26, 0.025) 40px),
         var(--xb-chat-scroll-bg);
     padding: var(--xb-chat-scroll-padding);
     scroll-padding: 44px 0 38px;
@@ -61,13 +59,11 @@
 
 .xb-os-shell.theme-dark .tavern-chat.xb-page .chat-scroll {
     background:
-        repeating-linear-gradient(
-            0deg,
+        repeating-linear-gradient(0deg,
             transparent,
             transparent 39px,
             rgba(184, 178, 166, 0.016) 39px,
-            rgba(184, 178, 166, 0.016) 40px
-        ),
+            rgba(184, 178, 166, 0.016) 40px),
         var(--xb-chat-scroll-bg);
 }
 
@@ -231,7 +227,7 @@
     letter-spacing: 0.04em;
 }
 
-.chat-bubble > .xb-tavern-markdown {
+.chat-bubble>.xb-tavern-markdown {
     margin-top: 0;
 }
 
@@ -523,7 +519,9 @@
     pointer-events: auto;
 }
 
-.tavern-chat.xb-page.chat-layout-chat .chat-bubble {
+.tavern-chat.xb-page.chat-layout-chat .chat-bubble,
+.tavern-chat.xb-page.chat-layout-balanced .chat-bubble,
+.tavern-chat.xb-page.chat-layout-editor .chat-bubble {
     width: 100%;
 }
 

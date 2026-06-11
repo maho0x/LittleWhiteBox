@@ -53,11 +53,13 @@
 }
 
 .tavern-chat.xb-page.chat-layout-balanced {
-    grid-template-columns: 250px minmax(420px, 0.95fr) minmax(460px, 1.1fr);
+    --xb-chat-scroll-padding: 34px min(6vw, 64px) 38px;
+    grid-template-columns: 250px minmax(420px, 1fr) minmax(420px, 1fr);
 }
 
 .tavern-chat.xb-page.chat-layout-editor {
-    grid-template-columns: 250px minmax(340px, 0.68fr) minmax(560px, 1.32fr);
+    --xb-chat-scroll-padding: 34px min(6vw, 64px) 38px;
+    grid-template-columns: 250px minmax(340px, 0.74fr) minmax(520px, 1.26fr);
 }
 
 .tavern-chat.xb-page .chat-workbench {
@@ -185,7 +187,7 @@
         --xb-manager-scroll-padding: 22px 18px 28px;
     }
 
-    .chat-head > div:first-child {
+    .chat-head>div:first-child {
         min-width: 0;
     }
 
@@ -225,6 +227,7 @@
 }
 
 @media (max-width: 760px) {
+
     .tavern-chat.xb-page,
     .tavern-chat.xb-page.chat-focus-chat,
     .tavern-chat.xb-page.chat-focus-manager,

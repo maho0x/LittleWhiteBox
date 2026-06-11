@@ -752,7 +752,16 @@ const effectiveContext = computed<XbTavernContext>(() => ({
 }));
 const effectiveCharacter = computed(() => effectiveContext.value.character || {});
 const characterName = computed(() => displayableTavernName(effectiveCharacter.value.name || '', '未选择角色'));
-const characterAvatar = computed(() => String(effectiveCharacter.value.avatar || '').trim());
+const characterAvatar = computed(() => {
+    const primaryAvatar = String(effectiveCharacter.value.avatar || '').trim();
+    const characterId = String(effectiveCharacter.value.id || selectedCharacterId.value || '').trim();
+    const characterNameValue = String(effectiveCharacter.value.name || '').trim();
+    const matchedCharacter = availableCharacters.value.find((character) => String(character.id || '').trim() === characterId)
+        || availableCharacters.value.find((character) => String(character.name || '').trim() === characterNameValue);
+    const fallbackAvatar = String(matchedCharacter?.avatar || '').trim();
+    const candidates = [primaryAvatar, fallbackAvatar].filter((avatar, index, list) => avatar && list.indexOf(avatar) === index);
+    return candidates.find((avatar) => !brokenAvatarUrls.value[avatar]) || candidates[0] || '';
+});
 const visibleCharacterAvatar = computed(() => {
     const url = characterAvatar.value;
     return url && !brokenAvatarUrls.value[url] ? url : '';

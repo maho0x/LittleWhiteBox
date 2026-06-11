@@ -2081,6 +2081,16 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             background: rgba(0, 0, 0, 0.26);
             color: var(--xb-text-main);
         }
+        .xb-ebook-settings-body .xb-assistant-config select {
+            color-scheme: dark;
+            background: rgba(15, 18, 24, 0.94);
+            color: rgba(244, 247, 255, 0.96);
+        }
+        .xb-ebook-settings-body .xb-assistant-config select option,
+        .xb-ebook-settings-body .xb-assistant-config select optgroup {
+            background: #151922;
+            color: rgba(244, 247, 255, 0.96);
+        }
         .xb-ebook-settings-body .xb-assistant-inline-input,
         .xb-ebook-settings-body .xb-assistant-checkbox-row {
             display: grid;
@@ -2901,6 +2911,16 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         .theme-light .xb-ebook-settings-body .xb-assistant-config input,
         .theme-light .xb-ebook-settings-body .xb-assistant-config select {
             border-color: var(--xb-line);
+            background: #fffdf8;
+            color: var(--xb-text-main);
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-config select {
+            color-scheme: light;
+            background: #fffdf8;
+            color: var(--xb-text-main);
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-config select option,
+        .theme-light .xb-ebook-settings-body .xb-assistant-config select optgroup {
             background: #fffdf8;
             color: var(--xb-text-main);
         }

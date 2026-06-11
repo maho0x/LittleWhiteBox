@@ -118,10 +118,38 @@
     min-width: 0;
 }
 
+.tavern-api-settings .xb-assistant-inline-input.xb-assistant-model-row {
+    align-items: end;
+}
+
 .tavern-api-settings .xb-assistant-inline-input > input,
 .tavern-api-settings .xb-assistant-inline-input > select {
     min-width: 0;
     width: 100%;
+}
+
+.tavern-api-settings .xb-assistant-config select {
+    color-scheme: dark;
+    background: rgba(22, 26, 34, 0.96);
+    color: rgba(244, 247, 255, 0.96);
+}
+
+.xb-os-shell.theme-light .tavern-api-settings .xb-assistant-config select {
+    color-scheme: light;
+    background: rgba(255, 255, 255, 0.94);
+    color: #17202c;
+}
+
+.tavern-api-settings .xb-assistant-config select option,
+.tavern-api-settings .xb-assistant-config select optgroup {
+    background: #161a22;
+    color: rgba(244, 247, 255, 0.96);
+}
+
+.xb-os-shell.theme-light .tavern-api-settings .xb-assistant-config select option,
+.xb-os-shell.theme-light .tavern-api-settings .xb-assistant-config select optgroup {
+    background: #ffffff;
+    color: #17202c;
 }
 
 .tavern-api-settings .xb-assistant-inline-input button,
@@ -129,6 +157,11 @@
     min-height: 38px;
     border-radius: 12px;
     padding: 0 14px;
+}
+
+.tavern-api-settings .xb-assistant-inline-input.xb-assistant-model-row > button {
+    align-self: end;
+    min-height: 44px;
 }
 
 .tavern-api-settings .xb-assistant-temperature-row {

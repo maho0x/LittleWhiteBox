@@ -678,7 +678,7 @@ function stepTimeline(offset: number) {
         :style="progressStyle"
       />
       <div class="tavern-map-badge">
-        <span>{{ replayMode === 'full' ? '完整重绘' : replayMode === 'timeline' ? `回合 ${timelineLabel}` : '最近回合' }}</span>
+        <span>{{ replayMode === 'full' ? '完整重绘' : replayMode === 'timeline' ? `回合 ${timelineLabel}` : '地图更新' }}</span>
         <strong>{{ patchLabel }}</strong>
       </div>
       <div

@@ -151,7 +151,7 @@ const {
             aria-label="删除会话"
             @click="removeSession(session.id, $event)"
           >
-            ×
+            删除
           </button>
         </div>
         <button
