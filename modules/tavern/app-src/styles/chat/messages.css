@@ -67,6 +67,55 @@
         var(--xb-chat-scroll-bg);
 }
 
+.tavern-chat.xb-page .chat-runtime-event.scene-narration {
+    position: relative;
+    align-self: center;
+    width: min(100%, 860px);
+    display: flex;
+    justify-content: center;
+    margin: -8px 0 -2px;
+    padding: 0 18px;
+}
+
+.tavern-chat.xb-page .chat-runtime-event.scene-narration::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(120, 112, 98, 0.42), transparent);
+    transform: translateY(-50%);
+}
+
+.tavern-chat.xb-page .chat-runtime-event .scene-tag {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 26px;
+    padding: 0 16px 1px;
+    border: 1px solid rgba(120, 112, 98, 0.18);
+    border-radius: 999px;
+    background: var(--xb-chat-panel-bg);
+    color: var(--xb-ink-faint);
+    box-shadow: 0 4px 14px rgba(26, 26, 26, 0.04);
+    font: 700 10px/1 var(--xb-font-mono);
+    letter-spacing: 0.18em;
+    white-space: nowrap;
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .chat-runtime-event.scene-narration::before {
+    background: linear-gradient(90deg, transparent, rgba(188, 180, 168, 0.3), transparent);
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .chat-runtime-event .scene-tag {
+    border-color: rgba(188, 180, 168, 0.18);
+    background: var(--xb-chat-panel-bg);
+    box-shadow: none;
+}
+
 .chat-bubble {
     position: relative;
     align-self: center;

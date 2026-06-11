@@ -378,158 +378,171 @@ onUpdated(() => {
               >
                 展开较早记录 {{ chatMessageWindow.hiddenBefore }} 条
               </div>
-              <div
+              <template
                 v-for="message in visibleChatMessages"
                 :key="`${message.sessionId}-${message.order}`"
-                :data-chat-anchor-key="`${message.sessionId}:${message.order}`"
-                class="chat-bubble"
-                :class="[
-                  message.role === 'user' ? 'from-user' : 'from-assistant',
-                  { 'is-error': message.error },
-                ]"
               >
-                <div class="bubble-meta">
-                  <span class="bubble-nameplate">
-                    <span class="bubble-avatar-stamp">
-                      <img
-                        v-if="message.role === 'user' && visibleUserAvatar"
-                        :src="visibleUserAvatar"
-                        alt=""
-                        @error="rememberBrokenAvatar(visibleUserAvatar)"
-                      >
-                      <img
-                        v-else-if="message.role !== 'user' && visibleCharacterAvatar"
-                        :src="visibleCharacterAvatar"
-                        alt=""
-                        @error="rememberBrokenAvatar(visibleCharacterAvatar)"
-                      >
-                      <span v-else>{{ String(roleLabel(message.role)).slice(0, 1) }}</span>
+                <div
+                  :data-chat-anchor-key="`${message.sessionId}:${message.order}`"
+                  class="chat-bubble"
+                  :class="[
+                    message.role === 'user' ? 'from-user' : 'from-assistant',
+                    { 'is-error': message.error },
+                  ]"
+                >
+                  <div class="bubble-meta">
+                    <span class="bubble-nameplate">
+                      <span class="bubble-avatar-stamp">
+                        <img
+                          v-if="message.role === 'user' && visibleUserAvatar"
+                          :src="visibleUserAvatar"
+                          alt=""
+                          @error="rememberBrokenAvatar(visibleUserAvatar)"
+                        >
+                        <img
+                          v-else-if="message.role !== 'user' && visibleCharacterAvatar"
+                          :src="visibleCharacterAvatar"
+                          alt=""
+                          @error="rememberBrokenAvatar(visibleCharacterAvatar)"
+                        >
+                        <span v-else>{{ String(roleLabel(message.role)).slice(0, 1) }}</span>
+                      </span>
+                      <span class="bubble-role-name">{{ message.error ? '错误' : roleLabel(message.role) }}</span>
                     </span>
-                    <span class="bubble-role-name">{{ message.error ? '错误' : roleLabel(message.role) }}</span>
-                  </span>
-                  <small>{{ formatMessageTime(message.createdAt) }}</small>
-                </div>
-                <div
-                  v-if="isEditingMessage(message)"
-                  class="message-edit-panel"
-                >
-                  <textarea
-                    v-model="editingMessageDraft"
-                    class="message-edit-box"
-                    rows="6"
-                    :data-message-editor="messageKey(message)"
-                    @input="handleEditInput"
-                    @keydown="handleEditKeydown($event, message)"
-                  />
-                  <div class="message-edit-actions">
-                    <button
-                      type="button"
-                      :disabled="!isEditingMessageDirty(message)"
-                      @click="saveEditMessage(message)"
-                    >
-                      {{ message.role === 'user' ? '保存' : '保存修改' }}
-                    </button>
-                    <button
-                      v-if="message.role === 'user'"
-                      type="button"
-                      :disabled="!isEditingMessageDirty(message)"
-                      @click="saveEditMessage(message, { rerun: true })"
-                    >
-                      保存并重发
-                    </button>
-                    <button
-                      type="button"
-                      @click="cancelEditMessage"
-                    >
-                      取消
-                    </button>
+                    <small>{{ formatMessageTime(message.createdAt) }}</small>
                   </div>
-                </div>
-                <details
-                  v-if="!isEditingMessage(message) && thoughtBlocks(message).length"
-                  class="tavern-thought-details"
-                >
-                  <summary>{{ thoughtSummaryLabel(message) }}</summary>
                   <div
-                    v-for="(thought, thoughtIndex) in thoughtBlocks(message)"
-                    :key="`${message.sessionId}-${message.order}-thought-${thoughtIndex}`"
-                    class="tavern-thought-block"
+                    v-if="isEditingMessage(message)"
+                    class="message-edit-panel"
                   >
-                    <div class="tavern-thought-label">
-                      {{ thought.label }}
+                    <textarea
+                      v-model="editingMessageDraft"
+                      class="message-edit-box"
+                      rows="6"
+                      :data-message-editor="messageKey(message)"
+                      @input="handleEditInput"
+                      @keydown="handleEditKeydown($event, message)"
+                    />
+                    <div class="message-edit-actions">
+                      <button
+                        type="button"
+                        :disabled="!isEditingMessageDirty(message)"
+                        @click="saveEditMessage(message)"
+                      >
+                        {{ message.role === 'user' ? '保存' : '保存修改' }}
+                      </button>
+                      <button
+                        v-if="message.role === 'user'"
+                        type="button"
+                        :disabled="!isEditingMessageDirty(message)"
+                        @click="saveEditMessage(message, { rerun: true })"
+                      >
+                        保存并重发
+                      </button>
+                      <button
+                        type="button"
+                        @click="cancelEditMessage"
+                      >
+                        取消
+                      </button>
                     </div>
-                    <pre>{{ thought.text }}</pre>
                   </div>
-                </details>
-                <div
-                  v-if="!isEditingMessage(message)"
-                  class="xb-tavern-markdown"
-                  :data-markdown-signature="markdownSignature(message.content)"
-                  v-html="renderChatMarkdown(message.content)"
-                />
-                <div
-                  v-if="!isEditingMessage(message)"
-                  class="message-actions"
-                  :class="{ 'has-status': !!drawMessageStatusText(message) }"
-                >
-                  <span
-                    v-if="drawMessageStatusText(message)"
-                    class="message-draw-status"
-                    :class="drawMessageStatusClass(message)"
+                  <details
+                    v-if="!isEditingMessage(message) && thoughtBlocks(message).length"
+                    class="tavern-thought-details"
                   >
-                    {{ drawMessageStatusText(message) }}
-                  </span>
-                  <button
-                    type="button"
-                    :disabled="!canDrawMessage(message)"
-                    :class="[actionFeedback(message, 'draw'), { 'is-running': isDrawingMessage(message) }]"
-                    :title="drawMessageTitle(message)"
-                    :aria-label="drawMessageTitle(message)"
-                    @click="drawMessage(message)"
+                    <summary>{{ thoughtSummaryLabel(message) }}</summary>
+                    <div
+                      v-for="(thought, thoughtIndex) in thoughtBlocks(message)"
+                      :key="`${message.sessionId}-${message.order}-thought-${thoughtIndex}`"
+                      class="tavern-thought-block"
+                    >
+                      <div class="tavern-thought-label">
+                        {{ thought.label }}
+                      </div>
+                      <pre>{{ thought.text }}</pre>
+                    </div>
+                  </details>
+                  <div
+                    v-if="!isEditingMessage(message)"
+                    class="xb-tavern-markdown"
+                    :data-markdown-signature="markdownSignature(message.content)"
+                    v-html="renderChatMarkdown(message.content)"
+                  />
+                  <div
+                    v-if="!isEditingMessage(message)"
+                    class="message-actions"
+                    :class="{ 'has-status': !!drawMessageStatusText(message) }"
                   >
-                    {{ isDrawingMessage(message) ? '■' : '🎨' }}
-                  </button>
-                  <button
-                    type="button"
-                    :class="actionFeedback(message, 'copy')"
-                    title="复制"
-                    aria-label="复制"
-                    @click="copyMessage(message)"
-                  >
-                    ⧉
-                  </button>
-                  <button
-                    type="button"
-                    :disabled="!canEditMessage(message)"
-                    :class="actionFeedback(message, 'edit')"
-                    title="编辑"
-                    aria-label="编辑"
-                    @click="startEditMessage(message)"
-                  >
-                    ✎
-                  </button>
-                  <button
-                    type="button"
-                    :disabled="!canRerunMessage(message)"
-                    :class="actionFeedback(message, 'rerun')"
-                    :title="message.role === 'user' ? '从这里重发' : '重新生成这条回复'"
-                    :aria-label="message.role === 'user' ? '从这里重发' : '重新生成这条回复'"
-                    @click="rerunFromMessage(message)"
-                  >
-                    ↻
-                  </button>
-                  <button
-                    type="button"
-                    :disabled="isRunning"
-                    :class="actionFeedback(message, 'delete')"
-                    title="删除"
-                    aria-label="删除"
-                    @click="deleteMessageTurn(message)"
-                  >
-                    ⌫
-                  </button>
+                    <span
+                      v-if="drawMessageStatusText(message)"
+                      class="message-draw-status"
+                      :class="drawMessageStatusClass(message)"
+                    >
+                      {{ drawMessageStatusText(message) }}
+                    </span>
+                    <button
+                      type="button"
+                      :disabled="!canDrawMessage(message)"
+                      :class="[actionFeedback(message, 'draw'), { 'is-running': isDrawingMessage(message) }]"
+                      :title="drawMessageTitle(message)"
+                      :aria-label="drawMessageTitle(message)"
+                      @click="drawMessage(message)"
+                    >
+                      {{ isDrawingMessage(message) ? '■' : '🎨' }}
+                    </button>
+                    <button
+                      type="button"
+                      :class="actionFeedback(message, 'copy')"
+                      title="复制"
+                      aria-label="复制"
+                      @click="copyMessage(message)"
+                    >
+                      ⧉
+                    </button>
+                    <button
+                      type="button"
+                      :disabled="!canEditMessage(message)"
+                      :class="actionFeedback(message, 'edit')"
+                      title="编辑"
+                      aria-label="编辑"
+                      @click="startEditMessage(message)"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      :disabled="!canRerunMessage(message)"
+                      :class="actionFeedback(message, 'rerun')"
+                      :title="message.role === 'user' ? '从这里重发' : '重新生成这条回复'"
+                      :aria-label="message.role === 'user' ? '从这里重发' : '重新生成这条回复'"
+                      @click="rerunFromMessage(message)"
+                    >
+                      ↻
+                    </button>
+                    <button
+                      type="button"
+                      :disabled="isRunning"
+                      :class="actionFeedback(message, 'delete')"
+                      title="删除"
+                      aria-label="删除"
+                      @click="deleteMessageTurn(message)"
+                    >
+                      ⌫
+                    </button>
+                  </div>
                 </div>
-              </div>
+                <div
+                  v-for="(event, eventIndex) in (message.role === 'user' ? (message.runtimeEvents || []) : [])"
+                  :key="`${message.sessionId}-${message.order}-runtime-event-${event.type}-${eventIndex}`"
+                  class="chat-runtime-event scene-narration"
+                  aria-hidden="true"
+                >
+                  <div class="scene-tag">
+                    {{ event.label }}
+                  </div>
+                </div>
+              </template>
               <div
                 v-if="isRunning && (runtimeText || runtimeThoughts.length)"
                 data-chat-anchor-key="streaming:content"

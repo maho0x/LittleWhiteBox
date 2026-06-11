@@ -30,6 +30,10 @@ import {
     normalizeTavernSessionContract,
     type TavernSessionContract,
 } from './session-contract';
+import {
+    normalizeTavernRuntimeEvents,
+    type TavernRuntimeEvent,
+} from './runtime-events';
 
 export interface TavernSessionRecord {
     id: string;
@@ -83,6 +87,7 @@ export interface TavernMessageRecord {
     presetId?: string;
     presetName?: string;
     requestSnapshot?: unknown;
+    runtimeEvents?: TavernRuntimeEvent[];
 }
 
 export interface TavernManagerMessageRecord {
@@ -266,6 +271,7 @@ export type TavernAppendMessageInput = XbTavernMessage & {
     presetId?: string;
     presetName?: string;
     requestSnapshot?: unknown;
+    runtimeEvents?: TavernRuntimeEvent[];
 };
 
 export type TavernAppendManagerMessageInput = {
@@ -453,6 +459,17 @@ function normalizeManagerToolCalls(input: TavernAppendManagerMessageInput | Part
         })),
     ].filter((toolCall) => toolCall.name);
     return normalized.length ? normalized : undefined;
+}
+
+function normalizeMessageRuntimeEvents(value: unknown): TavernRuntimeEvent[] {
+    return normalizeTavernRuntimeEvents(value);
+}
+
+function normalizeStoredTavernMessageRecord(record: TavernMessageRecord): TavernMessageRecord {
+    return {
+        ...record,
+        runtimeEvents: normalizeMessageRuntimeEvents(record.runtimeEvents),
+    };
 }
 
 function createTurnSummaryId(sessionId = '', userOrder = -1, assistantOrder = -1): string {
@@ -778,18 +795,19 @@ export async function appendTavernMessage(sessionId: string, message: TavernAppe
         presetId: 'presetId' in message ? String(message.presetId || '') : undefined,
         presetName: 'presetName' in message ? String(message.presetName || '') : undefined,
         requestSnapshot: 'requestSnapshot' in message ? cloneSerializable(message.requestSnapshot, undefined) : undefined,
+        runtimeEvents: 'runtimeEvents' in message ? normalizeMessageRuntimeEvents(message.runtimeEvents) : [],
     };
     await db.transaction('rw', tavernMessagesTable, tavernSessionsTable, async () => {
         await tavernMessagesTable.put(record);
         await tavernSessionsTable.update(id, { updatedAt: timestamp });
     });
-    return record;
+    return normalizeStoredTavernMessageRecord(record);
 }
 
 export async function updateTavernMessage(
     sessionId = '',
     order = -1,
-    patch: Partial<Pick<TavernMessageRecord, 'content' | 'error' | 'thoughts'>>,
+    patch: Partial<Pick<TavernMessageRecord, 'content' | 'error' | 'thoughts' | 'runtimeEvents'>>,
 ): Promise<TavernMessageRecord | null> {
     const id = String(sessionId || '').trim();
     const messageOrder = Number(order);
@@ -800,9 +818,11 @@ export async function updateTavernMessage(
     if ('content' in patch) {update.content = String(patch.content || '');}
     if ('error' in patch) {update.error = patch.error === true;}
     if ('thoughts' in patch) {update.thoughts = cloneSerializable(patch.thoughts, undefined);}
+    if ('runtimeEvents' in patch) {update.runtimeEvents = normalizeMessageRuntimeEvents(patch.runtimeEvents);}
     await tavernMessagesTable.update([id, messageOrder], update);
     await tavernSessionsTable.update(id, { updatedAt: now() });
-    return await tavernMessagesTable.get([id, messageOrder]) || null;
+    const updated = await tavernMessagesTable.get([id, messageOrder]);
+    return updated ? normalizeStoredTavernMessageRecord(updated) : null;
 }
 
 export async function deleteTavernMessages(sessionId = '', orders: number[] = []): Promise<number> {
@@ -827,7 +847,8 @@ export async function deleteTavernMessages(sessionId = '', orders: number[] = []
 export async function listTavernMessages(sessionId = ''): Promise<TavernMessageRecord[]> {
     const id = String(sessionId || '').trim();
     if (!id) {return [];}
-    return tavernMessagesTable.where('sessionId').equals(id).sortBy('order');
+    return (await tavernMessagesTable.where('sessionId').equals(id).sortBy('order'))
+        .map(normalizeStoredTavernMessageRecord);
 }
 
 export async function appendTavernManagerMessage(

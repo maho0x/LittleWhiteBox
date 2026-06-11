@@ -30,6 +30,7 @@ import {
     mergeWorldEntryStates,
     normalizeTavernSessionState,
     replaceTavernSessionState,
+    updateTavernMessage,
     updateTavernSessionState,
     updateTavernSessionSnapshot,
     type TavernMessageRecord,
@@ -38,6 +39,15 @@ import {
 } from '../../shared/session-db';
 import { rebuildTavernMemoryDerivedIndex } from '../../shared/memory-files';
 import { buildXbTavernBrain, buildXbTavernBrainAsync } from '../../shared/brain';
+import {
+    createChanceEncounterEvent,
+    getChanceEncounterEvent,
+    hasChanceEncounterEvent,
+    insertChanceEncounterPromptAfterCurrentUser,
+    RANDOM_ENCOUNTER_COOLDOWN_TURNS,
+    RANDOM_ENCOUNTER_PROBABILITY,
+    type TavernRuntimeEvent,
+} from '../../shared/runtime-events';
 import {
     countRegexApplications,
     hasRegexApplications,
@@ -70,6 +80,44 @@ const TAVERN_IMAGE_MARKER_REGEX = /\[tavern-image:[a-z0-9\-_]+\]/gi;
 
 function stripTavernImageMarkers(text = ''): string {
     return String(text || '').replace(TAVERN_IMAGE_MARKER_REGEX, '').trim();
+}
+
+function lastUserMessage(messages: TavernMessageRecord[] = []): TavernMessageRecord | null {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message?.role === 'user' && !message.error) {
+            return message;
+        }
+    }
+    return null;
+}
+
+function isRandomEncounterCooldownActive(messages: TavernMessageRecord[] = []): boolean {
+    if (RANDOM_ENCOUNTER_COOLDOWN_TURNS <= 0) {return false;}
+    const latestUser = lastUserMessage(messages);
+    return !!latestUser && hasChanceEncounterEvent(latestUser.runtimeEvents);
+}
+
+function shouldTriggerRandomEncounter(roll: number): boolean {
+    return Number.isFinite(roll) && roll < RANDOM_ENCOUNTER_PROBABILITY;
+}
+
+function resolveRandomEncounterForTurn(input: {
+    runtime: TavernSessionContractRuntime;
+    sessionMessages: TavernMessageRecord[];
+    historyMessages: TavernMessageRecord[];
+    reusedUserMessage: TavernMessageRecord | null;
+    rerollRuntimeEvents?: boolean;
+    randomEncounterRoll?: () => number;
+}): TavernRuntimeEvent | null {
+    if (!input.runtime.includeRandomEncounters) {return null;}
+    const existingEncounter = getChanceEncounterEvent(input.reusedUserMessage?.runtimeEvents);
+    if (existingEncounter) {return existingEncounter;}
+    if (input.reusedUserMessage && input.rerollRuntimeEvents !== true) {return null;}
+    const cooldownSource = input.reusedUserMessage ? input.historyMessages : input.sessionMessages;
+    if (isRandomEncounterCooldownActive(cooldownSource)) {return null;}
+    const roll = input.randomEncounterRoll ? input.randomEncounterRoll() : Math.random();
+    return shouldTriggerRandomEncounter(roll) ? createChanceEncounterEvent() : null;
 }
 
 export interface TavernRunOnceOptions {
@@ -156,6 +204,8 @@ export interface XbTavernRunTurnInput {
     applyRegex?: TavernApplyRegex;
     applySubstituteParams?: TavernApplySubstituteParams;
     getNativeWorldInfoRuntime?: TavernGetNativeWorldInfoRuntime;
+    randomEncounterRoll?: () => number;
+    rerollRuntimeEvents?: boolean;
 }
 
 export interface XbTavernRunResult {
@@ -1240,6 +1290,14 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             text: inputRegex.text,
             options: substituteOptions,
         }));
+    const chanceEncounterEvent = resolveRandomEncounterForTurn({
+        runtime: sessionContractRuntime,
+        sessionMessages,
+        historyMessages,
+        reusedUserMessage,
+        rerollRuntimeEvents: input.rerollRuntimeEvents,
+        randomEncounterRoll: input.randomEncounterRoll,
+    });
     const generationTrigger = String(input.generationTrigger || (reusedUserMessage ? 'regenerate' : 'normal'));
     const contextForBuildRaw: XbTavernContext = {
         ...liveContext,
@@ -1283,9 +1341,10 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         diagnostics: input.diagnostics || {},
         regexApplications,
         transformConversationMessages: async (messages) => {
+            const encounterMessages = insertChanceEncounterPromptAfterCurrentUser(messages, chanceEncounterEvent);
             const substitutedMessages = await applyPromptSubstitutionToMessages({
                 applySubstituteParams: input.applySubstituteParams,
-                messages,
+                messages: encounterMessages,
                 options: substituteOptions,
             });
             const applied = await applyPromptRegexToConversationMessages({
@@ -1362,7 +1421,16 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     }
     const presetId = String(chatPreset.id || session.chatPresetId || session.presetId || '');
     const presetName = String(chatPreset.name || session.chatPresetName || session.presetName || '');
-    const userMessage = reusedUserMessage || await appendTavernMessage(session.id, {
+    let userMessage = reusedUserMessage;
+    if (userMessage) {
+        const existingEncounter = getChanceEncounterEvent(userMessage.runtimeEvents);
+        if (!existingEncounter && chanceEncounterEvent) {
+            userMessage = await updateTavernMessage(session.id, userMessage.order, {
+                runtimeEvents: [chanceEncounterEvent],
+            }) || userMessage;
+        }
+    } else {
+        userMessage = await appendTavernMessage(session.id, {
             role: 'user',
             content: currentUserMessage,
             contextSnapshot: liveContext,
@@ -1372,7 +1440,9 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             presetId,
             presetName,
             requestSnapshot,
-    });
+            runtimeEvents: chanceEncounterEvent ? [chanceEncounterEvent] : [],
+        });
+    }
     await notifyRunCallback(() => input.onUserMessageSaved?.(session.id, userMessage));
 
     try {

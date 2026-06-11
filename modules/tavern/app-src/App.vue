@@ -3969,7 +3969,10 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rerun?: 
         await rerunFromMessage(message);
         return;
     }
-    const updated = await updateTavernMessage(message.sessionId, message.order, { content });
+    const updated = await updateTavernMessage(message.sessionId, message.order, {
+        content,
+        ...(message.role === 'user' ? { runtimeEvents: [] } : {}),
+    });
     if (updated) {
         const rollback = await cancelAndRollbackXbTavernManagersForMessageRange(message.sessionId, message.order);
         await markTavernMemoryStaleFromOrder(message.sessionId, message.order);
@@ -3984,7 +3987,15 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rerun?: 
     cancelEditMessage();
     flashMessageAction(updated || message, 'edit', !!updated);
     if (updated && options.rerun) {
-        await rerunFromMessage(updated);
+        if (updated.role === 'user') {
+            await runOnce({
+                messageText: updated.content,
+                reuseUserMessageOrder: updated.order,
+                rerollRuntimeEvents: true,
+            });
+        } else {
+            await rerunFromMessage(updated);
+        }
     } else if (updated) {
         await rebuildSelectedSessionRuntimeState();
     }
@@ -4756,7 +4767,7 @@ async function warmupMemoryTokenizer() {
     }
 }
 
-async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: number } = {}) {
+async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: number; rerollRuntimeEvents?: boolean } = {}) {
     if (isRunning.value) {
         cancelActiveRun();
         return;
@@ -4801,6 +4812,7 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
             historyMode: historyMode.value,
             signal: controller.signal,
             reuseUserMessageOrder: options.reuseUserMessageOrder,
+            rerollRuntimeEvents: options.rerollRuntimeEvents,
             runManager: true,
             applyRegex: applyTavernRegex,
             applySubstituteParams: applyTavernSubstituteParams,
@@ -4812,8 +4824,10 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
             onUserMessageSaved: async (sessionId, message) => {
                 selectedSessionId.value = sessionId;
                 await setSelectedTavernSessionId(sessionId);
-                const exists = sessionMessages.value.some((item) => item.sessionId === message.sessionId && item.order === message.order);
-                sessionMessages.value = exists ? sessionMessages.value : [...sessionMessages.value, message].sort((left, right) => left.order - right.order);
+                const existingIndex = sessionMessages.value.findIndex((item) => item.sessionId === message.sessionId && item.order === message.order);
+                sessionMessages.value = existingIndex >= 0
+                    ? sessionMessages.value.map((item, index) => index === existingIndex ? message : item)
+                    : [...sessionMessages.value, message].sort((left, right) => left.order - right.order);
                 currentUserMessage.value = '';
                 void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
                 await refreshSessions();
@@ -4821,8 +4835,10 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
             },
             onAssistantMessageSaved: async (sessionId, message) => {
                 selectedSessionId.value = sessionId;
-                const exists = sessionMessages.value.some((item) => item.sessionId === message.sessionId && item.order === message.order);
-                sessionMessages.value = exists ? sessionMessages.value : [...sessionMessages.value, message].sort((left, right) => left.order - right.order);
+                const existingIndex = sessionMessages.value.findIndex((item) => item.sessionId === message.sessionId && item.order === message.order);
+                sessionMessages.value = existingIndex >= 0
+                    ? sessionMessages.value.map((item, index) => index === existingIndex ? message : item)
+                    : [...sessionMessages.value, message].sort((left, right) => left.order - right.order);
                 await refreshSessions();
                 scrollChatToBottom();
             },

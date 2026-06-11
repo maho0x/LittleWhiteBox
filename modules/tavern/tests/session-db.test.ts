@@ -43,6 +43,7 @@ import db, {
 import { DEFAULT_XB_TAVERN_PRESET_ID, createDefaultXbTavernPreset } from '../shared/presets';
 import { DEFAULT_TAVERN_SESSION_CONTRACT, mergeTavernSessionContract } from '../shared/session-contract';
 import { buildXbTavernMessages, createXbTavernBuildSnapshot } from '../shared/message-assembler';
+import { createChanceEncounterEvent } from '../shared/runtime-events';
 import {
     MAX_MANAGER_TOOL_ROUNDS,
     cancelAndRollbackXbTavernManagersForMessageRange,
@@ -182,6 +183,33 @@ test('tavern session db stores only cloneable snapshots from runtime inputs', as
     assert.deepEqual(messages[0]?.thoughts, [{ label: 'thinking', text: 'Reasoning.' }]);
     assert.deepEqual(messages[0]?.providerPayload, { text: 'OK.' });
     assert.deepEqual(messages[0]?.requestSnapshot, { messageCount: 1 });
+    assert.deepEqual(messages[0]?.runtimeEvents, []);
+});
+
+test('tavern session db preserves runtime events and lets user edits clear them', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Runtime events' });
+    const userMessage = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: 'Roll the road.',
+        runtimeEvents: [createChanceEncounterEvent('2026-06-11T10:00:00.000Z')],
+    });
+
+    assert.equal(userMessage.runtimeEvents?.[0]?.type, 'chanceEncounter');
+    assert.equal(userMessage.runtimeEvents?.[0]?.label, '[ 🎲 CHANCE ENCOUNTER TRIGGERED ]');
+
+    const listed = await listTavernMessages(session.id);
+    assert.equal(listed[0]?.runtimeEvents?.length, 1);
+
+    const updated = await updateTavernMessage(session.id, userMessage.order, {
+        content: 'Roll the road again.',
+        runtimeEvents: [],
+    });
+
+    assert.equal(updated?.content, 'Roll the road again.');
+    assert.deepEqual(updated?.runtimeEvents, []);
 });
 
 test('tavern session db deletes sessions with related records', async () => {

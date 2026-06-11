@@ -11,6 +11,7 @@ import db, {
     listTavernManagerRuns,
     listTavernMessages,
     listTavernTurnSummaries,
+    updateTavernMessage,
 } from '../shared/session-db';
 import {
     executeTavernMemoryTool,
@@ -28,6 +29,7 @@ import {
     setXbTavernMemoryTokenizerForTest,
 } from '../shared/memory-retrieval';
 import { mergeTavernSessionContract } from '../shared/session-contract';
+import { CHANCE_ENCOUNTER_LABEL } from '../shared/runtime-events';
 import {
     buildContextHistory,
     buildTavernRequestSnapshot,
@@ -116,6 +118,263 @@ test('xb tavern run turn saves user and assistant messages and updates session s
     assert.equal(session?.state?.turn, 1);
     assert.equal(Object.keys(session?.state?.worldEntryStates || {}).some((key) => key.includes('sticky-entry')), true);
     assert.equal(session?.state?.lastProvider, 'fake-provider');
+});
+
+test('xb tavern run turn skips random encounters when contract disables them', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    let rawMessages = '';
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Keep the road quiet.',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                randomEncounters: false,
+            }),
+        },
+        randomEncounterRoll: () => 0,
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            rawMessages = JSON.stringify(options.messages);
+            return {
+                text: 'No encounter.',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+
+    const [userMessage] = await listTavernMessages(result.sessionId);
+    assert.deepEqual(userMessage?.runtimeEvents, []);
+    assert.doesNotMatch(rawMessages, /Chance Encounter Triggered/);
+});
+
+test('xb tavern run turn persists a triggered encounter and injects its prompt after the current user', async () => {
+    await resetDb();
+    const presetBase = createDefaultXbTavernPreset();
+    const preset = {
+        ...presetBase,
+        sections: [
+            ...(presetBase.sections || []),
+            {
+                id: 'after-history-sentinel',
+                label: 'After History Sentinel',
+                placement: 'afterHistory' as const,
+                role: 'system' as const,
+                content: 'AFTER_HISTORY_SENTINEL',
+            },
+        ],
+    };
+    let requestMessages: Array<{ role: string; content: string }> = [];
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Step into the clearing.',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                randomEncounters: true,
+            }),
+        },
+        randomEncounterRoll: () => 0.05,
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            requestMessages = options.messages.map((message) => ({
+                role: message.role,
+                content: message.content,
+            }));
+            return {
+                text: 'The wind shifts.',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+
+    const [userMessage] = await listTavernMessages(result.sessionId);
+    assert.equal(userMessage?.runtimeEvents?.[0]?.label, CHANCE_ENCOUNTER_LABEL);
+    const userIndex = requestMessages.findIndex((message) => message.role === 'user' && message.content.includes('Step into the clearing.'));
+    const eventIndex = requestMessages.findIndex((message) => message.role === 'system' && message.content.includes('Chance Encounter Triggered'));
+    const afterHistoryIndex = requestMessages.findIndex((message) => message.content.includes('AFTER_HISTORY_SENTINEL'));
+    assert.ok(userIndex >= 0);
+    assert.ok(eventIndex > userIndex);
+    assert.ok(afterHistoryIndex > eventIndex);
+});
+
+test('xb tavern rerun reuses an existing chance encounter without rerolling', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const first = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Keep watch.',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                randomEncounters: true,
+            }),
+        },
+        randomEncounterRoll: () => 0.05,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'First answer.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    let rollCalls = 0;
+    let rerunRawMessages = '';
+    await runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'ignored',
+        reuseUserMessageOrder: 0,
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                randomEncounters: true,
+            }),
+        },
+        randomEncounterRoll: () => {
+            rollCalls += 1;
+            return 0.95;
+        },
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            rerunRawMessages = JSON.stringify(options.messages);
+            return {
+                text: 'Second answer.',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+
+    const [userMessage] = await listTavernMessages(first.sessionId);
+    assert.equal(userMessage?.runtimeEvents?.length, 1);
+    assert.equal(rollCalls, 0);
+    assert.match(rerunRawMessages, /Chance Encounter Triggered/);
+});
+
+test('xb tavern random encounter cooldown skips the next new user turn and allows the one after', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const runtimeState = {
+        contract: mergeTavernSessionContract(undefined, {
+            randomEncounters: true,
+        }),
+    };
+    const first = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Turn one.',
+        runtimeState,
+        randomEncounterRoll: () => 0.05,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'First answer.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+    await runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Turn two.',
+        runtimeState,
+        randomEncounterRoll: () => 0.05,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Second answer.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+    await runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Turn three.',
+        runtimeState,
+        randomEncounterRoll: () => 0.05,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Third answer.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    const userMessages = (await listTavernMessages(first.sessionId)).filter((message) => message.role === 'user');
+    assert.equal(userMessages[0]?.runtimeEvents?.length, 1);
+    assert.equal(userMessages[1]?.runtimeEvents?.length, 0);
+    assert.equal(userMessages[2]?.runtimeEvents?.length, 1);
+});
+
+test('xb tavern edited rerun can reroll runtime events on the reused user message', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const runtimeState = {
+        contract: mergeTavernSessionContract(undefined, {
+            randomEncounters: true,
+        }),
+    };
+    const first = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Original turn.',
+        runtimeState,
+        randomEncounterRoll: () => 0.05,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Original answer.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    const [storedUser] = await listTavernMessages(first.sessionId);
+    assert.ok(storedUser);
+    await updateTavernMessage(first.sessionId, storedUser.order, {
+        content: 'Edited turn.',
+        runtimeEvents: [],
+    });
+
+    let rerunRawMessages = '';
+    await runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'ignored',
+        reuseUserMessageOrder: storedUser.order,
+        rerollRuntimeEvents: true,
+        runtimeState,
+        randomEncounterRoll: () => 0.05,
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            rerunRawMessages = JSON.stringify(options.messages);
+            return {
+                text: 'Edited answer.',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+
+    const [updatedUser] = await listTavernMessages(first.sessionId);
+    assert.equal(updatedUser?.content, 'Edited turn.');
+    assert.equal(updatedUser?.runtimeEvents?.length, 1);
+    assert.match(rerunRawMessages, /Chance Encounter Triggered/);
 });
 
 test('xb tavern run turn can trigger manager summary with delegate config', async () => {

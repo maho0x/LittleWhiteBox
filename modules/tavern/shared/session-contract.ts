@@ -23,6 +23,7 @@ export interface TavernContractManagerPromptOptions {
 export interface TavernContractRuntimeCapability {
     includeMemoryFiles?: boolean;
     includeStructuredStates?: boolean;
+    includeRandomEncounters?: boolean;
     automaticManagerWork?: boolean;
     managerPromptMemory?: boolean;
     managerPromptCartography?: boolean;
@@ -33,6 +34,7 @@ export interface TavernSessionContractRuntime {
     enabledKeys: TavernContractPermissionKey[];
     includeMemoryFiles: boolean;
     includeStructuredStates: boolean;
+    includeRandomEncounters: boolean;
     hasAutomaticManagerWork: boolean;
     managerPromptOptions: TavernContractManagerPromptOptions;
 }
@@ -123,7 +125,9 @@ export const TAVERN_CONTRACT_RUNTIME_CAPABILITIES: Record<TavernContractPermissi
         managerPromptCartography: true,
     },
     actionChecks: {},
-    randomEncounters: {},
+    randomEncounters: {
+        includeRandomEncounters: true,
+    },
     questOrchestration: {},
 };
 
@@ -174,6 +178,7 @@ export function resolveTavernSessionContractRuntime(
             ...current,
             includeMemoryFiles: current.includeMemoryFiles || capability.includeMemoryFiles === true,
             includeStructuredStates: current.includeStructuredStates || capability.includeStructuredStates === true,
+            includeRandomEncounters: current.includeRandomEncounters || capability.includeRandomEncounters === true,
             hasAutomaticManagerWork: current.hasAutomaticManagerWork || capability.automaticManagerWork === true,
             managerPromptOptions: {
                 includeMemory: current.managerPromptOptions.includeMemory || capability.managerPromptMemory === true,
@@ -185,6 +190,7 @@ export function resolveTavernSessionContractRuntime(
         enabledKeys,
         includeMemoryFiles: false,
         includeStructuredStates: false,
+        includeRandomEncounters: false,
         hasAutomaticManagerWork: false,
         managerPromptOptions: {
             includeMemory: false,
