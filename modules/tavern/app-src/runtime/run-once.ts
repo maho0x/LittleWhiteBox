@@ -1,5 +1,11 @@
 import { createAgentAdapter } from '../../../agent-core/provider-config.js';
 import {
+    buildProviderAssistantToolCallMessage,
+    buildProviderToolResultMessage,
+    hasVisibleText,
+    resolveResultToolCalls,
+} from '../../../agent-core/runtime/protocol.js';
+import {
     type XbTavernBuildSnapshot,
     type XbTavernContext,
     type XbTavernMemoryContext,
@@ -40,12 +46,24 @@ import {
 import { rebuildTavernMemoryDerivedIndex } from '../../shared/memory-files';
 import { buildXbTavernBrain, buildXbTavernBrainAsync } from '../../shared/brain';
 import {
+    ACTION_CHECK_TOOL_NAME,
+    buildDeniedActionCheckToolResult,
+    executeTavernActionCheck,
+    getActionCheckToolDefinitions,
+    insertActionCheckPromptAfterCurrentUser,
+    type TavernActionCheckToolResult,
+} from '../../shared/action-checks';
+import {
+    createActionCheckEvent,
     createChanceEncounterEvent,
+    getActionCheckEvents,
     getChanceEncounterEvent,
     hasChanceEncounterEvent,
     insertChanceEncounterPromptAfterCurrentUser,
     RANDOM_ENCOUNTER_COOLDOWN_TURNS,
     RANDOM_ENCOUNTER_PROBABILITY,
+    type TavernActionCheckRuntimeEvent,
+    type TavernChanceEncounterRuntimeEvent,
     type TavernRuntimeEvent,
 } from '../../shared/runtime-events';
 import {
@@ -75,8 +93,15 @@ import {
     type XbTavernManagerOnceResult,
 } from './manager';
 import { assertXbTavernProviderReady, resolveXbTavernProviderConfig } from './provider';
+import {
+    applyTavernToolLoopRequestPlan,
+    buildGoogleSessionToolLoopSendPayload,
+    resolveTavernToolLoopRequestPlan,
+    type TavernToolLoopResponse,
+} from './tool-loop-request';
 
 const TAVERN_IMAGE_MARKER_REGEX = /\[tavern-image:[a-z0-9\-_]+\]/gi;
+const MAX_ACTION_CHECK_ROUNDS = 8;
 
 function stripTavernImageMarkers(text = ''): string {
     return String(text || '').replace(TAVERN_IMAGE_MARKER_REGEX, '').trim();
@@ -109,7 +134,7 @@ function resolveRandomEncounterForTurn(input: {
     reusedUserMessage: TavernMessageRecord | null;
     rerollRuntimeEvents?: boolean;
     randomEncounterRoll?: () => number;
-}): TavernRuntimeEvent | null {
+}): TavernChanceEncounterRuntimeEvent | null {
     if (!input.runtime.includeRandomEncounters) {return null;}
     const existingEncounter = getChanceEncounterEvent(input.reusedUserMessage?.runtimeEvents);
     if (existingEncounter) {return existingEncounter;}
@@ -120,14 +145,56 @@ function resolveRandomEncounterForTurn(input: {
     return shouldTriggerRandomEncounter(roll) ? createChanceEncounterEvent() : null;
 }
 
+function buildActionCheckCapabilities(runtime: TavernSessionContractRuntime): {
+    tools: ReturnType<typeof getActionCheckToolDefinitions>;
+    toolChoice: 'auto' | 'none';
+} {
+    if (!runtime.includeActionChecks) {
+        return {
+            tools: [],
+            toolChoice: 'none' as const,
+        };
+    }
+    return {
+        tools: getActionCheckToolDefinitions(),
+        toolChoice: 'auto' as const,
+    };
+}
+
+function summarizeActionCheckResult(result: TavernActionCheckToolResult): string {
+    const errorText = 'error' in result ? result.error : '';
+    return String(result.summary || errorText || '').trim();
+}
+
+export interface TavernRunStreamSnapshot {
+    text?: string;
+    thoughts?: Array<{ label?: string; text?: string }>;
+    liveActionCheckEvents?: TavernActionCheckRuntimeEvent[];
+}
+
 export interface TavernRunOnceOptions {
     agentConfig: Record<string, unknown>;
     messages: XbTavernMessage[];
     chatPreset?: TavernChatPromptPresetBundle;
     regexApplications?: TavernRegexApplicationSummary;
+    tools?: unknown[];
+    toolChoice?: 'auto' | 'none' | string;
+    toolResponses?: TavernToolLoopResponse[];
+    finalAnswerReminderText?: string;
     signal?: AbortSignal;
-    onStreamProgress?: (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => void;
+    onStreamProgress?: (snapshot: TavernRunStreamSnapshot) => void;
 }
+
+export type TavernRunOnceExecutor = ((options: TavernRunOnceOptions) => Promise<TavernRunOnceResult>) & {
+    supportsSessionToolLoop?: boolean;
+};
+
+type TavernChatAdapter = {
+    chat: (task: unknown) => Promise<Record<string, unknown>>;
+    inspectRequest?: (task: unknown) => Promise<TavernRequestInspection> | TavernRequestInspection;
+    inspectSendRequest?: (sendPayload: unknown, task: unknown) => Promise<TavernRequestInspection> | TavernRequestInspection;
+    supportsSessionToolLoop?: boolean;
+};
 
 export interface TavernRequestInspection {
     provider?: string;
@@ -162,6 +229,7 @@ export interface TavernRunOnceResult {
     provider?: string;
     finishReason?: string;
     providerPayload?: unknown;
+    toolCalls?: Array<{ id?: string; name?: string; arguments?: string }>;
     requestSnapshot: TavernRequestSnapshot;
 }
 
@@ -191,7 +259,7 @@ export interface XbTavernRunTurnInput {
     diagnostics?: TavernDiagnostics;
     historyMode?: XbTavernRuntimeState['historyMode'];
     signal?: AbortSignal;
-    onStreamProgress?: (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => void;
+    onStreamProgress?: (snapshot: TavernRunStreamSnapshot) => void;
     onUserMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
     onAssistantMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
     onManagerRunSaved?: (sessionId: string, managerRunId: string) => void | Promise<void>;
@@ -199,13 +267,14 @@ export interface XbTavernRunTurnInput {
     awaitManager?: boolean;
     runManager?: boolean;
     generationTrigger?: string;
-    executeRunOnce?: (options: TavernRunOnceOptions) => Promise<TavernRunOnceResult>;
+    executeRunOnce?: TavernRunOnceExecutor;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     applyRegex?: TavernApplyRegex;
     applySubstituteParams?: TavernApplySubstituteParams;
     getNativeWorldInfoRuntime?: TavernGetNativeWorldInfoRuntime;
     randomEncounterRoll?: () => number;
     rerollRuntimeEvents?: boolean;
+    actionCheckRoll?: () => number;
 }
 
 export interface XbTavernRunResult {
@@ -759,6 +828,7 @@ export function buildTavernRequestSnapshot(
         requestInspection?: TavernRequestInspection | null;
         chatPreset?: TavernChatPromptPresetBundle;
         regexApplications?: TavernRegexApplicationSummary;
+        requestTask?: Record<string, unknown> | null;
     } = {},
 ): TavernRequestSnapshot {
     const providerConfig = resolveXbTavernProviderConfig(agentConfig);
@@ -769,9 +839,7 @@ export function buildTavernRequestSnapshot(
         provider: String(override.provider || providerConfig.provider || ''),
         model: String(override.model || providerConfig.model || ''),
         transport: 'unavailable',
-        request: {
-            messages,
-        },
+        request: override.requestTask || { messages },
     };
     return {
         presetName: chatPresetName || providerConfig.currentPresetName,
@@ -796,44 +864,63 @@ async function inspectTavernRequest(input: {
     agentConfig: Record<string, unknown>;
     messages: XbTavernMessage[];
     chatPreset?: TavernChatPromptPresetBundle;
+    tools?: unknown[];
+    toolChoice?: 'auto' | 'none' | string;
+    toolResponses?: Array<{ id?: string; name?: string; response?: unknown }>;
+    finalAnswerReminderText?: string;
     signal?: AbortSignal;
     onStreamProgress?: TavernRunOnceOptions['onStreamProgress'];
     requestKind?: TavernRequestSnapshot['requestKind'];
     regexApplications?: TavernRegexApplicationSummary;
+    providerConfig?: ReturnType<typeof assertXbTavernProviderReady>;
+    adapter?: TavernChatAdapter;
 }): Promise<{
     task: ReturnType<ReturnType<typeof createXbTavernAgentRuntime>['buildChatTask']>;
-    adapter: { chat: (task: unknown) => Promise<Record<string, unknown>>; inspectRequest?: (task: unknown) => Promise<TavernRequestInspection> | TavernRequestInspection };
+    adapter: TavernChatAdapter;
     providerConfig: ReturnType<typeof assertXbTavernProviderReady>;
     requestSnapshot: TavernRequestSnapshot;
+    snapshotMessages: XbTavernMessage[];
 }> {
-    const providerConfig = assertXbTavernProviderReady(input.agentConfig);
-    const runtime = createXbTavernAgentRuntime(providerConfig);
-    const adapter = createAgentAdapter(providerConfig as unknown as Record<string, unknown>, {
+    const providerConfig = input.providerConfig || assertXbTavernProviderReady(input.agentConfig);
+    const runtime = createXbTavernAgentRuntime(providerConfig, {
+        tools: Array.isArray(input.tools) ? input.tools : [],
+        toolChoice: input.toolChoice || (Array.isArray(input.tools) && input.tools.length ? 'auto' : 'none'),
+    });
+    const adapter = input.adapter || createAgentAdapter(providerConfig as unknown as Record<string, unknown>, {
         missingApiKeyMessage: '请先在 API 配置里选择模型/填写 Key。',
-    }) as {
-        chat: (task: unknown) => Promise<Record<string, unknown>>;
-        inspectRequest?: (task: unknown) => Promise<TavernRequestInspection> | TavernRequestInspection;
-    };
+    }) as TavernChatAdapter;
     const task = runtime.buildChatTask({
         messages: input.messages,
         signal: input.signal,
         onStreamProgress: input.onStreamProgress,
     });
-    const requestInspection = typeof adapter.inspectRequest === 'function'
-        ? await adapter.inspectRequest(task)
-        : null;
+    const requestPlan = resolveTavernToolLoopRequestPlan({
+        supportsSessionToolLoop: adapter.supportsSessionToolLoop === true,
+        messages: input.messages,
+        toolResponses: input.toolResponses,
+        finalAnswerReminderText: input.finalAnswerReminderText,
+    });
+    applyTavernToolLoopRequestPlan(task as unknown as Record<string, unknown>, requestPlan);
+    const sendPayload = buildGoogleSessionToolLoopSendPayload(requestPlan);
+    const requestInspection = sendPayload && typeof adapter.inspectSendRequest === 'function'
+        ? await adapter.inspectSendRequest(sendPayload, task)
+        : typeof adapter.inspectRequest === 'function'
+            ? await adapter.inspectRequest(task)
+            : null;
     return {
         task,
         adapter,
         providerConfig,
-        requestSnapshot: buildTavernRequestSnapshot(input.agentConfig, input.messages, {
+        requestSnapshot: buildTavernRequestSnapshot(input.agentConfig, requestPlan.requestMessages, {
             provider: String(requestInspection?.provider || providerConfig.provider || ''),
             model: String(requestInspection?.model || providerConfig.model || ''),
             requestInspection,
             requestKind: input.requestKind || 'actual',
             chatPreset: input.chatPreset,
             regexApplications: input.regexApplications,
+            requestTask: task as unknown as Record<string, unknown>,
         }),
+        snapshotMessages: requestPlan.requestMessages,
     };
 }
 
@@ -1048,14 +1135,32 @@ async function ensureRunSession(input: XbTavernRunTurnInput, buildSnapshot?: XbT
 }
 
 export async function runTavernOnce(options: TavernRunOnceOptions): Promise<TavernRunOnceResult> {
+    const providerConfig = assertXbTavernProviderReady(options.agentConfig);
+    const adapter = createAgentAdapter(providerConfig as unknown as Record<string, unknown>, {
+        missingApiKeyMessage: '请先在 API 配置里选择模型/填写 Key。',
+    }) as TavernChatAdapter;
+    return runTavernOnceWithAdapter(adapter, providerConfig, options);
+}
+
+async function runTavernOnceWithAdapter(
+    adapter: TavernChatAdapter,
+    providerConfig: ReturnType<typeof assertXbTavernProviderReady>,
+    options: TavernRunOnceOptions,
+): Promise<TavernRunOnceResult> {
     const inspected = await runTavernStage('provider_request_inspection', () => inspectTavernRequest({
         agentConfig: options.agentConfig,
         messages: options.messages,
         chatPreset: options.chatPreset,
         regexApplications: options.regexApplications,
+        tools: options.tools,
+        toolChoice: options.toolChoice,
+        toolResponses: options.toolResponses,
+        finalAnswerReminderText: options.finalAnswerReminderText,
         signal: options.signal,
         onStreamProgress: options.onStreamProgress,
         requestKind: 'actual',
+        providerConfig,
+        adapter,
     }));
     let result: Record<string, unknown>;
     try {
@@ -1063,13 +1168,14 @@ export async function runTavernOnce(options: TavernRunOnceOptions): Promise<Tave
     } catch (error) {
         const requestInspection = (error as { requestInspection?: TavernRequestInspection } | null)?.requestInspection;
         if (requestInspection && error && typeof error === 'object') {
-            (error as { requestSnapshot?: TavernRequestSnapshot }).requestSnapshot = buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+            (error as { requestSnapshot?: TavernRequestSnapshot }).requestSnapshot = buildTavernRequestSnapshot(options.agentConfig, inspected.snapshotMessages, {
                 provider: String(requestInspection.provider || inspected.providerConfig.provider || ''),
                 model: String(requestInspection.model || inspected.providerConfig.model || ''),
                 requestInspection,
                 requestKind: 'actual',
                 chatPreset: options.chatPreset,
                 regexApplications: options.regexApplications,
+                requestTask: inspected.task as unknown as Record<string, unknown>,
             });
         }
         throw error;
@@ -1078,6 +1184,9 @@ export async function runTavernOnce(options: TavernRunOnceOptions): Promise<Tave
     const text = String(result?.text || '');
     const provider = String(result?.provider || finalInspection?.provider || inspected.providerConfig.provider || '');
     const model = String(result?.model || finalInspection?.model || inspected.providerConfig.model || '');
+    const toolCalls = resolveResultToolCalls(result || {}, inspected.providerConfig as unknown as Record<string, unknown>, {
+        fallbackPrefix: 'tavern-rp-tool',
+    });
     return {
         text,
         thoughts: result?.thoughts as Array<{ label?: string; text?: string }> | undefined,
@@ -1085,13 +1194,15 @@ export async function runTavernOnce(options: TavernRunOnceOptions): Promise<Tave
         provider,
         finishReason: result?.finishReason as string | undefined,
         providerPayload: result?.providerPayload,
-        requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+        toolCalls,
+        requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, inspected.snapshotMessages, {
             provider,
             model,
             requestInspection: finalInspection,
             requestKind: 'actual',
             chatPreset: options.chatPreset,
             regexApplications: options.regexApplications,
+            requestTask: inspected.task as unknown as Record<string, unknown>,
         }),
     };
 }
@@ -1105,6 +1216,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
     const sessionState = normalizeTavernSessionState(session?.state || input.runtimeState || {});
     const sessionContract = resolveSessionContract(sessionState);
     const sessionContractRuntime = resolveTavernSessionContractRuntime(sessionContract);
+    const actionCheckCapabilities = buildActionCheckCapabilities(sessionContractRuntime);
     const inputRegex = await runTavernStage('simulate_user_input_regex', () => applySingleTavernRegex({
         applyRegex: input.applyRegex,
         placement: 'userInput',
@@ -1162,9 +1274,13 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         diagnostics: input.diagnostics || {},
         regexApplications,
         transformConversationMessages: async (messages) => {
+            const actionCheckMessages = insertActionCheckPromptAfterCurrentUser(
+                messages,
+                sessionContractRuntime.includeActionChecks,
+            );
             const substitutedMessages = await applyPromptSubstitutionToMessages({
                 applySubstituteParams: input.applySubstituteParams,
-                messages,
+                messages: actionCheckMessages,
                 options: substituteOptions,
             });
             const applied = await applyPromptRegexToConversationMessages({
@@ -1207,6 +1323,8 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         agentConfig: input.agentConfig,
         messages: brain.buildResult.messages,
         chatPreset,
+        tools: actionCheckCapabilities.tools,
+        toolChoice: actionCheckCapabilities.toolChoice,
         onStreamProgress: () => {},
         requestKind: 'simulated',
         regexApplications,
@@ -1220,6 +1338,260 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         provider,
         model,
     };
+}
+
+function safeJsonParse(value: unknown, fallback: Record<string, unknown> = {}): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return value as Record<string, unknown>;
+    }
+    try {
+        const parsed = JSON.parse(String(value || '{}'));
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? parsed as Record<string, unknown>
+            : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function safeJsonStringify(value: unknown): string {
+    try {
+        return JSON.stringify(value || {});
+    } catch {
+        return '{}';
+    }
+}
+
+const ACTION_CHECK_REGEX_MARKER_BASE = 0xE000;
+
+function injectActionCheckRegexMarkers(
+    text: string,
+    events: TavernActionCheckRuntimeEvent[] = [],
+): {
+    text: string;
+    boundaries: Array<{ originalOffset: number; marker: string }>;
+} {
+    const uniqueOffsets = [...new Set(
+        events.map((event) => Math.max(0, Math.min(text.length, Number(event.insertAfterChars) || 0))),
+    )].sort((left, right) => left - right);
+    if (!uniqueOffsets.length || uniqueOffsets.length > (0xF8FF - ACTION_CHECK_REGEX_MARKER_BASE)) {
+        return { text, boundaries: [] };
+    }
+    let cursor = 0;
+    let marked = '';
+    const boundaries = uniqueOffsets.map((offset, index) => {
+        const marker = String.fromCharCode(ACTION_CHECK_REGEX_MARKER_BASE + index);
+        marked += text.slice(cursor, offset) + marker;
+        cursor = offset;
+        return { originalOffset: offset, marker };
+    });
+    marked += text.slice(cursor);
+    return { text: marked, boundaries };
+}
+
+function extractActionCheckRegexMarkers(
+    text: string,
+    events: TavernActionCheckRuntimeEvent[] = [],
+    boundaries: Array<{ originalOffset: number; marker: string }> = [],
+): {
+    text: string;
+    events: TavernActionCheckRuntimeEvent[];
+} {
+    if (!boundaries.length || !events.length) {
+        return { text, events };
+    }
+    const markerOffsets = new Map(boundaries.map((boundary) => [boundary.marker, boundary.originalOffset]));
+    const remappedOffsets = new Map<number, number>();
+    let cleaned = '';
+    for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        const originalOffset = markerOffsets.get(char);
+        if (originalOffset !== undefined) {
+            if (!remappedOffsets.has(originalOffset)) {
+                remappedOffsets.set(originalOffset, cleaned.length);
+            }
+            continue;
+        }
+        cleaned += char;
+    }
+    return {
+        text: cleaned,
+        events: events.map((event) => {
+            const originalOffset = Math.max(0, Math.min(text.length, Number(event.insertAfterChars) || 0));
+            return {
+                ...event,
+                insertAfterChars: remappedOffsets.has(originalOffset)
+                    ? remappedOffsets.get(originalOffset)!
+                    : Math.max(0, Math.min(cleaned.length, originalOffset)),
+            };
+        }),
+    };
+}
+
+async function runTavernActionCheckLoop(input: {
+    agentConfig: Record<string, unknown>;
+    messages: XbTavernMessage[];
+    chatPreset?: TavernChatPromptPresetBundle;
+    regexApplications?: TavernRegexApplicationSummary;
+    signal?: AbortSignal;
+    onStreamProgress?: TavernRunOnceOptions['onStreamProgress'];
+    executeRunOnce: TavernRunOnceExecutor;
+    actionCheckRoll?: () => number;
+}): Promise<TavernRunOnceResult & { runtimeEvents: TavernActionCheckRuntimeEvent[] }> {
+    const tools = getActionCheckToolDefinitions();
+    const protocolMessages = [...input.messages];
+    const runtimeEvents: TavernActionCheckRuntimeEvent[] = [];
+    const supportsSessionToolLoop = resolveRunOnceSessionToolLoopSupport(input.agentConfig, input.executeRunOnce);
+    let finalText = '';
+    let finalThoughts: Array<{ label?: string; text?: string }> | undefined = undefined;
+    let finalProvider = '';
+    let finalModel = '';
+    let finalFinishReason = '';
+    let finalProviderPayload: unknown = undefined;
+    let finalRequestSnapshot = buildTavernRequestSnapshot(input.agentConfig, input.messages, {
+        chatPreset: input.chatPreset,
+        regexApplications: input.regexApplications,
+    });
+    let pendingToolResponses: TavernToolLoopResponse[] | undefined = undefined;
+    let pendingFinalAnswerReminderText = '';
+    let sawToolExecution = false;
+    let finalAnswerReminderSent = false;
+
+    for (let round = 1; round <= MAX_ACTION_CHECK_ROUNDS + 2; round += 1) {
+        const requestPlan = resolveTavernToolLoopRequestPlan({
+            supportsSessionToolLoop,
+            messages: protocolMessages,
+            toolResponses: pendingToolResponses,
+            finalAnswerReminderText: pendingFinalAnswerReminderText,
+        });
+        const result = await input.executeRunOnce({
+            agentConfig: input.agentConfig,
+            messages: requestPlan.requestMessages,
+            chatPreset: input.chatPreset,
+            regexApplications: input.regexApplications,
+            tools,
+            toolChoice: 'auto',
+            ...(requestPlan.mode === 'session_tool_response_round'
+                ? { toolResponses: requestPlan.toolResponses }
+                : {}),
+            ...(requestPlan.mode === 'session_final_reminder_round'
+                ? { finalAnswerReminderText: requestPlan.finalAnswerReminderText }
+                : {}),
+            signal: input.signal,
+            onStreamProgress: (snapshot) => {
+                if (!input.onStreamProgress) {return;}
+                if (typeof snapshot?.text !== 'string') {
+                    input.onStreamProgress(snapshot);
+                    return;
+                }
+                input.onStreamProgress({
+                    ...snapshot,
+                    text: finalText + snapshot.text,
+                });
+            },
+        });
+        pendingToolResponses = undefined;
+        pendingFinalAnswerReminderText = '';
+        finalProvider = String(result.provider || finalProvider || '');
+        finalModel = String(result.model || finalModel || '');
+        finalFinishReason = String(result.finishReason || finalFinishReason || '');
+        finalProviderPayload = result.providerPayload;
+        finalRequestSnapshot = result.requestSnapshot || finalRequestSnapshot;
+
+        const prefaceText = String(result.text || '');
+        const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
+        if (!toolCalls.length) {
+            if (!hasVisibleText(prefaceText) && sawToolExecution && !finalAnswerReminderSent) {
+                finalAnswerReminderSent = true;
+                const reminder = 'All required action checks are complete. Do not call more tools. Finish the assistant reply now.';
+                if (supportsSessionToolLoop) {
+                    pendingFinalAnswerReminderText = reminder;
+                } else {
+                    protocolMessages.push({ role: 'system', content: reminder });
+                }
+                continue;
+            }
+            if (!hasVisibleText(prefaceText) && sawToolExecution) {
+                throw new Error('模型在检定后没有给出有效结论。');
+            }
+            finalText += prefaceText;
+            finalThoughts = result.thoughts;
+            return {
+                ...result,
+                text: finalText,
+                thoughts: finalThoughts,
+                provider: finalProvider,
+                model: finalModel,
+                finishReason: finalFinishReason,
+                providerPayload: finalProviderPayload,
+                requestSnapshot: finalRequestSnapshot,
+                runtimeEvents,
+            };
+        }
+
+        if (round > MAX_ACTION_CHECK_ROUNDS) {
+            throw new Error('action_check_tool_round_limit_exceeded');
+        }
+
+        sawToolExecution = true;
+        finalText += prefaceText;
+        const insertAfterChars = finalText.length;
+        const assistantToolMessage = buildProviderAssistantToolCallMessage({
+            text: prefaceText,
+            providerPayload: result.providerPayload,
+        }, toolCalls, {
+            fallbackPrefix: 'tavern-rp-tool',
+        }) as unknown as XbTavernMessage;
+        assistantToolMessage.thoughts = result.thoughts;
+        protocolMessages.push(assistantToolMessage);
+
+        const toolResponses: TavernToolLoopResponse[] = [];
+        toolCalls.forEach((toolCall) => {
+            const args = safeJsonParse(toolCall.arguments, {});
+            const toolResult = toolCall.name === ACTION_CHECK_TOOL_NAME
+                ? executeTavernActionCheck(args, { rollDie: input.actionCheckRoll })
+                : buildDeniedActionCheckToolResult(toolCall.name);
+            if (toolResult.ok) {
+                runtimeEvents.push(createActionCheckEvent({
+                    action: toolResult.action,
+                    stat: toolResult.stat,
+                    difficulty: toolResult.difficulty,
+                    roll: toolResult.roll,
+                    success: toolResult.success,
+                    insertAfterChars,
+                    toolCallId: String(toolCall.id || ''),
+                    summary: summarizeActionCheckResult(toolResult),
+                    stakes: toolResult.stakes,
+                }));
+                input.onStreamProgress?.({
+                    text: finalText,
+                    liveActionCheckEvents: runtimeEvents.map((event) => ({ ...event })),
+                });
+            }
+            toolResponses.push({
+                id: String(toolCall.id || ''),
+                name: String(toolCall.name || ''),
+                response: toolResult,
+            });
+            protocolMessages.push(buildProviderToolResultMessage({
+                toolCallId: String(toolCall.id || ''),
+                toolName: String(toolCall.name || ''),
+                content: safeJsonStringify(toolResult),
+            }) as unknown as XbTavernMessage);
+        });
+        if (supportsSessionToolLoop) {
+            pendingToolResponses = toolResponses;
+        }
+    }
+
+    throw new Error('action_check_tool_round_limit_exceeded');
+}
+
+function resolveRunOnceSessionToolLoopSupport(
+    _agentConfig: Record<string, unknown>,
+    executeRunOnce: TavernRunOnceExecutor,
+): boolean {
+    return executeRunOnce?.supportsSessionToolLoop === true;
 }
 
 export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTavernRunResult> {
@@ -1269,6 +1641,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         : persistedSessionState;
     const sessionContract = resolveSessionContract(sessionState);
     const sessionContractRuntime = resolveTavernSessionContractRuntime(sessionContract);
+    const actionCheckCapabilities = buildActionCheckCapabilities(sessionContractRuntime);
     const shouldReplaceSessionState = !!reusedUserMessage;
     const rawCurrentUserMessage = stripTavernImageMarkers(reusedUserMessage?.content || input.currentUserMessage);
     const regexApplications: TavernRegexApplicationSummary = {};
@@ -1341,7 +1714,11 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         diagnostics: input.diagnostics || {},
         regexApplications,
         transformConversationMessages: async (messages) => {
-            const encounterMessages = insertChanceEncounterPromptAfterCurrentUser(messages, chanceEncounterEvent);
+            const actionCheckMessages = insertActionCheckPromptAfterCurrentUser(
+                messages,
+                sessionContractRuntime.includeActionChecks,
+            );
+            const encounterMessages = insertChanceEncounterPromptAfterCurrentUser(actionCheckMessages, chanceEncounterEvent);
             const substitutedMessages = await applyPromptSubstitutionToMessages({
                 applySubstituteParams: input.applySubstituteParams,
                 messages: encounterMessages,
@@ -1394,7 +1771,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     }) || baseSession;
 
     let latestStreamText = '';
-    const handleStreamProgress = (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => {
+    const handleStreamProgress = (snapshot: TavernRunStreamSnapshot) => {
         if (typeof snapshot.text === 'string') {latestStreamText = snapshot.text;}
         input.onStreamProgress?.(snapshot);
     };
@@ -1408,6 +1785,8 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             agentConfig: input.agentConfig,
             messages: buildResult.messages,
             chatPreset,
+            tools: actionCheckCapabilities.tools,
+            toolChoice: actionCheckCapabilities.toolChoice,
             onStreamProgress: handleStreamProgress,
             requestKind: 'actual',
             regexApplications,
@@ -1417,6 +1796,11 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             requestKind: 'fallback',
             chatPreset,
             regexApplications,
+            requestTask: {
+                messages: buildResult.messages,
+                tools: actionCheckCapabilities.tools,
+                toolChoice: actionCheckCapabilities.toolChoice,
+            },
         });
     }
     const presetId = String(chatPreset.id || session.chatPresetId || session.presetId || '');
@@ -1446,20 +1830,35 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     await notifyRunCallback(() => input.onUserMessageSaved?.(session.id, userMessage));
 
     try {
-        const executeRunOnce = input.executeRunOnce || runTavernOnce;
-        const result = await executeRunOnce({
-            agentConfig: input.agentConfig,
-            messages: buildResult.messages,
-            chatPreset,
-            regexApplications,
-            signal: input.signal,
-            onStreamProgress: handleStreamProgress,
-        });
+        const executeRunOnce = input.executeRunOnce || createDefaultTavernRunOnceExecutor(input.agentConfig);
+        const result = sessionContractRuntime.includeActionChecks
+            ? await runTavernActionCheckLoop({
+                agentConfig: input.agentConfig,
+                messages: buildResult.messages,
+                chatPreset,
+                regexApplications,
+                signal: input.signal,
+                onStreamProgress: handleStreamProgress,
+                executeRunOnce,
+                actionCheckRoll: input.actionCheckRoll,
+            })
+            : await executeRunOnce({
+                agentConfig: input.agentConfig,
+                messages: buildResult.messages,
+                chatPreset,
+                regexApplications,
+                signal: input.signal,
+                onStreamProgress: handleStreamProgress,
+            });
+        const rawAssistantRuntimeEvents = sessionContractRuntime.includeActionChecks
+            ? getActionCheckEvents((result as TavernRunOnceResult & { runtimeEvents?: TavernRuntimeEvent[] }).runtimeEvents)
+            : [];
+        const regexMarkerPayload = injectActionCheckRegexMarkers(result.text, rawAssistantRuntimeEvents);
         const outputRegex = await applySingleTavernRegex({
             applyRegex: input.applyRegex,
             placement: 'aiOutput',
             id: 'assistant',
-            text: result.text,
+            text: regexMarkerPayload.text,
         });
         const reasoningRegex = await applyReasoningRegex({
             applyRegex: input.applyRegex,
@@ -1467,16 +1866,22 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         });
         addRegexSummary(regexApplications, outputRegex.summary);
         addRegexSummary(regexApplications, reasoningRegex.summary);
-        if (outputRegex.text !== result.text || reasoningRegex.thoughts !== result.thoughts) {
-            input.onStreamProgress?.({ text: outputRegex.text, thoughts: reasoningRegex.thoughts });
+        const normalizedOutput = extractActionCheckRegexMarkers(
+            outputRegex.text,
+            rawAssistantRuntimeEvents,
+            regexMarkerPayload.boundaries,
+        );
+        if (normalizedOutput.text !== result.text || reasoningRegex.thoughts !== result.thoughts) {
+            input.onStreamProgress?.({ text: normalizedOutput.text, thoughts: reasoningRegex.thoughts });
         }
+        const assistantRuntimeEvents = normalizedOutput.events;
         const assistantRequestSnapshot: TavernRequestSnapshot = {
             ...result.requestSnapshot,
             regexApplications,
         };
         const assistantMessage = await appendTavernMessage(session.id, {
             role: 'assistant',
-            content: outputRegex.text,
+            content: normalizedOutput.text,
             thoughts: reasoningRegex.thoughts,
             providerPayload: result.providerPayload,
             contextSnapshot: liveContext,
@@ -1489,6 +1894,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             provider: result.provider || '',
             model: result.model || '',
             finishReason: result.finishReason || '',
+            runtimeEvents: assistantRuntimeEvents,
         });
         await notifyRunCallback(() => input.onAssistantMessageSaved?.(session.id, assistantMessage));
         const nextTurn = Number(sessionState.turn || 0) + 1;
@@ -1669,4 +2075,14 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             error: aborted ? '已停止生成。' : errorText,
         };
     }
+}
+
+function createDefaultTavernRunOnceExecutor(agentConfig: Record<string, unknown>): TavernRunOnceExecutor {
+    const providerConfig = assertXbTavernProviderReady(agentConfig);
+    const adapter = createAgentAdapter(providerConfig as unknown as Record<string, unknown>, {
+        missingApiKeyMessage: '请先在 API 配置里选择模型/填写 Key。',
+    }) as TavernChatAdapter;
+    const execute = ((options: TavernRunOnceOptions) => runTavernOnceWithAdapter(adapter, providerConfig, options)) as TavernRunOnceExecutor;
+    execute.supportsSessionToolLoop = adapter.supportsSessionToolLoop === true;
+    return execute;
 }

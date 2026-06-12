@@ -78,13 +78,23 @@ import {
     type TavernSessionContract,
 } from '../shared/session-contract';
 import {
+    normalizeActionCheckRenderGroups,
+    type TavernActionCheckRenderGroup,
+    type TavernActionCheckRuntimeEvent,
+} from '../shared/runtime-events';
+import {
     createDefaultTavernAssistantPreset,
     normalizeTavernAssistantPreset,
     type TavernAssistantPreset,
 } from '../shared/assistant-presets';
 import type { TavernApplyRegexItem, TavernApplyRegexResult } from '../shared/regex';
 import type { TavernSubstituteParamsItem, TavernSubstituteParamsResult } from '../shared/substitute-params';
-import { buildContextHistory, deriveTavernSessionStateFromMessagesAsync, runXbTavernTurn, simulateXbTavernRequest } from './runtime/run-once';
+import {
+    buildContextHistory,
+    deriveTavernSessionStateFromMessagesAsync,
+    runXbTavernTurn,
+    simulateXbTavernRequest,
+} from './runtime/run-once';
 import {
     buildManagerChatDisplayItems,
     createManagerStreamToolDraftState,
@@ -97,6 +107,7 @@ import {
     ensureTavernManagerChatBudget,
     runXbTavernManagerAfterTurn,
     runXbTavernManagerChat,
+    type TavernManagerProtocolEvent,
 } from './runtime/manager';
 import { resolveXbTavernProviderConfig } from './runtime/provider';
 import TavernAboutPage from './components/TavernAboutPage.vue';
@@ -319,6 +330,16 @@ const managerInputStatus = ref('');
 const managerChatMessages = ref<TavernManagerMessageRecord[]>([]);
 const isManagerAssistantRunning = ref(false);
 const isManagerAssistantCancelling = ref(false);
+interface TavernManagerLiveProtocolState {
+    sessionId: string;
+    messages: TavernManagerMessageRecord[];
+    draft: TavernManagerMessageRecord | null;
+    nextOrder: number;
+}
+
+const LIVE_MANAGER_PROTOCOL_ORDER_BASE = 1000000000;
+const managerLiveProtocolState = ref<TavernManagerLiveProtocolState | null>(null);
+const runtimeActionCheckEvents = ref<TavernActionCheckRuntimeEvent[]>([]);
 const managerCompactionOverlay = ref<{
     id: string;
     active: boolean;
@@ -1168,10 +1189,25 @@ const visibleChatMarkdownSignature = computed(() => visibleChatMessages.value
 const runtimeThoughtsSignature = computed(() => runtimeThoughts.value
     .map((thought, index) => `${index}:${markdownSignature(String(thought.label || ''))}:${markdownSignature(String(thought.text || ''))}`)
     .join('|'));
-const visibleManagerConversationMessages = computed(() => managerChatMessages.value.filter((message) => (
-    message.role === 'user' || (message.role === 'assistant' && !(Array.isArray(message.toolCalls) && message.toolCalls.length))
-)));
+const runtimeActionCheckSignature = computed(() => runtimeActionCheckEvents.value
+    .map((event, index) => [
+        index,
+        event.toolCallId || '',
+        event.stat,
+        event.action,
+        event.roll,
+        event.difficulty,
+        event.insertAfterChars,
+        event.success ? 1 : 0,
+    ].join(':'))
+    .join('|'));
 const managerChatDisplayItems = computed(() => buildManagerChatDisplayItems(managerChatMessages.value));
+const liveManagerProtocolMessages = computed(() => {
+    const liveState = managerLiveProtocolState.value;
+    if (!liveState || liveState.sessionId !== selectedSessionId.value) {return [];}
+    return liveState.draft ? [...liveState.messages, liveState.draft] : liveState.messages;
+});
+const liveManagerChatDisplayItems = computed(() => buildManagerChatDisplayItems(liveManagerProtocolMessages.value));
 const managerMessageWindow = computed(() => getMessageWindow({
     uiMessageWindowLimit: managerMessageWindowLimit.value,
 }, managerChatDisplayItems.value.length));
@@ -1180,6 +1216,11 @@ const visibleManagerChatMessages = computed(() => visibleManagerChatItems.value
     .filter((item): item is ManagerMessageDisplayItem => item.kind === 'message')
     .map((item) => item.message));
 const visibleManagerMarkdownSignature = computed(() => visibleManagerChatItems.value
+    .map((item) => item.kind === 'message'
+        ? `${item.message.sessionId}:${item.message.order}:${markdownSignature(item.message.content)}`
+        : `${item.key}:${markdownSignature(item.assistantMessage.content)}:${item.calls.map((call) => `${call.id}:${markdownSignature(call.resultText)}`).join(',')}`)
+    .join('|'));
+const liveManagerMarkdownSignature = computed(() => liveManagerChatDisplayItems.value
     .map((item) => item.kind === 'message'
         ? `${item.message.sessionId}:${item.message.order}:${markdownSignature(item.message.content)}`
         : `${item.key}:${markdownSignature(item.assistantMessage.content)}:${item.calls.map((call) => `${call.id}:${markdownSignature(call.resultText)}`).join(',')}`)
@@ -3583,6 +3624,121 @@ function enhanceTavernImageMarkers(root: HTMLElement) {
     root.querySelectorAll<HTMLElement>('[data-tavern-image-slot]').forEach((figure) => hydrateTavernImageFigure(figure));
 }
 
+function buildActionCheckAriaLabel(event: TavernActionCheckRuntimeEvent) {
+    const outcome = event.success ? 'Success' : 'Failure';
+    const action = String(event.action || '').trim();
+    return [
+        `Action check: ${event.stat}.`,
+        `Roll ${event.roll} versus DC ${event.difficulty}.`,
+        `${outcome}.`,
+        action ? `Action: ${action}.` : '',
+    ].filter(Boolean).join(' ');
+}
+
+function createActionCheckCard(event: TavernActionCheckRuntimeEvent) {
+    const card = document.createElement('span');
+    card.className = `action-check-card ${event.success ? 'is-success' : 'is-failure'}`;
+    card.setAttribute('role', 'group');
+    card.setAttribute('aria-label', buildActionCheckAriaLabel(event));
+
+    const head = document.createElement('span');
+    head.className = 'action-check-card-head';
+
+    const title = document.createElement('strong');
+    title.textContent = event.stat;
+    head.append(title);
+
+    const outcome = document.createElement('span');
+    outcome.textContent = event.success ? 'Success' : 'Failure';
+    head.append(outcome);
+
+    const grid = document.createElement('span');
+    grid.className = 'action-check-card-grid';
+    [{
+        label: 'DC',
+        value: String(event.difficulty),
+    }, {
+        label: 'Roll',
+        value: String(event.roll),
+    }].forEach((item) => {
+        const cell = document.createElement('span');
+        const label = document.createElement('small');
+        label.textContent = item.label;
+        const value = document.createElement('strong');
+        value.textContent = item.value;
+        cell.append(label, value);
+        grid.append(cell);
+    });
+
+    const copy = document.createElement('span');
+    copy.className = 'action-check-card-copy';
+    copy.textContent = event.action;
+
+    card.append(head, grid, copy);
+    return card;
+}
+
+function createActionCheckStack(events: TavernActionCheckRuntimeEvent[] = []) {
+    const stack = document.createElement('span');
+    stack.className = 'assistant-runtime-event-stack';
+    stack.setAttribute('role', 'group');
+    stack.setAttribute('aria-label', events.length > 1 ? `${events.length} action check results.` : 'Action check result.');
+    events.forEach((event) => {
+        stack.append(createActionCheckCard(event));
+    });
+    return stack;
+}
+
+function readActionCheckRenderGroups(value: unknown): TavernActionCheckRenderGroup[] {
+    try {
+        return normalizeActionCheckRenderGroups(JSON.parse(String(value || '[]')));
+    } catch {
+        return [];
+    }
+}
+
+function enhanceActionCheckMarkers(root: HTMLElement) {
+    const groups = readActionCheckRenderGroups(root.dataset.actionCheckGroups);
+    if (!groups.length) {return;}
+    const byMarker = new Map(groups.map((group) => [group.marker, group.events]));
+    const markers = new Set(groups.map((group) => group.marker));
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            const textNode = node as Text;
+            if (!textNode.data) {
+                return NodeFilter.FILTER_SKIP;
+            }
+            const parent = textNode.parentElement;
+            if (parent?.closest?.('a, button, code, kbd, pre, script, style, textarea, .assistant-runtime-event-stack')) {
+                return NodeFilter.FILTER_REJECT;
+            }
+            return [...textNode.data].some((char) => markers.has(char))
+                ? NodeFilter.FILTER_ACCEPT
+                : NodeFilter.FILTER_SKIP;
+        },
+    });
+    const nodes: Text[] = [];
+    while (walker.nextNode()) {
+        nodes.push(walker.currentNode as Text);
+    }
+    nodes.forEach((textNode) => {
+        const fragment = document.createDocumentFragment();
+        let replaced = false;
+        [...textNode.data].forEach((char) => {
+            const events = byMarker.get(char);
+            if (events?.length) {
+                fragment.append(createActionCheckStack(events));
+                replaced = true;
+                return;
+            }
+            fragment.append(document.createTextNode(char));
+        });
+        if (replaced) {
+            textNode.replaceWith(fragment);
+        }
+    });
+}
+
 function enhanceChatMarkdown() {
     const root = chatScrollRef.value;
     if (!root?.querySelectorAll) {return;}
@@ -3595,6 +3751,7 @@ function enhanceChatMarkdown() {
         });
         enhanceTavernImageMarkers(node);
         enhanceRoleplayDialogue(node);
+        enhanceActionCheckMarkers(node);
         node.dataset.markdownEnhanced = signature;
     });
 }
@@ -4470,17 +4627,30 @@ function scheduleManagerCompactionOverlayHide(delayMs = 3000) {
     }, waitMs);
 }
 
-async function updateManagerChatMessage(
+function createLiveManagerMessage(
     sessionId: string,
-    order: number,
-    content: string,
-    patch: Partial<TavernManagerMessageRecord> & { clearProtocolPayload?: boolean } = {},
-) {
-    const id = String(sessionId || '').trim();
-    if (!id) {return null;}
-    const updated = await updateTavernManagerMessage(id, order, {
-        content,
-        error: patch.error,
+    patch: Partial<TavernManagerMessageRecord> & Pick<TavernManagerMessageRecord, 'role' | 'content'>,
+): TavernManagerMessageRecord {
+    const liveState = managerLiveProtocolState.value?.sessionId === sessionId
+        ? managerLiveProtocolState.value
+        : {
+            sessionId,
+            messages: [],
+            draft: null,
+            nextOrder: LIVE_MANAGER_PROTOCOL_ORDER_BASE,
+        };
+    const order = liveState.nextOrder;
+    liveState.nextOrder += 1;
+    managerLiveProtocolState.value = liveState;
+    return {
+        sessionId,
+        order,
+        role: patch.role,
+        content: patch.content,
+        name: patch.name,
+        error: patch.error === true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
         provider: patch.provider,
         model: patch.model,
         finishReason: patch.finishReason,
@@ -4490,29 +4660,101 @@ async function updateManagerChatMessage(
         toolCallId: patch.toolCallId,
         toolName: patch.toolName,
         toolDisplay: patch.toolDisplay,
-        clearProtocolPayload: patch.clearProtocolPayload,
-    });
-    if (!updated) {return null;}
-    if (selectedSessionId.value === id) {
-        managerChatMessages.value = managerChatMessages.value.map((message) => (
-            message.sessionId === id && message.order === order ? updated : message
-        ));
-    }
-    return updated;
+    };
 }
 
-function patchLocalManagerChatMessage(
-    sessionId: string,
-    order: number,
-    patch: Partial<TavernManagerMessageRecord>,
-) {
+function ensureManagerLiveProtocolState(sessionId: string) {
     const id = String(sessionId || '').trim();
-    if (!id || selectedSessionId.value !== id) {return;}
-    managerChatMessages.value = managerChatMessages.value.map((message) => (
-        message.sessionId === id && message.order === order
-            ? { ...message, ...patch, updatedAt: Date.now() }
-            : message
-    ));
+    if (!id) {return null;}
+    if (!managerLiveProtocolState.value || managerLiveProtocolState.value.sessionId !== id) {
+        managerLiveProtocolState.value = {
+            sessionId: id,
+            messages: [],
+            draft: createLiveManagerMessage(id, {
+                role: 'assistant',
+                content: '正在思考...',
+            }),
+            nextOrder: LIVE_MANAGER_PROTOCOL_ORDER_BASE + 1,
+        };
+    }
+    return managerLiveProtocolState.value;
+}
+
+function clearManagerLiveProtocolState(sessionId = '') {
+    const id = String(sessionId || '').trim();
+    if (!id || managerLiveProtocolState.value?.sessionId === id) {
+        managerLiveProtocolState.value = null;
+    }
+}
+
+function setManagerLiveProtocolDraft(
+    sessionId: string,
+    patch: Partial<TavernManagerMessageRecord> & Pick<TavernManagerMessageRecord, 'content'>,
+) {
+    const liveState = ensureManagerLiveProtocolState(sessionId);
+    if (!liveState) {return;}
+    const draft = liveState.draft || createLiveManagerMessage(sessionId, {
+        role: 'assistant',
+        content: patch.content,
+    });
+    liveState.draft = {
+        ...draft,
+        ...patch,
+        role: 'assistant',
+        content: patch.content,
+        updatedAt: Date.now(),
+    };
+}
+
+function normalizeLiveProtocolToolCalls(message: XbTavernMessage): Array<{ id?: string; name?: string; arguments?: string }> {
+    if (Array.isArray(message.toolCalls) && message.toolCalls.length) {
+        return message.toolCalls.map((toolCall) => ({
+            id: typeof toolCall?.id === 'string' ? toolCall.id : '',
+            name: typeof toolCall?.name === 'string' ? toolCall.name : '',
+            arguments: typeof toolCall?.arguments === 'string' ? toolCall.arguments : '{}',
+        }));
+    }
+    if (!Array.isArray(message.tool_calls)) {return [];}
+    return message.tool_calls.map((toolCall) => ({
+        id: typeof toolCall?.id === 'string' ? toolCall.id : '',
+        name: typeof toolCall?.function?.name === 'string' ? toolCall.function.name : '',
+        arguments: typeof toolCall?.function?.arguments === 'string' ? toolCall.function.arguments : '{}',
+    }));
+}
+
+function appendManagerLiveProtocolMessage(sessionId: string, message: XbTavernMessage) {
+    const liveState = ensureManagerLiveProtocolState(sessionId);
+    if (!liveState) {return;}
+    liveState.messages = [...liveState.messages, createLiveManagerMessage(sessionId, {
+        role: message.role,
+        content: String(message.content || ''),
+        name: message.name,
+        thoughts: Array.isArray(message.thoughts) ? thoughtBlocks(message.thoughts) : undefined,
+        providerPayload: message.providerPayload,
+        toolCalls: message.role === 'assistant' ? normalizeLiveProtocolToolCalls(message) : undefined,
+        toolCallId: message.role === 'tool' ? String(message.toolCallId || message.tool_call_id || '') : undefined,
+        toolName: message.role === 'tool' ? String(message.toolName || '') : undefined,
+        toolDisplay: message.role === 'tool' ? message.toolDisplay : undefined,
+    })];
+}
+
+function applyManagerProtocolEvent(sessionId: string, event: TavernManagerProtocolEvent) {
+    const id = String(sessionId || '').trim();
+    if (!id) {return;}
+    if (event.type === 'clear_stream_draft') {
+        const liveState = ensureManagerLiveProtocolState(id);
+        if (liveState) {
+            liveState.draft = null;
+        }
+        return;
+    }
+    appendManagerLiveProtocolMessage(id, event.message);
+}
+
+function clearRuntimeAssistantLiveState() {
+    runtimeText.value = '';
+    runtimeThoughts.value = [];
+    runtimeActionCheckEvents.value = [];
 }
 
 async function appendManagerProtocolMessages(
@@ -4590,7 +4832,6 @@ async function sendManagerQuestion(
     managerInputStatus.value = '运行中';
     managerAutoScroll.value = true;
     resetManagerMessageWindowState();
-    let assistantOrder = -1;
     const managerStreamToolDraftState = createManagerStreamToolDraftState();
     try {
         const budget = await ensureTavernManagerChatBudget({
@@ -4648,15 +4889,11 @@ async function sendManagerQuestion(
             role: 'user',
             content: question,
         });
-        const assistantMessage = await appendTavernManagerMessage(managerSessionId, {
-            role: 'assistant',
-            content: '正在思考...',
-        });
-        assistantOrder = assistantMessage.order;
         if (selectedSessionId.value === managerSessionId) {
-            managerChatMessages.value = [...managerChatMessages.value, userMessage, assistantMessage]
+            managerChatMessages.value = [...managerChatMessages.value, userMessage]
                 .sort((left, right) => left.order - right.order);
         }
+        ensureManagerLiveProtocolState(managerSessionId);
         const replaceOrders = [...new Set((options.replaceOrdersAfterAppend || [])
             .map((order) => Number(order))
             .filter((order) => Number.isInteger(order) && order >= 0))];
@@ -4674,10 +4911,13 @@ async function sendManagerQuestion(
             history: historyBeforeTurn,
             turn: managerTurn,
             signal: controller.signal,
+            onProtocolEvent: (event) => {
+                managerStreamToolDraftState.reset();
+                applyManagerProtocolEvent(managerSessionId, event);
+            },
             onStreamProgress: (snapshot) => {
-                if (assistantOrder < 0) {return;}
                 const streamPatch = managerStreamToolDraftState.update(snapshot);
-                patchLocalManagerChatMessage(managerSessionId, assistantOrder, {
+                setManagerLiveProtocolDraft(managerSessionId, {
                     content: streamPatch.content,
                     thoughts: Array.isArray(snapshot.thoughts) ? thoughtBlocks(snapshot.thoughts) : undefined,
                     toolCalls: streamPatch.toolCalls,
@@ -4685,41 +4925,45 @@ async function sendManagerQuestion(
             },
         });
         const finalText = String(result.text || '').trim() || '没有返回内容。';
-        if (assistantOrder >= 0) {
-            await deleteTavernManagerMessages(managerSessionId, [assistantOrder]);
-        }
         await appendManagerProtocolMessages(managerSessionId, result.protocolMessages, finalText, {
             provider: result.provider,
             model: result.model,
             finishReason: result.ok ? 'stop' : 'error',
             error: result.ok ? false : true,
         });
+        clearManagerLiveProtocolState(managerSessionId);
         if (selectedSessionId.value === managerSessionId) {
             managerChatMessages.value = await listTavernManagerMessages(managerSessionId);
         }
         await refreshManagerRecords(managerSessionId);
         managerInputStatus.value = '';
     } catch (error) {
+        clearManagerLiveProtocolState(managerSessionId);
         if (controller.signal.aborted) {
-            if (assistantOrder >= 0) {
-                await updateManagerChatMessage(managerSessionId, assistantOrder, '已停止。', {
-                    finishReason: 'aborted',
-                    clearProtocolPayload: true,
-                });
+            await appendTavernManagerMessage(managerSessionId, {
+                role: 'assistant',
+                content: '已停止。',
+                finishReason: 'aborted',
+            });
+            if (selectedSessionId.value === managerSessionId) {
+                managerChatMessages.value = await listTavernManagerMessages(managerSessionId);
             }
             managerInputStatus.value = '';
         } else {
             const errorText = error instanceof Error ? error.message : String(error || 'assistant_failed');
-            if (assistantOrder >= 0) {
-                await updateManagerChatMessage(managerSessionId, assistantOrder, errorText, {
-                    error: true,
-                    finishReason: 'error',
-                    clearProtocolPayload: true,
-                });
+            await appendTavernManagerMessage(managerSessionId, {
+                role: 'assistant',
+                content: errorText,
+                error: true,
+                finishReason: 'error',
+            });
+            if (selectedSessionId.value === managerSessionId) {
+                managerChatMessages.value = await listTavernManagerMessages(managerSessionId);
             }
             managerInputStatus.value = '失败';
         }
     } finally {
+        managerStreamToolDraftState.reset();
         if (managerAssistantController.value === controller) {
             managerAssistantController.value = null;
         }
@@ -4787,6 +5031,7 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
     clearComposeError();
     runtimeText.value = '';
     runtimeThoughts.value = [];
+    runtimeActionCheckEvents.value = [];
     runtimeProvider.value = '';
     runtimeModel.value = '';
     chatAutoScroll.value = true;
@@ -4797,7 +5042,7 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
         }
         const runtimeContext = await resolveRuntimeContextForSession(selectedSessionId.value);
         if (controller.signal.aborted) {
-            runtimeText.value = '';
+            clearRuntimeAssistantLiveState();
             return;
         }
         const result = await runXbTavernTurn({
@@ -4820,6 +5065,9 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
             onStreamProgress: (snapshot) => {
                 if (typeof snapshot.text === 'string') {runtimeText.value = snapshot.text;}
                 if (Array.isArray(snapshot.thoughts)) {runtimeThoughts.value = thoughtBlocks(snapshot.thoughts);}
+                if (Array.isArray(snapshot.liveActionCheckEvents)) {
+                    runtimeActionCheckEvents.value = snapshot.liveActionCheckEvents.map((event) => ({ ...event }));
+                }
             },
             onUserMessageSaved: async (sessionId, message) => {
                 selectedSessionId.value = sessionId;
@@ -4839,6 +5087,7 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
                 sessionMessages.value = existingIndex >= 0
                     ? sessionMessages.value.map((item, index) => index === existingIndex ? message : item)
                     : [...sessionMessages.value, message].sort((left, right) => left.order - right.order);
+                clearRuntimeAssistantLiveState();
                 await refreshSessions();
                 scrollChatToBottom();
             },
@@ -4847,8 +5096,7 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
             },
         });
         selectedSessionId.value = result.sessionId;
-        runtimeText.value = '';
-        runtimeThoughts.value = [];
+        clearRuntimeAssistantLiveState();
         runtimeError.value = result.error || '';
         runtimeProvider.value = result.provider || '';
         runtimeModel.value = result.model || '';
@@ -4857,7 +5105,7 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
         scrollChatToBottom();
     } catch (error) {
         console.error('[小白酒馆] turn failed', error);
-        runtimeThoughts.value = [];
+        clearRuntimeAssistantLiveState();
         runtimeError.value = error instanceof Error ? error.message : String(error || 'run_failed');
     } finally {
         if (activeRunController.value === controller) {
@@ -4875,6 +5123,7 @@ watch([
     () => visibleChatMarkdownSignature.value,
     () => runtimeText.value,
     () => runtimeThoughtsSignature.value,
+    () => runtimeActionCheckSignature.value,
     () => activeView.value,
     () => chatFocus.value,
 ], () => {
@@ -4891,6 +5140,7 @@ watch([
     () => visibleManagerChatMessages.value.length,
     () => managerMessageWindow.value.startIndex,
     () => visibleManagerMarkdownSignature.value,
+    () => liveManagerMarkdownSignature.value,
     () => isManagerAssistantRunning.value,
     () => activeView.value,
     () => chatFocus.value,
@@ -5199,6 +5449,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
     roleLabel,
     runtimeText,
     runtimeThoughts,
+    runtimeActionCheckEvents,
     saveCurrentAssistantPreset,
     saveCurrentPreset,
     saveCurrentRegexScript,
@@ -5257,6 +5508,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
     visibleChatPresetOptions,
     visibleManagerChatItems,
     visibleManagerChatMessages,
+    liveManagerChatDisplayItems,
     visiblePromptEditorRows,
     visibleUserAvatar,
     visibleWorldbookOptions,

@@ -87,74 +87,74 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
     ];
 
     const currentSessionLines = [
-        '当前 session 是唯一工作范围。',
+        'The current session is the only work scope.',
         [
-            includeMemory ? '当前 session 的 `memory/...` 档案' : '',
-            includeCartography ? '结构化状态' : '',
-            '管理员对话',
-            'RP 原文证据',
-        ].filter(Boolean).join('、') + ' 都属于当前工作范围。',
+            includeMemory ? 'current-session `memory/...` files' : '',
+            includeCartography ? 'structured state' : '',
+            'manager chat',
+            'RP source evidence',
+        ].filter(Boolean).join(', ') + ' all belong to this work scope.',
         managedSurfaces.length
-            ? 'RP 原文是事实来源；后台档案和结构化状态是你整理后的资料。两者冲突时，先用 ChatHistory 核对原文，再修正资料。'
-            : 'RP 原文是事实来源。既有档案只能作为辅助资料，和原文冲突时以原文为准。',
-        '常驻注入只是当前资料快照，不是完整聊天历史；没有读过的原文只能作为待查证信息处理。',
+            ? 'RP source text is the factual source. Background memory and structured state are derived materials. If they conflict, verify with ChatHistory first and then repair the derived materials.'
+            : 'RP source text is the factual source. Existing files are only supporting materials, and source text wins when they conflict.',
+        'Resident injections are only a snapshot of current materials, not the full chat history. Treat any source text you have not read as unverified until you check it.',
     ];
 
     const injectedContextLines = [
-        includeMemory ? '`[常驻记忆档案]` 通常包含 `memory/session.md`、`memory/state.md`、当前活跃 `memory/episodes/*.md`、`memory/inbox.md`。' : '',
-        includeMemory ? '自动 after-turn 会额外收到本轮 user/assistant 原文和建议流水路径；如需记录本轮流水，用普通 MemoryWrite/MemoryEdit 维护 Markdown。' : '',
-        '手动管理员聊天会收到管理员自己的对话历史和用户当前问题；RP 原文不会全文预塞，需要时用 ChatHistory 读取。',
+        includeMemory ? '`[Resident Memory Files]` usually contains `memory/session.md`, `memory/state.md`, active `memory/episodes/*.md`, and `memory/inbox.md`.' : '',
+        includeMemory ? 'Automatic after-turn runs also receive this turn\'s user/assistant source text and a suggested turn-file path. If this turn needs a turn file, maintain it with normal MemoryWrite or MemoryEdit Markdown updates.' : '',
+        'Manual manager chat receives the manager\'s own conversation history and the current user question. RP source text is not fully preloaded; use ChatHistory when needed.',
     ];
 
     const fileDisciplineLines = includeMemory ? [
-        '你只能通过 Memory 工具操作当前 session 的 `memory/...` Markdown 档案。',
-        '`memory/session.md` 记录剧情脉络和长期压力；`memory/state.md` 记录当前仍成立的事实和状态；`memory/episodes/*.md` 记录阶段/事件集团；`memory/inbox.md` 暂放待判断、待归档和失败残留。',
-        '`memory/turns/*.md` 是每回合流水。自动 after-turn 会给出建议流水路径；用户要求校正记忆时，聊天管理员也可以读取和修改既有流水。',
-        'Markdown 档案是给未来阅读和检索的，不是固定数据库格式；标题、段落和写法由助手预设决定。',
+        'You may operate on current-session `memory/...` Markdown files only through Memory tools.',
+        '`memory/session.md` tracks long-running plot continuity and pressure. `memory/state.md` tracks facts and states that still hold. `memory/episodes/*.md` tracks phase/event clusters. `memory/inbox.md` is for pending judgments, pending archival, and failed leftovers.',
+        '`memory/turns/*.md` are per-turn logs. Automatic after-turn runs receive a suggested path. When the user asks to correct memory, manager chat may also read and modify existing turn files.',
+        'These Markdown files are for future reading and retrieval, not a fixed database schema. Headings, paragraphs, and style are controlled by the assistant preset.',
     ] : [];
 
     const workLoopLines = [
         [
-            '先判断本轮是什么：自动回合维护、用户找你聊天梳理',
-            includeMemory ? '、用户要求修记忆' : '',
-            includeCartography ? '、用户要求看或改地图' : '',
-            '。',
+            'First decide what this turn is: automatic after-turn maintenance, a user asking for manager help',
+            includeMemory ? ', a user asking to correct memory' : '',
+            includeCartography ? ', or a user asking to inspect or change the map' : '',
+            '.',
         ].join(''),
-        '需要查证或改资料时使用工具；需要落库的内容以当前可用工具保存。',
-        '改动前先读现状或核对原文，再做最小必要改动；不要原样重复失败调用。',
-        includeMemory ? '自动 after-turn 按需要用 MemoryWrite 或 MemoryEdit 记录本轮流水，再按必要程度同步 session/state/episode/inbox。' : '',
-        includeMemory && includeCartography ? '地图只是额外空间状态，不能替代本轮记忆。' : '',
-        includeCartography ? '自动 after-turn 维护地图时，先 StateRead summary 看 `meta.status`；若还是 `uninitialized`，只要本轮存在明确当前场景就初始化，若已是 `active` 再按空间变化做增量维护。' : '',
-        '手动管理员聊天优先回答用户问题；只有用户要求修改、或你查实档案错误/缺失时才写档案或状态。',
-        '工具失败时，根据错误调整路径、参数或策略再试。',
+        'Use tools when you need evidence or need to change stored materials. Save only through the tools that are currently available.',
+        'Read the current state or the source RP first, then make the smallest necessary change. Do not blindly repeat a failed tool call.',
+        includeMemory ? 'In automatic after-turn runs, use MemoryWrite or MemoryEdit when this turn needs a turn file, then sync session/state/episode/inbox only as needed.' : '',
+        includeMemory && includeCartography ? 'The map is extra spatial state. It does not replace this turn\'s written memory.' : '',
+        includeCartography ? 'For automatic map maintenance, always start with StateRead summary and inspect `meta.status`. If it is still `uninitialized`, initialize as soon as this turn establishes a clear current scene. If it is already `active`, apply incremental map changes only for confirmed spatial changes this turn.' : '',
+        'In manual manager chat, answer the user question first. Write memory or state only when the user asks for a change, or when you verified a real error or omission.',
+        'When a tool fails, adjust the path, arguments, or strategy before trying again.',
     ];
 
     const sourceStrategyLines = [
-        includeMemory ? '解释现有记忆或回答用户问题时，先读相关 memory 文件。只有用户明确要求修改，或你发现档案确实错误/缺失时才写。' : '',
-        includeMemory ? '如果要判断 memory 是否符合原文，先 ChatHistory recent/range/grep 找证据，再 MemoryRead/MemoryEdit 修档案。' : '',
-        includeMemory ? '如果要找“档案里是否已有某个事实”，用 MemoryGrep；如果要找“RP 原文里是否发生过某件事”，用 ChatHistory grep。搜索范围要和问题来源一致。' : '',
-        '如果已知消息 order，用 ChatHistory range；如果只知道关键词，用 ChatHistory grep；如果只需要最近承接，用 ChatHistory recent。',
-        includeCartography ? '如果要维护结构化状态，先 StateRead summary；需要现有元素 id 时读 elements 或 element，只有确实需要完整结构时才读 document。' : '',
-        includeCartography ? 'StateRead summary 会告诉你地图当前是 `uninitialized` 还是 `active`，以及该用什么方式初始化或增量维护；不要先靠主观判断“有没有变化”来决定读不读。' : '',
-        includeCartography ? '结构化状态只提交本轮已经确认的变化；未知房间、未来路线和未确认内容进入待判断，而不是稳定状态。' : '',
-        includeMemory ? '写高层文件时保留清晰的 Markdown 结构，更新仍成立的信息，删除或迁走已经解决的 inbox 项。' : '',
+        includeMemory ? 'When explaining existing memory or answering a user question, read the relevant memory files first. Write only when the user explicitly asks for changes, or when you confirm a real error or omission.' : '',
+        includeMemory ? 'To verify memory against the RP source text, gather evidence with ChatHistory recent/range/grep first, then repair the file with MemoryRead or MemoryEdit.' : '',
+        includeMemory ? 'Use MemoryGrep to ask whether a fact already exists in memory. Use ChatHistory grep to ask whether something happened in the RP source text. Match the search scope to the question.' : '',
+        'If you know message order, use ChatHistory range. If you only know a keyword, use ChatHistory grep. If you only need recent continuity, use ChatHistory recent.',
+        includeCartography ? 'When maintaining structured state, start with StateRead summary. Use elements or element when you need current ids; read document only when you truly need the full structure.' : '',
+        includeCartography ? 'StateRead summary tells you whether the map is `uninitialized` or `active`, and whether this turn calls for initialization or incremental maintenance. Do not decide whether to read based only on your own guess about "whether anything changed." ' : '',
+        includeCartography ? 'Structured state should record only confirmed changes from this turn. Unknown rooms, future routes, and unconfirmed details belong in pending judgment, not stable state.' : '',
+        includeMemory ? 'Keep higher-level Markdown files clear. Update facts that still hold, and delete or move inbox items that are already resolved.' : '',
     ];
 
     const structuredStateLines = includeCartography ? [
-        'State 工具维护当前 session 的结构化空间状态，默认文档是 `tavern.map/main`。新 session 已自带种子地图；先 StateRead 看 meta.status 和 meta.hint，再决定初始化还是增量维护，不要先跳过读取。',
-        '地图是当前场景的空间关系图，不是文字标签板。你的任务是把已发生叙事投射成有边界、有方向、有焦点、有比例的平面图。',
-        '读到空间信息时，先在脑中回答：边界是什么，入口/出口在哪，当前玩家或视角焦点在哪，可交互物占据哪里，是否有未探索方向。',
-        '先放最确定的空间锚点，例如房间外墙、主路、河道、走廊两侧或当前地点；其他元素都相对锚点定位。',
-        '方向默认北上南下：北=y 减，南=y 增，西=x 减，东=x 增。叙事只说左/右/前/后时，选择合理朝向并在同一张地图里保持一致。',
-        '室内场景以外墙 rect 为锚点向内填充家具和门；室外场景以道路或河流为骨架向两侧散布建筑和地物；通道场景用两条平行线做边界、viewBox 宽高比拉长。',
-        '`meta.viewBox` 是相机/取景框，不会移动地图元素本身；玩家移动先改玩家 at，若玩家超出当前取景框，再用 meta.viewBox 跟随。',
-        '当地图还是 `uninitialized` 时，只要本轮叙事里存在明确当前场景/地点/空间，就按 hint 的最小样例用一次事务里的 meta + add 初始化；首次出现不要求先发生“变化”。',
-        '初始化时至少放一个空间几何元素（rect/circle/path/curve/icon）和玩家 marker；text 只能做短标签，不能代替几何。只有 name/viewBox/标签还不算有效地图。',
-        '已有地图时按同一场景增量 add/modify/remove/meta；只有彻底切到新场景才整体换图；无空间变化就跳过，不确定就不改地图，写 inbox。',
-        '常见更新：人物移动=modify at，发现门路=add door/road，物品出现=add icon+label，物品拿走=remove，门打开=modify style，新危险=add danger，镜头跟随=meta viewBox。',
-        '元素之间最小间距 20 单位避免重叠；文字标签偏移到所标注物体旁边 15-25 单位处，不压在图形中心。',
-        '提交前自检：有锚点、有焦点、元素可绘制、viewBox 作为取景框定义清楚，几何元素足够承载地图主体。',
-        '地图只记录已发生且适合可视化的空间事实；不确定的空间信息先放进待判断。',
+        'State tools maintain structured spatial state for the current session. The default document is `tavern.map/main`. New sessions already include a seed map. Read StateRead first, inspect `meta.status` and `meta.hint`, then decide whether to initialize or maintain incrementally. Do not skip the read step.',
+        'The map is a spatial relation view of the current scene, not a board of floating text labels. Your job is to project what already happened into a flat layout with boundaries, direction, focus, and proportion.',
+        'When you read spatial information, answer these questions first: what defines the boundary, where are the entrances and exits, where is the current player or viewpoint focus, what occupies interactive space, and which directions remain unexplored.',
+        'Place the most certain anchors first, such as outer room walls, a main road, a river, corridor edges, or the current location. Place other elements relative to those anchors.',
+        'Use the default orientation north-up: north = smaller y, south = larger y, west = smaller x, east = larger x. If the narration only says left/right/front/back, choose a reasonable facing and keep it consistent inside one map.',
+        'For indoor scenes, use an outer-wall rect as the anchor and place furniture and doors inside it. For outdoor scenes, use roads or rivers as the backbone and scatter buildings or terrain around them. For passage scenes, use two parallel boundary lines and a stretched `viewBox` aspect ratio.',
+        '`meta.viewBox` is the camera. It does not move map elements. Move the player by changing the player `at`, then adjust `meta.viewBox` only if the camera should follow.',
+        'If the map is still `uninitialized`, initialize it with one `meta + add` transaction as soon as the current turn clearly establishes a scene or place. First appearance does not require a prior "change".',
+        'Initialization must include at least one spatial geometry element (`rect`, `circle`, `path`, `curve`, or `icon`) plus a player marker. `text` is only for short labels and cannot replace geometry. Name, `viewBox`, and labels alone are not a valid map.',
+        'When a map already exists, use incremental `add` / `modify` / `remove` / `meta` updates for the same scene. Replace the whole map only when the story fully switches to a new scene. If nothing changes spatially, skip the map update. If you are unsure, do not change the map; write it to inbox instead.',
+        'Common updates: character movement = modify `at`; discovering a door or route = add door/road; an item appearing = add icon + label; an item being taken away = remove; a door opening = modify style; a new danger = add danger; camera follow = meta viewBox.',
+        'Keep at least 20 units of spacing between elements to avoid overlap. Place text labels 15-25 units beside what they describe instead of on top of the shape center.',
+        'Before submitting, sanity-check the map: clear anchors, a clear focus, drawable elements, a well-defined `viewBox` as the camera, and enough geometry to carry the map body.',
+        'The map should record only spatial facts that already happened and are worth visualizing. Uncertain spatial information goes to pending judgment first.',
     ] : [];
 
     const memoryToneLines = includeMemory ? [

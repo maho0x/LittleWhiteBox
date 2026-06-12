@@ -280,6 +280,102 @@
     margin-top: 0;
 }
 
+.assistant-runtime-event-stack {
+    display: block;
+    margin: 14px 0;
+}
+
+.action-check-card {
+    display: grid;
+    gap: 10px;
+    border: 1px solid rgba(120, 112, 98, 0.22);
+    border-radius: 8px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.14)),
+        var(--xb-chat-panel-bg);
+    padding: 14px 16px;
+    color: var(--xb-ink-soft);
+}
+
+.action-check-card + .action-check-card {
+    margin-top: 10px;
+}
+
+.action-check-card.is-success {
+    border-color: rgba(62, 112, 80, 0.30);
+    background:
+        linear-gradient(180deg, rgba(62, 112, 80, 0.12), rgba(62, 112, 80, 0.04)),
+        var(--xb-chat-panel-bg);
+}
+
+.action-check-card.is-failure {
+    border-color: rgba(216, 132, 144, 0.30);
+    background:
+        linear-gradient(180deg, rgba(216, 132, 144, 0.10), rgba(216, 132, 144, 0.03)),
+        var(--xb-chat-panel-bg);
+}
+
+.action-check-card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.action-check-card-head strong {
+    font: 700 13px/1.2 var(--xb-font-ui);
+    color: var(--xb-ink);
+}
+
+.action-check-card-head span {
+    white-space: nowrap;
+    font: 700 10px/1 var(--xb-font-mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--xb-ink-faint);
+}
+
+.action-check-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.action-check-card-grid>span {
+    display: grid;
+    gap: 5px;
+    border: 1px solid rgba(120, 112, 98, 0.16);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.26);
+    padding: 8px 10px;
+}
+
+.action-check-card-grid small {
+    font: 700 10px/1 var(--xb-font-mono);
+    letter-spacing: 0.08em;
+    color: var(--xb-ink-faint);
+}
+
+.action-check-card-grid strong {
+    font: 700 18px/1 var(--xb-font-ui);
+    color: var(--xb-ink);
+}
+
+.action-check-card-copy {
+    display: block;
+    color: var(--xb-text-body);
+}
+
+.xb-os-shell.theme-dark .action-check-card {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+        var(--xb-chat-panel-bg);
+}
+
+.xb-os-shell.theme-dark .action-check-card-grid>span {
+    background: rgba(255, 255, 255, 0.03);
+}
+
 .chat-bubble.from-user .xb-tavern-markdown {
     color: var(--xb-ink-soft);
 }

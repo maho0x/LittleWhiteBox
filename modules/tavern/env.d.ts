@@ -142,6 +142,7 @@ declare module '*.js' {
         toolCalls?: unknown[],
         options?: Record<string, unknown>,
     ): Record<string, unknown>;
+    export function buildProviderToolResultMessage(message?: Record<string, unknown>): Record<string, unknown>;
     export function hasVisibleText(text: unknown): boolean;
     export function resolveResultToolCalls(
         result?: Record<string, unknown>,

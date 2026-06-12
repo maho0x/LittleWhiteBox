@@ -2,6 +2,7 @@ import { createAgentAdapter, resolveActiveProviderConfig } from '../../../agent-
 import * as contextTokens from '../../../agent-core/runtime/context-tokens.js';
 import {
     buildProviderAssistantToolCallMessage,
+    buildProviderToolResultMessage,
     hasVisibleText,
     resolveResultToolCalls,
 } from '../../../agent-core/runtime/protocol.js';
@@ -43,6 +44,11 @@ import {
     isAutoManagerToolAllowed,
 } from './contract-policy';
 import { getXbTavernProviderLabel } from './provider';
+import {
+    applyTavernToolLoopRequestPlan,
+    resolveTavernToolLoopRequestPlan,
+    type TavernToolLoopResponse,
+} from './tool-loop-request';
 
 const resolveConversationTokens = (contextTokens as unknown as {
     resolveConversationTokens: (input: {
@@ -59,12 +65,18 @@ type TavernManagerStreamSnapshot = {
     toolCallDraft?: boolean;
 };
 
+export type TavernManagerProtocolEvent =
+    | { type: 'assistant_tool_round'; message: XbTavernMessage }
+    | { type: 'tool_result'; message: XbTavernMessage }
+    | { type: 'final_assistant'; message: XbTavernMessage }
+    | { type: 'clear_stream_draft' };
+
 export interface XbTavernManagerOnceOptions {
     agentConfig: Record<string, unknown>;
     messages?: XbTavernMessage[];
     tools?: unknown[];
     toolChoice?: 'auto' | 'none' | string;
-    toolResponses?: Array<{ id?: string; name?: string; response?: unknown }>;
+    toolResponses?: TavernToolLoopResponse[];
     finalAnswerReminderText?: string;
     signal?: AbortSignal;
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
@@ -93,6 +105,7 @@ export interface XbTavernManagerRunInput {
     assistantPreset?: TavernAssistantPreset;
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
+    onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
 }
 
 export interface XbTavernManagerRunResult {
@@ -122,6 +135,7 @@ export interface XbTavernManagerChatInput {
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
+    onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
 }
 
 export interface XbTavernManagerChatResult {
@@ -243,29 +257,29 @@ function buildAutoManagerUserPrompt(input: {
     const requirements: string[] = [];
     let step = 1;
     if (allowMemory) {
-        requirements.push(`${step}. 先按需读取相关记忆文件，再维护本轮记忆。`);
+        requirements.push(`${step}. Read the relevant memory files as needed before updating this turn's memory.`);
         step += 1;
-        requirements.push(`${step}. 如需记录本轮流水，优先写入上面的建议路径；正文写法由助手预设决定，不需要固定标题。`);
+        requirements.push(`${step}. If this turn needs a turn file, prefer the suggested path above. The assistant preset controls the body format; no fixed heading template is required.`);
         step += 1;
     }
     if (allowMap) {
-        requirements.push(`${step}. 地图检查分两步：先无条件 StateRead summary 看 \`meta.status\`。若还是 \`uninitialized\`，只要本轮存在明确当前场景/地点/空间，就按 hint 用一次 meta + add 初始化 \`tavern.map/main\`；若已是 \`active\`，再只在本轮有明确空间变化（地点/路线/门/危险/物品或人物位置）时增量 add/modify/remove/meta，无变化就跳过。`);
+        requirements.push(`${step}. Map maintenance is two-step: always start with StateRead summary and inspect \`meta.status\`. If it is still \`uninitialized\`, initialize \`tavern.map/main\` with one meta + add transaction as soon as this turn clearly establishes a current scene/place/space. If it is already \`active\`, apply incremental add/modify/remove/meta updates only for confirmed spatial changes this turn; otherwise skip the map update.`);
         step += 1;
     }
     if (allowMemory && allowMap) {
-        requirements.push(`${step}. 必要时同步更新 session/state/episode/inbox；地图不能替代本轮流水和文字记忆。`);
+        requirements.push(`${step}. Sync session/state/episode/inbox only when needed. The map does not replace this turn's written memory.`);
         step += 1;
     } else if (allowMemory) {
-        requirements.push(`${step}. 必要时同步更新 session/state/episode/inbox。`);
+        requirements.push(`${step}. Sync session/state/episode/inbox only when needed.`);
         step += 1;
     } else if (allowMap) {
-        requirements.push(`${step}. 当前契约只授权地图系统；不要补写 memory Markdown。`);
+        requirements.push(`${step}. This contract authorizes only the map system. Do not write memory Markdown.`);
         step += 1;
     } else {
-        requirements.push(`${step}. 当前契约未授权后台记忆或地图维护；不要写 memory 或 State，只需明确说明已跳过。`);
+        requirements.push(`${step}. This contract authorizes neither background memory nor map maintenance. Do not write memory or State; clearly say that you skipped it.`);
         step += 1;
     }
-    requirements.push(`${step}. 收束为简短处理结论：说明本轮写入、跳过或待判断的结果。`);
+    requirements.push(`${step}. Close with a short result: say what you wrote, skipped, or left pending.`);
 
     const blocks = [
         ...(allowMemory ? [buildResidentMemoryBlock(input.memoryFiles), ''] : []),
@@ -317,7 +331,6 @@ async function runManagerOnceWithAdapter(
     const messages = Array.isArray(options.messages) ? options.messages : [];
     const task: Record<string, unknown> = {
         systemPrompt: messages[0]?.content || '',
-        messages,
         tools: Array.isArray(options.tools) ? options.tools : [],
         toolChoice: options.toolChoice || (options.tools?.length ? 'auto' : 'none'),
         temperature: providerConfig.temperature,
@@ -336,12 +349,12 @@ async function runManagerOnceWithAdapter(
             });
         },
     };
-    if (Array.isArray(options.toolResponses) && options.toolResponses.length) {
-        task.toolResponses = options.toolResponses;
-    }
-    if (String(options.finalAnswerReminderText || '').trim()) {
-        task.finalAnswerReminderText = String(options.finalAnswerReminderText || '').trim();
-    }
+    applyTavernToolLoopRequestPlan(task, resolveTavernToolLoopRequestPlan({
+        supportsSessionToolLoop: (adapter as { supportsSessionToolLoop?: boolean } | null)?.supportsSessionToolLoop === true,
+        messages,
+        toolResponses: options.toolResponses,
+        finalAnswerReminderText: options.finalAnswerReminderText,
+    }));
     const result = await adapter.chat(task);
     return {
         text: String(result?.text || '').trim(),
@@ -464,6 +477,7 @@ async function runManagerAgentWithTools(input: {
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
+    onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
 }): Promise<{
     text: string;
     provider: string;
@@ -497,23 +511,32 @@ async function runManagerAgentWithTools(input: {
     let resultProvider = '';
     let resultModel = '';
     let reminded = false;
-    let pendingToolResponses: Array<{ id?: string; name?: string; response?: unknown }> | null = null;
+    let pendingToolResponses: TavernToolLoopResponse[] | null = null;
     let pendingFinalAnswerReminderText = '';
+    const emitProtocolEvent = (event: TavernManagerProtocolEvent) => {
+        input.onProtocolEvent?.(event);
+    };
 
     for (let round = 1; round <= MAX_MANAGER_TOOL_ROUNDS; round += 1) {
         throwIfManagerAborted(input.signal);
         let streamText = '';
         let streamThoughts: Array<{ label?: string; text?: string }> = [];
+        const requestPlan = resolveTavernToolLoopRequestPlan({
+            supportsSessionToolLoop,
+            messages: input.messages,
+            toolResponses: pendingToolResponses,
+            finalAnswerReminderText: pendingFinalAnswerReminderText,
+        });
         const result = await executeManagerOnce({
             agentConfig: input.agentConfig,
-            messages: input.messages,
+            messages: requestPlan.requestMessages,
             tools,
             toolChoice: 'auto',
-            ...(supportsSessionToolLoop && Array.isArray(pendingToolResponses) && pendingToolResponses.length
-                ? { toolResponses: pendingToolResponses }
+            ...(requestPlan.mode === 'session_tool_response_round'
+                ? { toolResponses: requestPlan.toolResponses }
                 : {}),
-            ...(supportsSessionToolLoop && pendingFinalAnswerReminderText
-                ? { finalAnswerReminderText: pendingFinalAnswerReminderText }
+            ...(requestPlan.mode === 'session_final_reminder_round'
+                ? { finalAnswerReminderText: requestPlan.finalAnswerReminderText }
                 : {}),
             signal: input.signal,
             onStreamProgress: (snapshot) => {
@@ -530,7 +553,9 @@ async function runManagerAgentWithTools(input: {
         pendingToolResponses = null;
         pendingFinalAnswerReminderText = '';
         throwIfManagerAborted(input.signal);
-        finalText = String(result.text || streamText || '').trim();
+        const roundVisibleText = String(result.text || streamText || '');
+        const normalizedRoundText = roundVisibleText.trim();
+        finalText = normalizedRoundText;
         resultProvider = String(result.provider || resultProvider || providerConfig.provider || '');
         resultModel = String(result.model || resultModel || providerConfig.model || '');
         const resultRecord = result as unknown as Record<string, unknown>;
@@ -539,7 +564,7 @@ async function runManagerAgentWithTools(input: {
             fallbackPrefix: 'tavern-manager-tool',
         });
         if (!toolCalls.length) {
-            if (!hasVisibleText(finalText) && toolTrace.length && !reminded) {
+            if (!hasVisibleText(normalizedRoundText) && toolTrace.length && !reminded) {
                 reminded = true;
                 const reminder = '工具结果已经齐备，请收束为本轮处理结论。';
                 if (supportsSessionToolLoop) {
@@ -552,8 +577,16 @@ async function runManagerAgentWithTools(input: {
                 }
                 continue;
             }
+            const finalAssistantMessage: XbTavernMessage = {
+                role: 'assistant',
+                content: normalizedRoundText,
+                thoughts: resultThoughts,
+                providerPayload: result.providerPayload,
+            };
+            emitProtocolEvent({ type: 'clear_stream_draft' });
+            emitProtocolEvent({ type: 'final_assistant', message: finalAssistantMessage });
             return {
-                text: finalText,
+                text: normalizedRoundText,
                 provider: resultProvider,
                 model: resultModel,
                 toolTrace,
@@ -561,24 +594,29 @@ async function runManagerAgentWithTools(input: {
                 changedStates: [...changedStates],
                 protocolMessages: [
                     ...protocolMessages,
-                    {
-                        role: 'assistant',
-                        content: finalText,
-                        thoughts: resultThoughts,
-                        providerPayload: result.providerPayload,
-                    },
+                    finalAssistantMessage,
                 ],
             };
         }
 
-        const assistantToolMessage = buildProviderAssistantToolCallMessage(resultRecord, toolCalls, {
+        const assistantToolMessage = buildProviderAssistantToolCallMessage({
+            ...resultRecord,
+            text: roundVisibleText,
+        }, toolCalls, {
             fallbackPrefix: 'tavern-manager-tool',
         }) as unknown as XbTavernMessage;
         assistantToolMessage.thoughts = resultThoughts;
+        assistantToolMessage.toolCalls = toolCalls.map((toolCall) => ({
+            id: String(toolCall.id || ''),
+            name: String(toolCall.name || ''),
+            arguments: String(toolCall.arguments || '{}'),
+        }));
         input.messages.push(assistantToolMessage);
         protocolMessages.push(assistantToolMessage);
+        emitProtocolEvent({ type: 'clear_stream_draft' });
+        emitProtocolEvent({ type: 'assistant_tool_round', message: assistantToolMessage });
 
-        const toolResponses: Array<{ id?: string; name?: string; response?: unknown }> = [];
+        const toolResponses: TavernToolLoopResponse[] = [];
         for (const [toolIndex, toolCall] of toolCalls.entries()) {
             const args = safeJsonParse(toolCall.arguments, {});
             throwIfManagerAborted(input.signal);
@@ -591,7 +629,7 @@ async function runManagerAgentWithTools(input: {
                 args: summarizeToolArguments(args),
                 path: '',
                 summary: '工具运行中，等待返回。',
-                preface: toolIndex === 0 ? finalText : '',
+                preface: toolIndex === 0 ? normalizedRoundText : '',
                 thoughts: toolIndex === 0 ? resultThoughts : [],
                 startedAt: Date.now(),
             };
@@ -636,14 +674,16 @@ async function runManagerAgentWithTools(input: {
                 traceEntry.elapsedMs = Math.max(0, Number(traceEntry.finishedAt) - Number(traceEntry.startedAt));
             }
             await persistRunningManagerToolTrace(input.managerRunId, toolTrace);
-            const toolMessage: XbTavernMessage = {
-                role: 'tool',
-                tool_call_id: toolCall.id,
+            const toolMessage = buildProviderToolResultMessage({
+                toolCallId: toolCall.id,
                 toolName: toolCall.name,
                 content: safeJson(toolResult),
-            };
+            }) as unknown as XbTavernMessage;
+            toolMessage.toolCallId = String(toolCall.id || '');
+            toolMessage.toolDisplay = summarizeToolResult(toolResult);
             input.messages.push(toolMessage);
             protocolMessages.push(toolMessage);
+            emitProtocolEvent({ type: 'tool_result', message: toolMessage });
             toolResponses.push({
                 id: toolCall.id,
                 name: toolCall.name,
@@ -823,6 +863,7 @@ async function runManagerTask(input: {
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
     userOrder?: number;
     assistantOrder?: number;
+    onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
 }): Promise<{
     ok: boolean;
     managerRun: TavernManagerRunRecord;
@@ -869,6 +910,7 @@ async function runManagerTask(input: {
             signal: input.signal,
             executeManagerOnce: input.executeManagerOnce,
             onStreamProgress: input.onStreamProgress,
+            onProtocolEvent: input.onProtocolEvent,
         });
         resultText = result.text;
         resultProvider = result.provider || resultProvider;
@@ -1153,6 +1195,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             sessionContract: input.sessionContract,
             signal: input.signal,
             executeManagerOnce: input.executeManagerOnce,
+            onProtocolEvent: input.onProtocolEvent,
         });
         if (!result.ok) {
             return {
@@ -1217,6 +1260,7 @@ export async function runXbTavernManagerChat(input: XbTavernManagerChatInput): P
         signal: input.signal,
         executeManagerOnce: input.executeManagerOnce,
         onStreamProgress: input.onStreamProgress,
+        onProtocolEvent: input.onProtocolEvent,
     });
     return {
         ok: result.ok,

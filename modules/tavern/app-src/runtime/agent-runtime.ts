@@ -3,7 +3,7 @@ import type { XbTavernResolvedProvider } from './provider';
 
 export interface XbTavernCapabilityRegistry {
     tools: unknown[];
-    toolChoice: 'none';
+    toolChoice: 'auto' | 'none' | string;
 }
 
 export interface XbTavernAgentRuntime {
@@ -16,7 +16,7 @@ export interface XbTavernAgentRuntime {
     }): {
         messages: XbTavernMessage[];
         tools: unknown[];
-        toolChoice: 'none';
+        toolChoice: 'auto' | 'none' | string;
         temperature: number;
         maxTokens: number | null;
         signal?: AbortSignal;

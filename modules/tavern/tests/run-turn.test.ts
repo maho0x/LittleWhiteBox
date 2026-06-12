@@ -22,6 +22,7 @@ import {
 import { executeTavernStateTool } from '../shared/structured-state';
 import { createDefaultXbTavernPreset } from '../shared/presets';
 import { buildTavernManagerSystemPrompt } from '../shared/assistant-presets';
+import { ACTION_CHECK_TOOL_NAME } from '../shared/action-checks';
 import {
     buildXbTavernMemoryIgnoredTerms,
     buildXbTavernMemoryQuery,
@@ -29,7 +30,13 @@ import {
     setXbTavernMemoryTokenizerForTest,
 } from '../shared/memory-retrieval';
 import { mergeTavernSessionContract } from '../shared/session-contract';
-import { CHANCE_ENCOUNTER_LABEL } from '../shared/runtime-events';
+import {
+    CHANCE_ENCOUNTER_LABEL,
+    createActionCheckEvent,
+    getActionCheckEvents,
+    getChanceEncounterEvent,
+    injectActionCheckRenderMarkers,
+} from '../shared/runtime-events';
 import {
     buildContextHistory,
     buildTavernRequestSnapshot,
@@ -194,7 +201,7 @@ test('xb tavern run turn persists a triggered encounter and injects its prompt a
     });
 
     const [userMessage] = await listTavernMessages(result.sessionId);
-    assert.equal(userMessage?.runtimeEvents?.[0]?.label, CHANCE_ENCOUNTER_LABEL);
+    assert.equal(getChanceEncounterEvent(userMessage?.runtimeEvents)?.label, CHANCE_ENCOUNTER_LABEL);
     const userIndex = requestMessages.findIndex((message) => message.role === 'user' && message.content.includes('Step into the clearing.'));
     const eventIndex = requestMessages.findIndex((message) => message.role === 'system' && message.content.includes('Chance Encounter Triggered'));
     const afterHistoryIndex = requestMessages.findIndex((message) => message.content.includes('AFTER_HISTORY_SENTINEL'));
@@ -377,6 +384,824 @@ test('xb tavern edited rerun can reroll runtime events on the reused user messag
     assert.match(rerunRawMessages, /Chance Encounter Triggered/);
 });
 
+test('xb tavern run turn does not inject action-check protocol or tools when contract disables it', async () => {
+    await resetDb();
+    const presetBase = createDefaultXbTavernPreset();
+    const preset = {
+        ...presetBase,
+        sections: [
+            ...(presetBase.sections || []),
+            {
+                id: 'after-history-sentinel',
+                label: 'After History Sentinel',
+                placement: 'afterHistory' as const,
+                role: 'system' as const,
+                content: 'AFTER_HISTORY_SENTINEL',
+            },
+        ],
+    };
+    let rawMessages = '';
+    let exposedTools: unknown[] = [];
+    await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我想撬开这扇门。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: false,
+                randomEncounters: false,
+            }),
+        },
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            rawMessages = JSON.stringify(options.messages);
+            exposedTools = Array.isArray(options.tools) ? options.tools : [];
+            return {
+                text: '她抬手试了试门把。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+
+    assert.equal(exposedTools.length, 0);
+    assert.doesNotMatch(rawMessages, /Runtime Protocol: Action Checks/);
+    assert.doesNotMatch(rawMessages, /AFTER_HISTORY_SENTINEL.+Runtime Protocol: Action Checks/);
+});
+
+test('xb tavern run turn injects action-check protocol after current user and exposes ActionCheck tool', async () => {
+    await resetDb();
+    const presetBase = createDefaultXbTavernPreset();
+    const preset = {
+        ...presetBase,
+        sections: [
+            ...(presetBase.sections || []),
+            {
+                id: 'after-history-sentinel',
+                label: 'After History Sentinel',
+                placement: 'afterHistory' as const,
+                role: 'system' as const,
+                content: 'AFTER_HISTORY_SENTINEL',
+            },
+        ],
+    };
+    let requestMessages: Array<{ role: string; content: string }> = [];
+    let exposedToolNames: string[] = [];
+    await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我想撬开这扇门。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            requestMessages = options.messages.map((message) => ({
+                role: message.role,
+                content: message.content,
+            }));
+            exposedToolNames = (Array.isArray(options.tools) ? options.tools : [])
+                .map((tool) => String((tool as { function?: { name?: string } })?.function?.name || ''))
+                .filter(Boolean);
+            return {
+                text: '她先观察锁孔的磨损。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                    requestTask: {
+                        messages: options.messages,
+                        tools: options.tools,
+                        toolChoice: options.toolChoice,
+                    },
+                }),
+            };
+        },
+    });
+
+    const userIndex = requestMessages.findIndex((message) => message.role === 'user' && message.content.includes('我想撬开这扇门'));
+    const protocolIndex = requestMessages.findIndex((message) => message.role === 'system' && message.content.includes('Runtime Protocol: Action Checks'));
+    const afterHistoryIndex = requestMessages.findIndex((message) => message.content.includes('AFTER_HISTORY_SENTINEL'));
+    assert.ok(userIndex >= 0);
+    assert.ok(protocolIndex > userIndex);
+    assert.ok(afterHistoryIndex > protocolIndex);
+    assert.deepEqual(exposedToolNames, [ACTION_CHECK_TOOL_NAME]);
+});
+
+test('xb tavern run turn executes multiple action checks and persists assistant runtime events', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const rolls = [16, 12];
+    let requestCount = 0;
+    const executeRunOnce = Object.assign(async (options: TavernRunOnceOptions) => {
+        requestCount += 1;
+        if (requestCount === 1) {
+            return {
+                text: '她猛地跃向断桥彼端。 ',
+                toolCalls: [{
+                    id: 'check-1',
+                    name: ACTION_CHECK_TOOL_NAME,
+                    arguments: JSON.stringify({
+                        action: 'Leap across the broken bridge',
+                        stat: 'Agility',
+                        difficulty: 14,
+                    }),
+                }, {
+                    id: 'check-2',
+                    name: ACTION_CHECK_TOOL_NAME,
+                    arguments: JSON.stringify({
+                        action: 'Catch the far stone lip',
+                        stat: 'Grip',
+                        difficulty: 10,
+                    }),
+                }],
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                    requestTask: {
+                        messages: options.messages,
+                        tools: options.tools,
+                        toolChoice: options.toolChoice,
+                    },
+                }),
+            };
+        }
+        assert.equal(options.toolResponses?.length, 2);
+        assert.equal(options.messages.length, 0);
+        return {
+            text: '落点稳住，手指也死死扣进了石缝。',
+            finishReason: 'stop',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                requestTask: {
+                    messages: options.messages,
+                    tools: options.tools,
+                    toolResponses: options.toolResponses,
+                },
+            }),
+        };
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'];
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我跳过去，然后抓住对岸石沿。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => rolls.shift() || 1,
+        executeRunOnce,
+    });
+
+    assert.equal(requestCount, 2);
+    const messages = await listTavernMessages(result.sessionId);
+    const assistantEvents = getActionCheckEvents(messages[1]?.runtimeEvents);
+    assert.equal(assistantEvents.length, 2);
+    assert.equal(assistantEvents[0]?.roll, 16);
+    assert.equal(assistantEvents[0]?.success, true);
+    assert.equal(assistantEvents[1]?.roll, 12);
+    assert.equal(assistantEvents[1]?.success, true);
+    assert.equal(assistantEvents[0]?.insertAfterChars, assistantEvents[1]?.insertAfterChars);
+    assert.match(messages[1]?.content || '', /她猛地跃向断桥彼端/);
+    assert.match(messages[1]?.content || '', /落点稳住/);
+});
+
+test('xb tavern action checks keep live dice visible even when the model calls the tool before any preface text', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const liveSnapshots: Array<{ text: string; eventCount: number }> = [];
+    let requestCount = 0;
+    await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我立刻翻过窗台。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 18,
+        onStreamProgress: (snapshot) => {
+            liveSnapshots.push({
+                text: String(snapshot.text || ''),
+                eventCount: Array.isArray(snapshot.liveActionCheckEvents) ? snapshot.liveActionCheckEvents.length : 0,
+            });
+        },
+        executeRunOnce: Object.assign(async (options: TavernRunOnceOptions) => {
+            requestCount += 1;
+            if (requestCount === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'check-preface-free',
+                        name: ACTION_CHECK_TOOL_NAME,
+                        arguments: JSON.stringify({
+                            action: 'Vault through the window',
+                            stat: 'Agility',
+                            difficulty: 13,
+                        }),
+                    }],
+                    requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+                };
+            }
+            assert.equal(options.messages.length, 0);
+            assert.equal(options.toolResponses?.[0]?.id, 'check-preface-free');
+            return {
+                text: '她一撑窗沿，顺势翻进了室内。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'],
+    });
+
+    assert.equal(requestCount, 2);
+    assert.equal(liveSnapshots.some((snapshot) => snapshot.text === '' && snapshot.eventCount === 1), true);
+});
+
+test('xb tavern action checks stream cumulative text across tool rounds', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const streamed: string[] = [];
+    const liveEventCounts: number[] = [];
+    let requestCount = 0;
+    await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我试着撬锁，然后推门。 ',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 17,
+        onStreamProgress: (snapshot) => {
+            if (typeof snapshot.text === 'string') {
+                streamed.push(snapshot.text);
+            }
+            if (Array.isArray(snapshot.liveActionCheckEvents)) {
+                liveEventCounts.push(snapshot.liveActionCheckEvents.length);
+            }
+        },
+        executeRunOnce: Object.assign(async (options: TavernRunOnceOptions) => {
+            requestCount += 1;
+            if (requestCount === 1) {
+                options.onStreamProgress?.({ text: '她把铁丝探进锁孔。 ' });
+                return {
+                    text: '她把铁丝探进锁孔。 ',
+                    toolCalls: [{
+                        id: 'check-stream',
+                        name: ACTION_CHECK_TOOL_NAME,
+                        arguments: JSON.stringify({
+                            action: 'Pick the lock',
+                            stat: 'Finesse',
+                            difficulty: 12,
+                        }),
+                    }],
+                    requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+                };
+            }
+            assert.equal(options.messages.length, 0);
+            options.onStreamProgress?.({ text: '门闩一松，她顺势推门而入。' });
+            return {
+                text: '门闩一松，她顺势推门而入。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'],
+    });
+
+    assert.deepEqual(streamed, [
+        '她把铁丝探进锁孔。 ',
+        '她把铁丝探进锁孔。 ',
+        '她把铁丝探进锁孔。 门闩一松，她顺势推门而入。',
+    ]);
+    assert.deepEqual(liveEventCounts, [1]);
+});
+
+test('xb tavern action checks discard live dice results when the assistant never reaches a saved final reply', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const liveEventCounts: number[] = [];
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我赌一把，从塔窗翻进去。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 19,
+        onStreamProgress: (snapshot) => {
+            if (Array.isArray(snapshot.liveActionCheckEvents)) {
+                liveEventCounts.push(snapshot.liveActionCheckEvents.length);
+            }
+        },
+        executeRunOnce: Object.assign(async (options: TavernRunOnceOptions) => {
+            if (!options.toolResponses?.length) {
+                return {
+                    text: '她踩上窗沿，准备一口气翻进去。 ',
+                    toolCalls: [{
+                        id: 'check-void',
+                        name: ACTION_CHECK_TOOL_NAME,
+                        arguments: JSON.stringify({
+                            action: 'Vault through the tower window',
+                            stat: 'Agility',
+                            difficulty: 13,
+                        }),
+                    }],
+                    requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+                };
+            }
+            assert.equal(options.messages.length, 0);
+            throw new Error('provider_exploded_mid_reply');
+        }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'],
+    });
+
+    assert.deepEqual(liveEventCounts, [1]);
+    assert.equal(result.assistantMessage, undefined);
+    assert.match(result.errorMessage?.content || '', /provider_exploded_mid_reply/);
+    const messages = await listTavernMessages(result.sessionId);
+    assert.equal(messages.length, 2);
+    assert.equal(messages[1]?.error, true);
+    assert.equal(getActionCheckEvents(messages[1]?.runtimeEvents).length, 0);
+});
+
+test('xb tavern action checks render markers keep one whole markdown string and group same-offset rolls', () => {
+    const payload = injectActionCheckRenderMarkers('她把铁丝探进锁孔。门开了。', [
+        createActionCheckEvent({
+            action: 'Pick the lock',
+            stat: 'Finesse',
+            difficulty: 12,
+            roll: 15,
+            success: true,
+            insertAfterChars: 9,
+        }),
+        createActionCheckEvent({
+            action: 'Keep the hinges quiet',
+            stat: 'Stealth',
+            difficulty: 10,
+            roll: 14,
+            success: true,
+            insertAfterChars: 9,
+        }),
+    ]);
+
+    assert.equal(payload.groups.length, 1);
+    assert.equal(payload.groups[0]?.events.length, 2);
+    assert.match(payload.text, /门开了/);
+    assert.equal(payload.text.length, '她把铁丝探进锁孔。门开了。'.length + 1);
+});
+
+test('xb tavern run turn denies unknown RP tools and does not persist action-check events for them', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    let requestCount = 0;
+    const executeRunOnce = Object.assign(async (options: TavernRunOnceOptions) => {
+        requestCount += 1;
+        if (requestCount === 1) {
+            return {
+                text: '她屏住呼吸，手已经探向警铃底座。 ',
+                toolCalls: [{
+                    id: 'weird-tool',
+                    name: 'ImprovisedExplosionSolver',
+                    arguments: JSON.stringify({ problem: 'alarm' }),
+                }],
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        }
+        assert.match(JSON.stringify(options.toolResponses || []), /只允许调用 ActionCheck/);
+        return {
+            text: '她停下手，决定先重新判断线路走向。',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        };
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'];
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我试着摸黑拆掉警铃。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        executeRunOnce,
+    });
+
+    assert.equal(requestCount, 2);
+    const messages = await listTavernMessages(result.sessionId);
+    assert.equal(getActionCheckEvents(messages[1]?.runtimeEvents).length, 0);
+});
+
+test('xb tavern action checks replay tool results through messages when session tool loop is unavailable', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    let requestCount = 0;
+    await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我赌一把，从窗台翻进塔里。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 18,
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            requestCount += 1;
+            if (requestCount === 1) {
+                assert.equal(Array.isArray(options.toolResponses), false);
+                return {
+                    text: '她踩上窗沿，呼吸压得极轻。 ',
+                    toolCalls: [{
+                        id: 'check-replay',
+                        name: ACTION_CHECK_TOOL_NAME,
+                        arguments: JSON.stringify({
+                            action: 'Vault through the tower window',
+                            stat: 'Agility',
+                            difficulty: 13,
+                        }),
+                    }],
+                    requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+                };
+            }
+            assert.equal(Array.isArray(options.toolResponses), false);
+            const replayTool = options.messages.find((message) => message.role === 'tool') as {
+                tool_call_id?: string;
+                toolName?: string;
+            } | undefined;
+            assert.equal(replayTool?.tool_call_id, 'check-replay');
+            assert.equal(replayTool?.toolName, ACTION_CHECK_TOOL_NAME);
+            return {
+                text: '她借着惯性翻入塔内，靴跟轻轻擦过石窗。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+
+    assert.equal(requestCount, 2);
+});
+
+test('xb tavern action checks send a final reminder when tools finished but model returns no visible text', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    let requestCount = 0;
+    const executeRunOnce = Object.assign(async (options: TavernRunOnceOptions) => {
+        requestCount += 1;
+        if (requestCount === 1) {
+            return {
+                text: '她把发夹探进锁孔。 ',
+                toolCalls: [{
+                    id: 'check-reminder',
+                    name: ACTION_CHECK_TOOL_NAME,
+                    arguments: JSON.stringify({
+                        action: 'Pick the lock',
+                        stat: 'Finesse',
+                        difficulty: 12,
+                    }),
+                }],
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        }
+        if (requestCount === 2) {
+            assert.equal(options.toolResponses?.[0]?.id, 'check-reminder');
+            assert.equal(options.messages.length, 0);
+            return {
+                text: '',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                    requestTask: {
+                        finalAnswerReminderText: options.finalAnswerReminderText,
+                    },
+                }),
+            };
+        }
+        assert.match(String(options.finalAnswerReminderText || ''), /Do not call more tools/);
+        assert.equal(options.messages.length, 0);
+        return {
+            text: '锁芯发出一声轻响，门闩终于松开。',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                requestTask: {
+                    finalAnswerReminderText: options.finalAnswerReminderText,
+                },
+            }),
+        };
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'];
+
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我试着撬开这把锁。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 15,
+        executeRunOnce,
+    });
+
+    assert.equal(requestCount, 3);
+    assert.match(result.assistantMessage?.content || '', /门闩终于松开/);
+});
+
+test('xb tavern action checks still send the final reminder after the max tool round only returns more tools', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    let requestCount = 0;
+    const executeRunOnce = Object.assign(async (options: TavernRunOnceOptions) => {
+        requestCount += 1;
+        if (requestCount <= 8) {
+            if (requestCount === 1) {
+                assert.equal(Array.isArray(options.toolResponses), false);
+            } else {
+                assert.equal(options.messages.length, 0);
+                assert.equal(options.toolResponses?.[0]?.id, `check-${requestCount - 1}`);
+                assert.equal(String(options.finalAnswerReminderText || ''), '');
+            }
+            return {
+                text: '',
+                toolCalls: [{
+                    id: `check-${requestCount}`,
+                    name: ACTION_CHECK_TOOL_NAME,
+                    arguments: JSON.stringify({
+                        action: `Risky attempt ${requestCount}`,
+                        stat: 'Luck',
+                        difficulty: 12,
+                    }),
+                }],
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                    requestTask: {
+                        messages: options.messages,
+                        toolResponses: options.toolResponses,
+                        finalAnswerReminderText: options.finalAnswerReminderText,
+                    },
+                }),
+            };
+        }
+        if (requestCount === 9) {
+            assert.equal(options.messages.length, 0);
+            assert.equal(options.toolResponses?.[0]?.id, 'check-8');
+            assert.equal(String(options.finalAnswerReminderText || ''), '');
+            return {
+                text: '',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                    requestTask: {
+                        messages: options.messages,
+                        toolResponses: options.toolResponses,
+                        finalAnswerReminderText: options.finalAnswerReminderText,
+                    },
+                }),
+            };
+        }
+        assert.equal(requestCount, 10);
+        assert.equal(options.messages.length, 0);
+        assert.match(String(options.finalAnswerReminderText || ''), /Do not call more tools/);
+        return {
+            text: '命运终于尘埃落定，她没有继续冒险，而是收住了动作。',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                requestTask: {
+                    messages: options.messages,
+                    toolResponses: options.toolResponses,
+                    finalAnswerReminderText: options.finalAnswerReminderText,
+                },
+            }),
+        };
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'];
+
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我连续冒险，直到命运给出最后结果。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 15,
+        executeRunOnce,
+    });
+
+    assert.equal(requestCount, 10);
+    assert.match(result.assistantMessage?.content || '', /命运终于尘埃落定/);
+});
+
+test('xb tavern action checks fail the turn when the model still gives no conclusion after the final reminder', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    let requestCount = 0;
+    const executeRunOnce = Object.assign(async (options: TavernRunOnceOptions) => {
+        requestCount += 1;
+        if (requestCount === 1) {
+            return {
+                text: '她把发夹探进锁孔。 ',
+                toolCalls: [{
+                    id: 'check-no-conclusion',
+                    name: ACTION_CHECK_TOOL_NAME,
+                    arguments: JSON.stringify({
+                        action: 'Pick the lock',
+                        stat: 'Finesse',
+                        difficulty: 12,
+                    }),
+                }],
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        }
+        return {
+            text: '',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                requestTask: {
+                    finalAnswerReminderText: options.finalAnswerReminderText,
+                },
+            }),
+        };
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'];
+
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我试着撬开这把锁。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 4,
+        executeRunOnce,
+    });
+
+    assert.equal(requestCount, 3);
+    assert.equal(result.assistantMessage, undefined);
+    assert.match(result.errorMessage?.content || '', /没有给出有效结论/);
+});
+
+test('xb tavern action checks remap dice-card offsets after aiOutput regex rewrites the final assistant text', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我跳过断桥。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 18,
+        applyRegex: async (items) => ({
+            items: items.map((item) => item.placement === 'aiOutput'
+                ? {
+                    id: item.id,
+                    text: String(item.text || '').replace('她猛地跃向断桥彼端。 ', '她先深吸一口气，猛地跃向断桥彼端。 '),
+                    changed: true,
+                }
+                : { id: item.id, text: item.text, changed: false }),
+            changedCount: items.some((item) => item.placement === 'aiOutput') ? 1 : 0,
+        }),
+        executeRunOnce: Object.assign(async (options: TavernRunOnceOptions) => {
+            if (!options.toolResponses?.length) {
+                return {
+                    text: '她猛地跃向断桥彼端。 ',
+                    toolCalls: [{
+                        id: 'check-remap',
+                        name: ACTION_CHECK_TOOL_NAME,
+                        arguments: JSON.stringify({
+                            action: 'Leap across the broken bridge',
+                            stat: 'Agility',
+                            difficulty: 14,
+                        }),
+                    }],
+                    requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+                };
+            }
+            return {
+                text: '落地时她稳稳收住重心。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernTurn>[0]['executeRunOnce'],
+    });
+
+    const messages = await listTavernMessages(result.sessionId);
+    const assistant = messages.find((message) => message.role === 'assistant' && !message.error);
+    const events = getActionCheckEvents(assistant?.runtimeEvents);
+    assert.match(assistant?.content || '', /她先深吸一口气/);
+    assert.equal(events.length, 1);
+    assert.equal(
+        (assistant?.content || '').slice(0, events[0]?.insertAfterChars || 0),
+        '她先深吸一口气，猛地跃向断桥彼端。 ',
+    );
+});
+
+test('xb tavern rerun regenerates assistant action checks cleanly instead of reusing old dice events', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const first = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: '我撬门。',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        actionCheckRoll: () => 17,
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            if (!options.toolResponses?.length) {
+                return {
+                    text: '她把铁丝探进锁孔。 ',
+                    toolCalls: [{
+                        id: 'check-1',
+                        name: ACTION_CHECK_TOOL_NAME,
+                        arguments: JSON.stringify({
+                            action: 'Pick the lock',
+                            stat: 'Finesse',
+                            difficulty: 12,
+                        }),
+                    }],
+                    requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+                };
+            }
+            return {
+                text: '锁芯轻轻一响，门开了。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+
+    let rerunCalls = 0;
+    await runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'ignored',
+        reuseUserMessageOrder: 0,
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: true,
+                randomEncounters: false,
+            }),
+        },
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            rerunCalls += 1;
+            assert.equal(options.toolResponses?.length || 0, 0);
+            return {
+                text: '她停手，决定先听门后的动静。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+
+    assert.equal(rerunCalls, 1);
+    const messages = await listTavernMessages(first.sessionId);
+    assert.equal(messages.length, 2);
+    assert.equal(getActionCheckEvents(messages[1]?.runtimeEvents).length, 0);
+});
+
 test('xb tavern run turn can trigger manager summary with delegate config', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
@@ -490,23 +1315,23 @@ test('xb tavern run turn can trigger manager summary with delegate config', asyn
     assert.match(managerPrompt, /## Source Strategy/);
     assert.match(managerPrompt, /## Structured State/);
     assert.match(managerPrompt, /建议流水路径：memory\/turns\/\d{8}-0000\.md/);
-    assert.match(managerPrompt, /自动 after-turn 按需要用 MemoryWrite 或 MemoryEdit 记录本轮流水/);
-    assert.match(managerPrompt, /新 session 已自带种子地图/);
-    assert.match(managerPrompt, /先 StateRead 看 meta\.status 和 meta\.hint/);
-    assert.match(managerPrompt, /若还是 `uninitialized`，只要本轮存在明确当前场景就初始化/);
-    assert.match(managerPrompt, /按 hint 的最小样例用一次事务里的 meta \+ add 初始化/);
-    assert.match(managerPrompt, /先 StateRead summary 看 `meta\.status`/);
-    assert.match(managerPrompt, /不要先靠主观判断“有没有变化”来决定读不读/);
-    assert.match(managerPrompt, /已有地图时按同一场景增量 add\/modify\/remove\/meta；只有彻底切到新场景才整体换图；无空间变化就跳过/);
-    assert.match(managerPrompt, /首次出现不要求先发生“变化”/);
-    assert.match(managerPrompt, /边界是什么，入口\/出口在哪，当前玩家或视角焦点在哪/);
-    assert.match(managerPrompt, /室内场景以外墙 rect 为锚点/);
-    assert.match(managerPrompt, /`meta\.viewBox` 是相机\/取景框/);
-    assert.match(managerPrompt, /至少放一个空间几何元素/);
-    assert.match(managerPrompt, /文字标签偏移到所标注物体旁边 15-25 单位处/);
-    assert.match(managerPrompt, /几何元素足够承载地图主体/);
+    assert.match(managerPrompt, /In automatic after-turn runs, use MemoryWrite or MemoryEdit/i);
+    assert.match(managerPrompt, /New sessions already include a seed map/i);
+    assert.match(managerPrompt, /Read StateRead first, inspect `meta\.status` and `meta\.hint`/i);
+    assert.match(managerPrompt, /If the map is still `uninitialized`, initialize it with one `meta \+ add` transaction/i);
+    assert.match(managerPrompt, /initialize it with one `meta \+ add` transaction/i);
+    assert.match(managerPrompt, /always start with StateRead summary and inspect `meta\.status`/i);
+    assert.match(managerPrompt, /Do not decide whether to read based only on your own guess about/i);
+    assert.match(managerPrompt, /When a map already exists, use incremental `add` \/ `modify` \/ `remove` \/ `meta` updates/i);
+    assert.match(managerPrompt, /First appearance does not require a prior/i);
+    assert.match(managerPrompt, /what defines the boundary, where are the entrances and exits, where is the current player or viewpoint focus/i);
+    assert.match(managerPrompt, /For indoor scenes, use an outer-wall rect as the anchor/i);
+    assert.match(managerPrompt, /`meta\.viewBox` is the camera/i);
+    assert.match(managerPrompt, /at least one spatial geometry element/i);
+    assert.match(managerPrompt, /Place text labels 15-25 units beside what they describe/i);
+    assert.match(managerPrompt, /enough geometry to carry the map body/i);
     assert.match(managerPrompt, /回复像电纸书完成文件操作后的交代/);
-    assert.match(managerPrompt, /MemoryGrep；如果要找“RP 原文里是否发生过某件事”，用 ChatHistory grep/);
+    assert.match(managerPrompt, /Use MemoryGrep to ask whether a fact already exists in memory\. Use ChatHistory grep to ask whether something happened in the RP source text\./i);
     assert.doesNotMatch(managerPrompt, /可派生格式/);
     assert.doesNotMatch(managerPrompt, /messages userOrder\/assistantOrder/);
     assert.doesNotMatch(managerPrompt, /ChatHistory recent 读取最新消息/);
@@ -529,9 +1354,9 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
     assert.match(memoryOnly, /MemoryWrite/);
     assert.doesNotMatch(memoryOnly, /## Structured State/);
     assert.doesNotMatch(memoryOnly, /StateRead/);
-    assert.doesNotMatch(memoryOnly, /查看地图/);
-    assert.doesNotMatch(memoryOnly, /空间关系图/);
-    assert.doesNotMatch(memoryOnly, /地图只是额外空间状态/);
+    assert.doesNotMatch(memoryOnly, /inspect or change the map/i);
+    assert.doesNotMatch(memoryOnly, /spatial relation view/i);
+    assert.doesNotMatch(memoryOnly, /The map is extra spatial state/i);
 
     const mapOnly = buildTavernManagerSystemPrompt({}, {
         includeMemory: false,
@@ -604,6 +1429,12 @@ test('xb tavern regex transforms user input, world info, and AI output in the re
                 }],
             }],
         },
+        state: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: false,
+                randomEncounters: false,
+            }),
+        },
     });
     await appendTavernMessage(session.id, { role: 'user', content: 'OLD_USER already saved.' });
     await appendTavernMessage(session.id, {
@@ -647,6 +1478,12 @@ test('xb tavern regex transforms user input, world info, and AI output in the re
         contextSnapshot: session.contextSnapshot || {},
         preset,
         currentUserMessage: 'RAW_USER asks.',
+        runtimeState: {
+            contract: mergeTavernSessionContract(undefined, {
+                actionChecks: false,
+                randomEncounters: false,
+            }),
+        },
         applyRegex,
         onStreamProgress: (snapshot) => {
             if (typeof snapshot.text === 'string') {streamed.push(snapshot.text);}

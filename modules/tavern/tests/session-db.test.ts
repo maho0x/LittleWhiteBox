@@ -43,7 +43,7 @@ import db, {
 import { DEFAULT_XB_TAVERN_PRESET_ID, createDefaultXbTavernPreset } from '../shared/presets';
 import { DEFAULT_TAVERN_SESSION_CONTRACT, mergeTavernSessionContract } from '../shared/session-contract';
 import { buildXbTavernMessages, createXbTavernBuildSnapshot } from '../shared/message-assembler';
-import { createChanceEncounterEvent } from '../shared/runtime-events';
+import { createActionCheckEvent, createChanceEncounterEvent } from '../shared/runtime-events';
 import {
     MAX_MANAGER_TOOL_ROUNDS,
     cancelAndRollbackXbTavernManagersForMessageRange,
@@ -143,9 +143,9 @@ test('new tavern sessions start with a seed map document', async () => {
     assert.equal((document?.data as { meta?: { status?: string } })?.meta?.status, 'uninitialized');
     assert.equal((document?.data as { elements?: unknown[] })?.elements?.length, 0);
     const hint = (document?.data as { meta?: { hint?: string } })?.meta?.hint || '';
-    assert.match(hint, /室内场景样例/);
-    assert.match(hint, /室外场景样例/);
-    assert.match(hint, /至少放一个空间几何元素/);
+    assert.match(hint, /Indoor example/);
+    assert.match(hint, /Outdoor example/);
+    assert.match(hint, /at least one spatial geometry element/);
     assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 0);
 });
 
@@ -210,6 +210,41 @@ test('tavern session db preserves runtime events and lets user edits clear them'
 
     assert.equal(updated?.content, 'Roll the road again.');
     assert.deepEqual(updated?.runtimeEvents, []);
+});
+
+test('tavern session db preserves multiple assistant action-check events without collapsing them by type', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Action check events' });
+    const assistantMessage = await appendTavernMessage(session.id, {
+        role: 'assistant',
+        content: 'She moves. Then she catches the ledge.',
+        runtimeEvents: [
+            createActionCheckEvent({
+                action: 'Leap over the gap',
+                stat: 'Agility',
+                difficulty: 14,
+                roll: 16,
+                success: true,
+                insertAfterChars: 12,
+                toolCallId: 'check-1',
+            }),
+            createActionCheckEvent({
+                action: 'Catch the far ledge',
+                stat: 'Grip',
+                difficulty: 10,
+                roll: 12,
+                success: true,
+                insertAfterChars: 12,
+                toolCallId: 'check-2',
+            }),
+        ],
+    });
+
+    assert.equal(assistantMessage.runtimeEvents?.length, 2);
+    const listed = await listTavernMessages(session.id);
+    assert.equal(listed[0]?.runtimeEvents?.length, 2);
 });
 
 test('tavern session db deletes sessions with related records', async () => {
@@ -736,14 +771,64 @@ test('MemoryEdit tool schema documents edit modes and array discipline', () => {
         properties?: Record<string, { description?: string }>;
     };
 
-    assert.match(editTool?.function.description || '', /Read the current file first/i);
+    assert.match(editTool?.function.description || '', /Read the target file first/i);
+    assert.match(editTool?.function.description || '', /not a JSON-stringified string/i);
+    assert.match(editTool?.function.description || '', /normalizes by priority/i);
+    assert.match(editTool?.function.description || '', /Do not issue multiple MemoryEdit tool calls for the same file in one assistant turn/i);
     assert.match(editTool?.function.description || '', /mix oldString edits with line-number edits/i);
     assert.match(editTool?.function.description || '', /bottom to top/);
-    assert.match(editTool?.function.description || '', /not semantic fuzzy search/);
-    assert.match(parameters.properties?.edits?.description || '', /Real non-empty JSON array/);
+    assert.match(editTool?.function.description || '', /Common punctuation equivalence is supported/i);
+    assert.match(parameters.properties?.edits?.description || '', /real, non-empty JSON array/i);
     assert.match(parameters.properties?.edits?.description || '', /not a quoted JSON string/);
     assert.match(parameters.properties?.edits?.description || '', /startLine\/endLine\/newString/);
     assert.match(parameters.properties?.edits?.description || '', /insertAtLine\/newString/);
+    assert.match(parameters.properties?.edits?.description || '', /Stray optional fields are ignored by mode priority/i);
+});
+
+test('MemoryRead tool schema documents filePath and tail semantics', () => {
+    const readTool = getTavernManagerToolDefinitions()
+        .find((tool) => tool.function.name === 'MemoryRead');
+    const parameters = readTool?.function.parameters as {
+        properties?: Record<string, { description?: string }>;
+    };
+
+    assert.match(readTool?.function.description || '', /raw `content` plus line-numbered `numberedContent`/);
+    assert.match(readTool?.function.description || '', /Use `tail` by itself/i);
+    assert.match(readTool?.function.description || '', /Do not combine `tail` with `offset` or `limit`/i);
+    assert.match(readTool?.function.description || '', /argument name is `filePath`, not `path`/i);
+    assert.match(parameters.properties?.tail?.description || '', /do not combine it with offset or limit/i);
+});
+
+test('StateRead tool schema documents summary-first and mode semantics', () => {
+    const readTool = getTavernStateToolDefinitions()
+        .find((tool) => tool.function.name === 'StateRead');
+    const parameters = readTool?.function.parameters as {
+        properties?: Record<string, { description?: string }>;
+    };
+
+    assert.match(readTool?.function.description || '', /Use `summary` first/i);
+    assert.match(readTool?.function.description || '', /default document is `tavern\.map\/main`/i);
+    assert.match(readTool?.function.description || '', /`elements` to browse or filter map elements/i);
+    assert.match(parameters.properties?.mode?.description || '', /`summary` returns compact meta/i);
+    assert.match(parameters.properties?.elementId?.description || '', /Required for `element` mode/i);
+    assert.match(parameters.properties?.tail?.description || '', /For `history` mode, return the final N patch transactions/i);
+});
+
+test('StatePatch tool schema documents canonical ops and camera semantics', () => {
+    const patchTool = getTavernStateToolDefinitions()
+        .find((tool) => tool.function.name === 'StatePatch');
+    const parameters = patchTool?.function.parameters as {
+        properties?: Record<string, { description?: string; items?: { properties?: Record<string, { description?: string }> } }>;
+    };
+    const opsProperties = parameters.properties?.ops?.items?.properties || {};
+
+    assert.match(patchTool?.function.description || '', /Canonical ops are `meta`, `add`, `modify`, and `remove`/);
+    assert.match(patchTool?.function.description || '', /one atomic transaction/i);
+    assert.match(patchTool?.function.description || '', /`meta\.viewBox` is the camera/i);
+    assert.match(patchTool?.function.description || '', /splits the text into a system label element automatically/i);
+    assert.match(opsProperties.op?.description || '', /Use `meta` for document fields, `add` for a new element/i);
+    assert.match(opsProperties.set?.description || '', /Shape-field changes replace the previous shape/i);
+    assert.match(opsProperties.element?.description || '', /Full element object for `add`/i);
 });
 
 test('StatePatch creates and updates tavern map documents with semantic ops', async () => {
@@ -923,7 +1008,7 @@ test('StatePatch accepts common map geometry aliases and explains failures', asy
         ops: [{ op: 'add', element: { id: 'bad-label', type: 'text', cat: 'label', content: 'No position' } }],
     });
     assert.equal(invalid.ok, false);
-    assert.match(invalid.summary, /bad-label 缺少位置/);
+    assert.match(invalid.summary, /bad-label is missing a position/i);
     assert.match(JSON.stringify(invalid.details), /at:\[x,y\]/);
 });
 
@@ -954,7 +1039,7 @@ test('StatePatch keeps system-derived label ids readable while rejecting reserve
         }],
     });
     assert.equal(reserved.ok, false);
-    assert.match(reserved.summary, /系统保留前缀/);
+    assert.match(reserved.summary, /reserved `__label__` prefix/i);
 });
 
 test('StatePatch infers path anchors without at and keeps at optional in the public schema', async () => {
@@ -992,7 +1077,7 @@ test('StatePatch ignores model soft remove flags and still reports missing targe
 
     assert.equal(result.ok, false);
     assert.equal(result.error, 'state_patch_failed');
-    assert.match(result.summary, /missing 不存在/);
+    assert.match(result.summary, /missing does not exist/i);
 });
 
 test('StatePatch keeps weak maps uninitialized until they have spatial content', async () => {
@@ -1008,7 +1093,7 @@ test('StatePatch keeps weak maps uninitialized until they have spatial content',
     });
 
     assert.equal(weak.ok, true);
-    assert.match((weak.warnings || []).join('\n'), /至少需要一个空间几何元素/);
+    assert.match((weak.warnings || []).join('\n'), /at least one spatial geometry element/i);
     const weakRead = await executeTavernStateTool(session.id, 'StateRead', { mode: 'summary' });
     assert.equal(weakRead.meta?.status, 'uninitialized');
 
@@ -1214,10 +1299,10 @@ test('State tools are in the unified manager tool schema', () => {
     assert.equal(names.includes('StatePatch'), true);
 
     const statePatch = getTavernStateToolDefinitions().find((tool) => tool.function.name === 'StatePatch');
-    assert.match(statePatch?.function.description || '', /meta\/add\/modify\/remove/);
+    assert.match(statePatch?.function.description || '', /Canonical ops are .*meta.*add.*modify.*remove/i);
     assert.match(statePatch?.function.description || '', /one atomic transaction/);
     assert.match(statePatch?.function.description || '', /at:\[x,y\]/);
-    assert.match(statePatch?.function.description || '', /Legacy init\/reset\/replace input is still absorbed/);
+    assert.match(statePatch?.function.description || '', /Legacy .*init.*reset.*replace.*still absorbed/i);
 });
 
 test('tavern manager uses memory tools and records tool trace', async () => {
@@ -1317,8 +1402,8 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
     assert.match(memoryPrompt, /MemoryWrite/);
     assert.doesNotMatch(memoryPrompt, /StateRead summary/);
     assert.doesNotMatch(memoryPrompt, /## Structured State/);
-    assert.doesNotMatch(memoryPrompt, /地图不能替代本轮流水和文字记忆/);
-    assert.doesNotMatch(memoryPrompt, /空间关系图/);
+    assert.doesNotMatch(memoryPrompt, /The map does not replace this turn's written memory/i);
+    assert.doesNotMatch(memoryPrompt, /spatial relation view/i);
 
     const mapSession = await createTavernSession({ title: 'Map-only prompt' });
     const mapUser = await appendTavernMessage(mapSession.id, { role: 'user', content: '看看前面地形。' });
@@ -1340,7 +1425,7 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
         },
     });
     assert.match(mapPrompt, /StateRead summary/);
-    assert.match(mapPrompt, /当前契约只授权地图系统；不要补写 memory Markdown/);
+    assert.match(mapPrompt, /This contract authorizes only the map system\. Do not write memory Markdown\./i);
     assert.doesNotMatch(mapPrompt, /MemoryWrite/);
     assert.doesNotMatch(mapPrompt, /memory\/session\.md/);
     assert.doesNotMatch(mapPrompt, /建议流水路径：/);
@@ -1714,6 +1799,82 @@ test('tavern manager chat forwards streamed tool drafts for live tool-turn UI', 
     assert.equal(progress.some((snapshot) => (snapshot.toolCalls as Array<{ name?: string }> | undefined)?.[0]?.name === 'MemoryRead'), true);
 });
 
+test('tavern manager chat returns segmented protocol messages and keeps final text separate from tool prefaces', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager protocol segmentation' });
+    const protocolEvents: string[] = [];
+    let calls = 0;
+    const executeManagerOnce = Object.assign(async (
+        options: Parameters<NonNullable<Parameters<typeof runXbTavernManagerChat>[0]['executeManagerOnce']>>[0],
+    ) => {
+        calls += 1;
+        if (calls === 1) {
+            assert.equal(Array.isArray(options.toolResponses), false);
+            return {
+                provider: 'fake-manager',
+                model: 'memory-model',
+                text: '我先读一下记忆档案。',
+                toolCalls: [{
+                    id: 'read-memory',
+                    name: 'MemoryRead',
+                    arguments: { path: 'memory/state.md' },
+                }],
+            };
+        }
+        if (calls === 2) {
+            assert.equal(options.toolResponses?.[0]?.id, 'read-memory');
+            assert.equal(options.messages?.length || 0, 0);
+            return {
+                provider: 'fake-manager',
+                model: 'memory-model',
+                text: '再核对一下地图。',
+                toolCalls: [{
+                    id: 'read-map',
+                    name: 'StateRead',
+                    arguments: { docType: 'tavern.map', docId: 'main' },
+                }],
+            };
+        }
+        assert.equal(options.toolResponses?.[0]?.id, 'read-map');
+        assert.equal(options.messages?.length || 0, 0);
+        return {
+            provider: 'fake-manager',
+            model: 'memory-model',
+            text: '结论：北门仍然半开，没有新的异常。',
+        };
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernManagerChat>[0]['executeManagerOnce'];
+
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '现在北门情况如何？',
+        executeManagerOnce,
+        onProtocolEvent: (event) => {
+            protocolEvents.push(event.type);
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.text, '结论：北门仍然半开，没有新的异常。');
+    assert.equal(result.managerRun.outputText, '结论：北门仍然半开，没有新的异常。');
+    assert.deepEqual(result.protocolMessages.map((message) => message.role), ['assistant', 'tool', 'assistant', 'tool', 'assistant']);
+    assert.equal(result.protocolMessages[0]?.content, '我先读一下记忆档案。');
+    assert.equal(result.protocolMessages[2]?.content, '再核对一下地图。');
+    assert.equal(result.protocolMessages[4]?.content, '结论：北门仍然半开，没有新的异常。');
+    assert.deepEqual(protocolEvents, [
+        'clear_stream_draft',
+        'assistant_tool_round',
+        'tool_result',
+        'clear_stream_draft',
+        'assistant_tool_round',
+        'tool_result',
+        'clear_stream_draft',
+        'final_assistant',
+    ]);
+});
+
 test('tavern manager persists provider tool protocol messages for later manager chat replay', async () => {
     await db.delete();
     await db.open();
@@ -1811,6 +1972,7 @@ test('tavern manager uses session toolResponses when runner supports session too
         assert.equal(options.toolResponses?.length, 1);
         assert.equal(options.toolResponses?.[0]?.id, 'write-turn');
         assert.equal(options.toolResponses?.[0]?.name, 'MemoryWrite');
+        assert.equal(options.messages?.length || 0, 0);
         return {
             provider: 'sillytavern-google',
             model: 'gemini-test',
@@ -1830,6 +1992,65 @@ test('tavern manager uses session toolResponses when runner supports session too
 
     assert.equal(result.ok, true);
     assert.equal(calls, 2);
+});
+
+test('after-turn tavern manager emits the same segmented protocol events and stores only the final conclusion text', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'After-turn protocol segmentation' });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '我们去北门。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '她点头，朝北门走去。' });
+    const protocolEvents: string[] = [];
+    let calls = 0;
+    const executeManagerOnce = Object.assign(async (
+        options: Parameters<NonNullable<Parameters<typeof runXbTavernManagerAfterTurn>[0]['executeManagerOnce']>>[0],
+    ) => {
+        calls += 1;
+        if (calls === 1) {
+            assert.equal(Array.isArray(options.toolResponses), false);
+            return {
+                provider: 'fake-manager',
+                model: 'memory-model',
+                text: '先确认一下地图状态。',
+                toolCalls: [{
+                    id: 'read-map',
+                    name: 'StateRead',
+                    arguments: { docType: 'tavern.map', docId: 'main' },
+                }],
+            };
+        }
+        assert.equal(options.toolResponses?.[0]?.id, 'read-map');
+        assert.equal(options.messages?.length || 0, 0);
+        return {
+            provider: 'fake-manager',
+            model: 'memory-model',
+            text: '已确认北门路线，没有额外冲突需要记录。',
+        };
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runXbTavernManagerAfterTurn>[0]['executeManagerOnce'];
+
+    const result = await runXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: {},
+        userMessage,
+        assistantMessage,
+        turn: 1,
+        executeManagerOnce,
+        onProtocolEvent: (event) => {
+            protocolEvents.push(event.type);
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.managerRun.outputText, '已确认北门路线，没有额外冲突需要记录。');
+    assert.equal(calls, 2);
+    assert.deepEqual(protocolEvents, [
+        'clear_stream_draft',
+        'assistant_tool_round',
+        'tool_result',
+        'clear_stream_draft',
+        'final_assistant',
+    ]);
 });
 
 test('tavern manager accepts arbitrary turn markdown without schema parsing', async () => {

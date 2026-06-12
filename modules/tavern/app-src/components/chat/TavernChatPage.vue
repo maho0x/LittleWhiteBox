@@ -9,10 +9,19 @@ import TavernContractModal from './TavernContractModal.vue';
 import { useTavernAppUiContext } from '../tavern-app-context';
 import TavernChatSidebar from './TavernChatSidebar.vue';
 import {
+    hasRenderableLiveAssistantContent,
+    hasRenderableLiveAssistantMarkdown,
+} from './live-assistant-state';
+import {
     normalizeTavernSessionContract,
     type TavernContractPermissionKey,
     type TavernSessionContract,
 } from '../../../shared/session-contract';
+import {
+    getActionCheckEvents,
+    injectActionCheckRenderMarkers,
+} from '../../../shared/runtime-events';
+import type { TavernMessageRecord } from '../../../shared/session-db';
 
 const ui = useTavernAppUiContext();
 const {
@@ -134,6 +143,7 @@ const {
     roleLabel,
     runtimeText,
     runtimeThoughts,
+    runtimeActionCheckEvents,
     saveEditMessage,
     saveEditManagerMessage,
     saveSessionContract,
@@ -161,6 +171,7 @@ const {
     visibleCharacterAvatar,
     visibleManagerChatItems,
     visibleManagerChatMessages,
+    liveManagerChatDisplayItems,
     visibleUserAvatar,
 } = ui;
 
@@ -177,10 +188,45 @@ const currentStateFile = computed(() => (
 const currentStateContent = computed(() => String(currentStateFile.value?.content || '').trim());
 const currentStatePreviewHtml = computed(() => renderChatMarkdown(currentStateContent.value));
 const contractDraftDirty = computed(() => JSON.stringify(contractDraft.value) !== JSON.stringify(sessionContract.value));
-const liveManagerRun = computed(() => (
-    (managerRuns.value || []).find((run: { status?: string }) => ['queued', 'running'].includes(String(run.status || ''))) || null
-));
 const currentStatePreviewSignature = computed(() => markdownSignature(currentStateContent.value));
+
+function buildAssistantRenderState(text: string, events: ReturnType<typeof getActionCheckEvents> = []) {
+    const payload = injectActionCheckRenderMarkers(text, events);
+    const actionCheckGroups = payload.groups.length ? JSON.stringify(payload.groups) : '';
+    return {
+        text: payload.text,
+        signature: actionCheckGroups
+            ? markdownSignature(`${payload.text}\u0000${actionCheckGroups}`)
+            : markdownSignature(payload.text),
+        actionCheckGroups,
+    };
+}
+
+function assistantMessageRenderState(message: TavernMessageRecord) {
+    const text = String(message.content || '');
+    if (message.role !== 'assistant') {
+        return {
+            text,
+            signature: markdownSignature(text),
+            actionCheckGroups: '',
+        };
+    }
+    return buildAssistantRenderState(text, getActionCheckEvents(message.runtimeEvents));
+}
+
+const liveAssistantRenderState = computed(() => buildAssistantRenderState(
+    String(runtimeText.value || ''),
+    Array.isArray(runtimeActionCheckEvents.value) ? runtimeActionCheckEvents.value : [],
+));
+const liveAssistantVisible = computed(() => hasRenderableLiveAssistantContent({
+    text: runtimeText.value,
+    thoughts: runtimeThoughts.value,
+    actionCheckEvents: runtimeActionCheckEvents.value,
+}));
+const liveAssistantMarkdownVisible = computed(() => hasRenderableLiveAssistantMarkdown({
+    text: runtimeText.value,
+    actionCheckEvents: runtimeActionCheckEvents.value,
+}));
 
 function setChatScrollRef(element: Element | null) {
     chatScrollRef.value = element instanceof HTMLElement ? element : null;
@@ -463,12 +509,19 @@ onUpdated(() => {
                       <pre>{{ thought.text }}</pre>
                     </div>
                   </details>
-                  <div
-                    v-if="!isEditingMessage(message)"
-                    class="xb-tavern-markdown"
-                    :data-markdown-signature="markdownSignature(message.content)"
-                    v-html="renderChatMarkdown(message.content)"
-                  />
+                  <template v-if="!isEditingMessage(message)">
+                    <template
+                      v-for="render in [assistantMessageRenderState(message)]"
+                      :key="`${messageKey(message)}:${render.signature}`"
+                    >
+                      <div
+                        class="xb-tavern-markdown"
+                        :data-markdown-signature="render.signature"
+                        :data-action-check-groups="render.actionCheckGroups || null"
+                        v-html="renderChatMarkdown(render.text)"
+                      />
+                    </template>
+                  </template>
                   <div
                     v-if="!isEditingMessage(message)"
                     class="message-actions"
@@ -544,7 +597,7 @@ onUpdated(() => {
                 </div>
               </template>
               <div
-                v-if="isRunning && (runtimeText || runtimeThoughts.length)"
+                v-if="isRunning && liveAssistantVisible"
                 data-chat-anchor-key="streaming:content"
                 class="chat-bubble from-assistant streaming"
               >
@@ -581,14 +634,15 @@ onUpdated(() => {
                   </div>
                 </details>
                 <div
-                  v-if="runtimeText"
+                  v-if="liveAssistantMarkdownVisible"
                   class="xb-tavern-markdown"
-                  :data-markdown-signature="markdownSignature(runtimeText)"
-                  v-html="renderChatMarkdown(runtimeText)"
+                  :data-action-check-groups="liveAssistantRenderState.actionCheckGroups || undefined"
+                  :data-markdown-signature="liveAssistantRenderState.signature"
+                  v-html="renderChatMarkdown(liveAssistantRenderState.text)"
                 />
               </div>
               <div
-                v-if="isRunning && !runtimeText && !thoughtBlocks(runtimeThoughts).length"
+                v-if="isRunning && !liveAssistantVisible"
                 data-chat-anchor-key="streaming:empty"
                 class="chat-bubble from-assistant streaming thinking"
               >
@@ -881,46 +935,57 @@ onUpdated(() => {
                 </details>
               </template>
 
-              <details
-                v-if="liveManagerRun"
-                class="manager-tool-turn manager-tool-turn-live"
-                data-manager-anchor-key="meta:live-manager-run"
+              <template
+                v-for="item in liveManagerChatDisplayItems"
+                :key="`live:${item.key}`"
               >
-                <summary>
-                  <span>正在处理</span>
-                  <small>{{ toolTraceSummary(liveManagerRun.toolTrace) || managerStatusLabel(liveManagerRun.status) }}</small>
-                </summary>
-                <div class="manager-tool-turn-body">
-                  <div class="manager-tool-round">
-                    <div class="manager-tool-round-title">
-                      <strong>{{ managerStatusLabel(liveManagerRun.status) }}</strong>
-                      <span>{{ formatRunActivityLine(liveManagerRun) }}</span>
-                    </div>
-                    <p v-if="formatRunMemoryLine(liveManagerRun)">
-                      {{ formatRunMemoryLine(liveManagerRun) }}
-                    </p>
-                    <p v-if="formatRunMapLine(liveManagerRun)">
-                      {{ formatRunMapLine(liveManagerRun) }}
-                    </p>
+                <article
+                  v-if="item.kind === 'message'"
+                  :data-manager-anchor-key="`live:${item.anchorKey}`"
+                  class="manager-card manager-message manager-message-live"
+                  :class="item.message.role === 'user' ? 'manager-message-user' : 'manager-message-assistant'"
+                >
+                  <div class="manager-run-title">
+                    <strong>{{ item.message.role === 'user' ? roleLabel('user') : '助手' }}</strong>
+                    <small>正在处理</small>
+                  </div>
+                  <div
+                    class="xb-tavern-markdown"
+                    :data-markdown-signature="markdownSignature(item.message.content)"
+                    v-html="renderChatMarkdown(item.message.content)"
+                  />
+                </article>
+
+                <details
+                  v-else
+                  class="manager-tool-turn manager-tool-turn-live"
+                  :data-manager-anchor-key="`live:${item.anchorKey}`"
+                  open
+                >
+                  <summary>
+                    <span>{{ item.rounds.length > 1 ? `工具轮 ${item.rounds.length} 轮` : '工具轮' }}</span>
+                    <small>{{ managerToolTurnSummary(item) }}</small>
+                    <em>{{ managerToolTurnPreview(item) }}</em>
+                  </summary>
+                  <div class="manager-tool-turn-body">
                     <div
-                      v-for="tool in managerToolTraceItems(liveManagerRun.toolTrace)"
-                      :key="tool.id"
-                      class="manager-tool-item"
-                      :class="managerToolTone(tool)"
+                      v-for="(round, roundIndex) in item.rounds"
+                      :key="`live:${item.key}-round-${round.assistantMessage.order}`"
+                      class="manager-tool-round"
                     >
-                      <div class="manager-tool-head">
-                        <span>{{ tool.name }}</span>
-                        <em>{{ managerToolStatusLabel(tool) }}<template v-if="tool.elapsedLabel"> · {{ tool.elapsedLabel }}</template></em>
+                      <div class="manager-tool-round-title">
+                        <strong>第 {{ Number(roundIndex) + 1 }} 轮 · {{ round.calls.length }} 个工具</strong>
+                        <span>正在处理</span>
                       </div>
                       <details
-                        v-if="tool.thoughts.length"
+                        v-if="thoughtBlocks(round.assistantMessage.thoughts).length"
                         class="manager-tool-thoughts"
                         open
                       >
-                        <summary>{{ thoughtSummaryLabel(tool.thoughts, tool.status === 'running') }}</summary>
+                        <summary>{{ thoughtSummaryLabel(thoughtBlocks(round.assistantMessage.thoughts), true) }}</summary>
                         <div
-                          v-for="(thought, thoughtIndex) in tool.thoughts"
-                          :key="`${tool.id}-thought-${thoughtIndex}`"
+                          v-for="(thought, thoughtIndex) in thoughtBlocks(round.assistantMessage.thoughts)"
+                          :key="`live:${item.key}-round-${roundIndex}-thought-${thoughtIndex}`"
                           class="chat-thought-block"
                         >
                           <strong>{{ thought.label }}</strong>
@@ -928,22 +993,40 @@ onUpdated(() => {
                         </div>
                       </details>
                       <div
-                        v-if="tool.preface"
+                        v-if="round.assistantMessage.content"
                         class="manager-tool-preface xb-tavern-markdown"
-                        :data-markdown-signature="markdownSignature(tool.preface)"
-                        v-html="renderChatMarkdown(tool.preface)"
+                        :data-markdown-signature="markdownSignature(round.assistantMessage.content)"
+                        v-html="renderChatMarkdown(round.assistantMessage.content)"
                       />
-                      <small v-if="tool.args">{{ tool.args }}</small>
-                      <p v-if="tool.summary">
-                        {{ tool.summary }}
-                      </p>
-                      <p v-if="tool.path">
-                        {{ tool.path }}
-                      </p>
+                      <div
+                        v-for="call in round.calls"
+                        :key="`live:${call.id}`"
+                        class="manager-tool-item"
+                        :class="call.ok ? 'is-resolved' : 'is-error'"
+                      >
+                        <div class="manager-tool-head">
+                          <span>{{ call.name }}</span>
+                          <em>{{ call.toolMessage ? (call.ok ? '已返回' : '失败') : '等待返回' }}</em>
+                        </div>
+                        <small v-if="call.argumentsText">{{ call.argumentsText }}</small>
+                        <p>{{ call.resultText }}</p>
+                      </div>
                     </div>
                   </div>
+                </details>
+              </template>
+
+              <article
+                v-if="isManagerAssistantRunning && !liveManagerChatDisplayItems.length"
+                class="manager-card manager-message manager-message-assistant manager-message-live"
+                data-manager-anchor-key="live:manager-thinking"
+              >
+                <div class="manager-run-title">
+                  <strong>助手</strong>
+                  <small>正在处理</small>
                 </div>
-              </details>
+                <p>正在思考...</p>
+              </article>
 
               <details
                 v-if="memoryFiles.length || managerRuns.length"

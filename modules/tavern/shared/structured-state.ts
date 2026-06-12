@@ -618,7 +618,7 @@ function normalizeMapDocumentFromRecord(document: TavernStructuredStateDocumentR
 
 function createMapDigest(document: TavernMapDocument, revision = 0): string {
     if (document.meta.status !== 'active' || !hasSpatialMapContent(document.elements)) {return '';}
-    const title = normalizeText(document.meta.name || '地图', 80) || '地图';
+    const title = normalizeText(document.meta.name || 'Map', 80) || 'Map';
     const byCat = new Map<string, TavernMapElement[]>();
     document.elements.forEach((element) => {
         const group = byCat.get(element.cat) || [];
@@ -633,15 +633,15 @@ function createMapDigest(document: TavernMapDocument, revision = 0): string {
     const doors = (byCat.get('door') || []).map((element) => element.id).slice(0, 8);
     const dangers = (byCat.get('danger') || []).map((element) => element.id).slice(0, 8);
     return [
-        `地图：${title}（revision ${revision}，${document.elements.length} 个元素）`,
-        labels.length ? `标注：${labels.join('、')}` : '',
-        doors.length ? `门路：${doors.join('、')}` : '',
-        dangers.length ? `危险/标记：${dangers.join('、')}` : '',
+        `Map: ${title} (revision ${revision}, ${document.elements.length} elements)`,
+        labels.length ? `Labels: ${labels.join(', ')}` : '',
+        doors.length ? `Doors/Routes: ${doors.join(', ')}` : '',
+        dangers.length ? `Danger/Markers: ${dangers.join(', ')}` : '',
     ].filter(Boolean).join('\n');
 }
 
 function mapTitle(document: TavernMapDocument): string {
-    return normalizeText(document.meta.name || '地图', 120) || '地图';
+    return normalizeText(document.meta.name || 'Map', 120) || 'Map';
 }
 
 function mapElementSummary(element: TavernMapElement): TavernMapElement {
@@ -649,47 +649,47 @@ function mapElementSummary(element: TavernMapElement): TavernMapElement {
 }
 
 function describeMapPatchError(error = ''): string {
-    const [code, rawId = '元素'] = String(error || '').split(':');
-    const id = rawId || '元素';
+    const [code, rawId = 'element'] = String(error || '').split(':');
+    const id = rawId || 'element';
     switch (code) {
     case 'map_element_id_invalid':
-        return '元素 id 不合法。请使用简短稳定 id，只能包含字母、数字、下划线、点、冒号和短横线。';
+        return 'Invalid element id. Use a short stable id containing only letters, numbers, underscores, dots, colons, and hyphens.';
     case 'map_element_id_reserved':
-        return `${id} 使用了系统保留前缀 \`__label__\`。请换一个普通 id。`;
+        return `${id} uses the reserved \`__label__\` prefix. Use a normal id instead.`;
     case 'map_element_at_required':
-        return `${id} 缺少位置。请提供 \`at:[x,y]\`，也可写旧别名 pos/center/x+y。`;
+        return `${id} is missing a position. Provide \`at:[x,y]\`. Legacy aliases such as pos/center/x+y are also accepted.`;
     case 'map_element_rect_invalid':
-        return `${id} 的 rect 必须是正数尺寸，例如 \`rect:[120,80]\`。`;
+        return `${id} has an invalid rect. Use positive dimensions such as \`rect:[120,80]\`.`;
     case 'map_element_radius_required':
-        return `${id} 缺少有效半径。circle 需要大于 0 的数值。`;
+        return `${id} is missing a valid radius. \`circle\` must be a number greater than 0.`;
     case 'map_element_points_required':
-        return `${id} 缺少合法点数组。path/curve 至少需要两个点；有 \`at\` 时点数组是相对偏移，没有 \`at\` 时首点会被当作锚点。`;
+        return `${id} is missing a valid point array. \`path\` and \`curve\` need at least two points. With \`at\`, points are relative offsets; without \`at\`, the first point becomes the anchor.`;
     case 'map_element_text_required':
-        return `${id} 缺少文字内容。text 需要非空短标签。`;
+        return `${id} is missing text content. \`text\` must be a short non-empty label.`;
     case 'map_element_icon_invalid':
-        return `${id} 的 icon 不可用。请使用 x/o/+/star/tree/skull/arrow-n/arrow-s/arrow-e/arrow-w/stairs-up/stairs-down。`;
+        return `${id} has an invalid icon. Use one of x/o/+/star/tree/skull/arrow-n/arrow-s/arrow-e/arrow-w/stairs-up/stairs-down.`;
     case 'map_element_shape_required':
-        return `${id} 缺少形状字段。每个元素必须恰好提供 rect/circle/path/curve/icon/text 之一。`;
+        return `${id} is missing a shape field. Every element must provide exactly one of rect/circle/path/curve/icon/text.`;
     case 'map_element_shape_conflict':
-        return `${id} 同时写了多个形状字段。除了“几何 + text”会自动拆成标签，其余组合都不允许。`;
+        return `${id} has multiple shape fields. Only the special "geometry + text" input is allowed, and it will be split into a derived label automatically.`;
     case 'map_element_duplicate':
-        return `${id} 重复了。请改用稳定唯一 id。`;
+        return `${id} is duplicated. Use a stable unique id.`;
     case 'map_element_not_found':
-        return `${id} 不存在。先 StateRead summary/elements 找到现有 id 再改。`;
+        return `${id} does not exist. Use StateRead summary/elements first to find existing ids.`;
     case 'map_element_already_exists':
-        return `${id} 已存在。若要改它，请用 modify；若内容完全相同就不要重复 add。`;
+        return `${id} already exists. Use \`modify\` to change it. If it is already identical, do not repeat the \`add\`.`;
     case 'map_element_id_cannot_change':
-        return `${id} 不能在 modify 里改 id。`;
+        return `${id} cannot change id inside a \`modify\` op.`;
     case 'map_meta_set_required':
-        return 'meta 需要 set 对象。';
+        return '`meta` requires a `set` object.';
     case 'map_modify_set_required':
-        return `${id} 缺少 set。modify 需要 set 对象。`;
+        return `${id} is missing a \`set\` object. \`modify\` requires \`set\`.`;
     case 'map_op_not_supported':
-        return `不支持的 op：${id}。可用 meta/add/modify/remove；旧 init/reset/replace 仍会被兼容吸收。`;
+        return `Unsupported op: ${id}. Supported canonical ops are meta/add/modify/remove. Legacy init/reset/replace input is still absorbed at runtime.`;
     case 'map_element_center_required':
-        return `${id} 缺少中心点。`;
+        return `${id} is missing a center point.`;
     case 'map_element_arc_angles_required':
-        return `${id} 缺少 arc 的起止角度。`;
+        return `${id} is missing arc start/end angles.`;
     default:
         return error;
     }
@@ -697,11 +697,11 @@ function describeMapPatchError(error = ''): string {
 
 function summarizePatchFailures(failed: Array<{ index: number; error: string; hint?: string }>): string {
     const head = failed.slice(0, 3).map((item) => {
-        const position = item.index >= 0 ? `第 ${item.index + 1} 项` : '整体';
+        const position = item.index >= 0 ? `op ${item.index + 1}` : 'transaction';
         return `${position}: ${item.hint || describeMapPatchError(item.error) || item.error}`;
     });
-    const more = failed.length > head.length ? `；另有 ${failed.length - head.length} 项失败` : '';
-    return head.length ? `${head.join('；')}${more}` : '';
+    const more = failed.length > head.length ? `; plus ${failed.length - head.length} more failures` : '';
+    return head.length ? `${head.join('; ')}${more}` : '';
 }
 
 function enforceRenderableMapState(document: TavernMapDocument, warnings: string[] = []): {
@@ -722,7 +722,7 @@ function enforceRenderableMapState(document: TavernMapDocument, warnings: string
         return { document, statusChanged: false };
     }
     if (document.meta.status === 'active') {
-        warnings.push('地图仍保持未初始化：至少需要一个空间几何元素，不能只写名称、viewBox 或 text 标签。');
+        warnings.push('Map stays uninitialized: it needs at least one spatial geometry element. Name, viewBox, or text labels alone are not enough.');
         return {
             document: {
                 ...document,
@@ -1077,7 +1077,7 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
     }
 
     if (!failed.length && document.elements.length > MAX_MAP_ELEMENTS) {
-        failed.push({ index: -1, error: 'map_elements_limit_exceeded', hint: `地图元素超过 ${MAX_MAP_ELEMENTS} 个，请拆分或减少元素。` });
+        failed.push({ index: -1, error: 'map_elements_limit_exceeded', hint: `Map has more than ${MAX_MAP_ELEMENTS} elements. Split or reduce the element count.` });
     }
 
     return {
@@ -1096,60 +1096,63 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
 function buildMapElementSchema() {
     return {
         type: 'object',
-        description: '一个地图元素。必须有 id 和 cat，以及恰好一个形状字段 rect/circle/path/curve/icon/text。位置通常用 at:[x,y]；path/curve 可省略 at，此时首点会被当作锚点。',
+        description: 'One map element. It must have `id` and `cat`, plus exactly one shape field: `rect`, `circle`, `path`, `curve`, `icon`, or `text`. Most elements use `at:[x,y]`; `path` and `curve` may omit `at` and let the first point become the anchor.',
         properties: {
             id: {
                 type: 'string',
-                description: '稳定唯一 id。不要使用系统保留前缀 __label__。',
+                description: 'Stable unique id. Do not use the reserved `__label__` prefix.',
             },
             at: {
                 type: 'array',
                 items: { type: 'number' },
                 minItems: 2,
                 maxItems: 2,
-                description: '锚点坐标 [x,y]。大多数元素都应提供 at；path/curve 也可以省略 at，此时首点会被当作锚点。北=y减，南=y增，西=x减，东=x增。',
+                description: 'Anchor coordinate `[x,y]`. Most elements should provide `at`; `path` and `curve` may omit it and use the first point as the anchor. North = smaller y, south = larger y, west = smaller x, east = larger x.',
             },
             cat: {
                 type: 'string',
                 enum: [...MAP_ELEMENT_CATEGORIES],
+                description: 'Semantic category such as wall, door, marker, terrain, road, or label.',
             },
             rect: {
                 type: 'array',
                 items: { type: 'number' },
                 minItems: 2,
                 maxItems: 2,
-                description: '矩形 [宽,高]，左上角在 at。',
+                description: 'Rectangle `[width,height]`. The top-left corner is at `at`.',
             },
             circle: {
                 type: 'number',
-                description: '圆半径，圆心在 at。',
+                description: 'Circle radius. The center is at `at`.',
             },
             path: {
                 type: 'array',
                 items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
-                description: '折线点数组。有 at 时是相对偏移；无 at 时点数组可写绝对坐标，首点会被当作锚点。',
+                description: 'Polyline point array. With `at`, points are relative offsets. Without `at`, points are absolute coordinates and the first point becomes the anchor.',
             },
             curve: {
                 type: 'array',
                 items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
-                description: '平滑曲线点数组。规则同 path。',
+                description: 'Smooth curve point array. The anchor and relative/absolute rules are the same as `path`.',
             },
             icon: {
                 type: 'string',
                 enum: [...MAP_ICON_NAMES],
+                description: 'Named icon marker.',
             },
             text: {
                 type: 'string',
-                description: '短标签。若和几何一起提供，系统会自动拆出派生 label 元素。',
+                description: 'Short label text. If you provide text together with geometry in an add input, the runtime will split the text into a derived label element automatically.',
             },
-            closed: { type: 'boolean' },
-            fill: { type: 'string' },
+            closed: { type: 'boolean', description: 'Whether a path or curve should be closed.' },
+            fill: { type: 'string', description: 'Fill token or color name for closed shapes.' },
             style: {
                 type: 'object',
+                description: 'Optional visual style overrides.',
                 properties: {
-                    color: { type: 'string' },
-                    width: { type: 'number' },
-                    dash: { type: 'string' },
+                    color: { type: 'string', description: 'Stroke or text color.' },
+                    width: { type: 'number', description: 'Stroke width.' },
+                    dash: { type: 'string', description: 'Dash pattern string.' },
                 },
                 additionalProperties: false,
             },
@@ -1168,13 +1171,13 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                 name: TAVERN_STATE_TOOL_NAMES.LIST,
                 description: [
                     'List structured state documents in the current session.',
-                    'Structured state is session-scoped state maintained by tools, not raw RP text and not memory Markdown.',
-                    'Use this to inspect available structured documents such as tavern.map.',
+                    'Returns document entries only. It does not read full state, elements, or patch history.',
+                    'Use before StateRead when you need available structured documents such as `tavern.map/main`.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
                     properties: {
-                        docType: { type: 'string', enum: [MAP_DOC_TYPE] },
+                        docType: { type: 'string', enum: [MAP_DOC_TYPE], description: 'Optional structured document type filter. Currently `tavern.map`.' },
                     },
                     additionalProperties: false,
                 },
@@ -1185,24 +1188,24 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
             function: {
                 name: TAVERN_STATE_TOOL_NAMES.READ,
                 description: [
-                    'Read structured state for the current session.',
-                    'Use summary first. summary returns revision plus compact meta overview: status, name, viewBox, theme, hint, and digest.',
-                    'For maps, the default document is tavern.map/main. New sessions already have a seed map, so StateRead is always readable.',
-                    'Use elements to find ids, element for one stable id, document for full current state, and history for applied patch transactions.',
+                    'Read a structured state document in the current session.',
+                    'Use `summary` first. It returns the revision plus compact meta fields: status, name, viewBox, theme, hint, and digest.',
+                    'For tavern maps, the default document is `tavern.map/main`. New sessions already include a seed map, so this document is readable even before first initialization.',
+                    'Use `elements` to browse or filter map elements, `element` for one stable id, `document` for the full current state, and `history` for saved patch transactions.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
                     properties: {
-                        docType: { type: 'string', enum: [MAP_DOC_TYPE] },
-                        docId: { type: 'string' },
-                        mode: { type: 'string', enum: ['summary', 'elements', 'document', 'element', 'history'] },
-                        elementId: { type: 'string' },
-                        elementType: { type: 'string', enum: [...MAP_SHAPE_KEYS] },
-                        category: { type: 'string', enum: [...MAP_ELEMENT_CATEGORIES] },
-                        query: { type: 'string' },
-                        offset: { type: 'number', minimum: 0 },
-                        limit: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT },
-                        tail: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT },
+                        docType: { type: 'string', enum: [MAP_DOC_TYPE], description: 'Structured document type. Currently `tavern.map`.' },
+                        docId: { type: 'string', description: 'Structured document id. Defaults to `main` for tavern maps.' },
+                        mode: { type: 'string', enum: ['summary', 'elements', 'document', 'element', 'history'], description: '`summary` returns compact meta, `elements` pages/filter element summaries, `document` returns the full state, `element` returns one exact id, and `history` returns saved patch transactions.' },
+                        elementId: { type: 'string', description: 'Required for `element` mode. Exact element id to read.' },
+                        elementType: { type: 'string', enum: [...MAP_SHAPE_KEYS], description: 'Optional `elements`-mode shape filter such as rect, circle, path, curve, icon, or text.' },
+                        category: { type: 'string', enum: [...MAP_ELEMENT_CATEGORIES], description: 'Optional `elements`-mode category filter such as wall, door, marker, terrain, road, or label.' },
+                        query: { type: 'string', description: 'Optional `elements`-mode text query matched against id, category, shape, icon, and label text.' },
+                        offset: { type: 'number', minimum: 0, description: 'Pagination offset for `elements` or `history` results. Default 0.' },
+                        limit: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT, description: 'Maximum `elements` or `history` results to return. Default 30 for `elements`, 20 for `history`.' },
+                        tail: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT, description: 'For `history` mode, return the final N patch transactions.' },
                     },
                     additionalProperties: false,
                 },
@@ -1214,30 +1217,32 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                 name: TAVERN_STATE_TOOL_NAMES.PATCH,
                 description: [
                     'Apply map patch transactions to the current session.',
-                    'Canonical ops are meta/add/modify/remove. One StatePatch call is one atomic transaction and becomes exactly one revision when it saves.',
-                    'Every element has id/cat plus exactly one shape field: rect/circle/path/curve/icon/text. Most elements use at:[x,y]; path/curve may omit at and use the first point as the anchor.',
-                    'path/curve with at use relative offsets; if you omit at, the first point is treated as the anchor and the stored result becomes relative.',
-                    'If one add element contains geometry plus text, the runtime will split the text into a system label element automatically.',
-                    'meta.viewBox is the camera/viewport. Changing it does not move elements. Move actors by changing their at, then adjust viewBox only if the camera should follow.',
-                    'Legacy init/reset/replace input is still absorbed at runtime, but do not rely on it in new calls.',
+                    'Canonical ops are `meta`, `add`, `modify`, and `remove`. One StatePatch call is one atomic transaction and becomes exactly one revision when it saves.',
+                    'Use `meta` to update document fields such as name, viewBox, theme, status, or hint. Use `add` to create elements, `modify` to change existing ids, and `remove` to delete ids.',
+                    'Each element has `id` and `cat`, plus exactly one shape field: `rect`, `circle`, `path`, `curve`, `icon`, or `text`. Most elements use `at:[x,y]`; `path` and `curve` may omit `at` and use the first point as the anchor.',
+                    'With `at`, `path` and `curve` points are relative offsets. Without `at`, the points are treated as absolute coordinates and the stored result becomes relative to the first point.',
+                    'If one add element contains geometry plus text, the runtime splits the text into a system label element automatically.',
+                    '`meta.viewBox` is the camera. Changing it does not move elements. Move actors by changing their `at`, then adjust `viewBox` only if the camera should follow.',
+                    'Legacy `init`, `reset`, and `replace` input is still absorbed at runtime, but do not rely on it in new calls.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
                     properties: {
-                        docType: { type: 'string', enum: [MAP_DOC_TYPE] },
-                        docId: { type: 'string' },
+                        docType: { type: 'string', enum: [MAP_DOC_TYPE], description: 'Structured document type. Currently `tavern.map`.' },
+                        docId: { type: 'string', description: 'Structured document id. Defaults to `main` for tavern maps.' },
                         baseRevision: { type: 'number', description: 'Optional optimistic revision check from StateRead summary/document.' },
-                        dryRun: { type: 'boolean' },
+                        dryRun: { type: 'boolean', description: 'Validate and simulate the transaction without saving or incrementing the revision.' },
                         desc: { type: 'string', description: 'Short one-line summary of this turn’s spatial update.' },
                         ops: {
                             type: 'array',
+                            description: 'Patch ops as one atomic transaction. Use canonical `meta`, `add`, `modify`, or `remove` ops.',
                             items: {
                                 type: 'object',
                                 properties: {
-                                    op: { type: 'string', enum: ['meta', 'add', 'modify', 'remove'] },
-                                    id: { type: 'string' },
-                                    set: { type: 'object' },
-                                    element: mapElementSchema,
+                                    op: { type: 'string', enum: ['meta', 'add', 'modify', 'remove'], description: 'Operation type. Use `meta` for document fields, `add` for a new element, `modify` for an existing id, and `remove` for an existing id.' },
+                                    id: { type: 'string', description: 'Exact element id for `modify` or `remove`.' },
+                                    set: { type: 'object', description: 'For `meta`, the meta fields to update. For `modify`, the partial element fields to change. Shape-field changes replace the previous shape; `style` merges by field.' },
+                                    element: { ...mapElementSchema, description: 'Full element object for `add`.' },
                                 },
                                 required: ['op'],
                                 additionalProperties: false,
@@ -1265,7 +1270,7 @@ export async function executeTavernStateTool(
     } = {},
 ): Promise<TavernStateToolResult> {
     const id = String(sessionId || '').trim();
-    if (!id) {return { ok: false, summary: '缺少 sessionId。', error: 'state_session_required' };}
+    if (!id) {return { ok: false, summary: 'Missing sessionId.', error: 'state_session_required' };}
     try {
         const docType = normalizeDocType(args.docType || MAP_DOC_TYPE);
         const docId = normalizeDocId(args.docId || DEFAULT_DOC_ID);
@@ -1274,7 +1279,7 @@ export async function executeTavernStateTool(
             const documents = await listTavernStructuredStateDocuments(id, { docType, includeStale: true });
             return {
                 ok: true,
-                summary: `找到 ${documents.length} 份结构化状态。`,
+                summary: `Found ${documents.length} structured state document(s).`,
                 count: documents.length,
                 documents: documents.map((document) => ({
                     docType: document.docType,
@@ -1292,13 +1297,13 @@ export async function executeTavernStateTool(
             const mode = String(args.mode || 'summary').trim() || 'summary';
             const record = await getSeededMapDocumentRecord(id, docType, docId);
             if (!record) {
-                return { ok: false, summary: `${docType}/${docId} 不存在。`, docType, docId, error: 'state_document_not_found' };
+                return { ok: false, summary: `${docType}/${docId} does not exist.`, docType, docId, error: 'state_document_not_found' };
             }
             const document = normalizeMapDocumentFromRecord(record);
             if (mode === 'summary') {
                 return {
                     ok: true,
-                    summary: `读取 ${record.title || docId} 摘要，revision ${record.revision}，status ${document.meta.status}。`,
+                    summary: `Read summary for ${record.title || docId}, revision ${record.revision}, status ${document.meta.status}.`,
                     docType,
                     docId,
                     title: record.title,
@@ -1311,7 +1316,7 @@ export async function executeTavernStateTool(
             if (mode === 'document') {
                 return {
                     ok: true,
-                    summary: `读取 ${record.title || docId} 完整状态，revision ${record.revision}。`,
+                    summary: `Read full state for ${record.title || docId}, revision ${record.revision}.`,
                     docType,
                     docId,
                     title: record.title,
@@ -1324,12 +1329,12 @@ export async function executeTavernStateTool(
             }
             if (mode === 'element') {
                 const elementId = normalizeText(args.elementId, 120);
-                if (!elementId) {return { ok: false, summary: '缺少 elementId。', docType, docId, error: 'state_element_id_required' };}
+                if (!elementId) {return { ok: false, summary: 'Missing elementId.', docType, docId, error: 'state_element_id_required' };}
                 const element = document.elements.find((item) => item.id === elementId);
-                if (!element) {return { ok: false, summary: `${elementId} 不存在。`, docType, docId, revision: record.revision, error: 'state_element_not_found' };}
+                if (!element) {return { ok: false, summary: `${elementId} does not exist.`, docType, docId, revision: record.revision, error: 'state_element_not_found' };}
                 return {
                     ok: true,
-                    summary: `读取元素 ${elementId}。`,
+                    summary: `Read element ${elementId}.`,
                     docType,
                     docId,
                     revision: record.revision,
@@ -1340,7 +1345,7 @@ export async function executeTavernStateTool(
                 const result = summarizeMapElements(document, args);
                 return {
                     ok: true,
-                    summary: `匹配 ${result.count} 个地图元素，返回 ${result.elements.length} 个。`,
+                    summary: `Matched ${result.count} map element(s); returned ${result.elements.length}.`,
                     docType,
                     docId,
                     revision: record.revision,
@@ -1360,7 +1365,7 @@ export async function executeTavernStateTool(
                 const nextOffset = start + page.length < patches.length ? start + page.length : 0;
                 return {
                     ok: true,
-                    summary: `共有 ${patches.length} 条状态补丁，返回 ${page.length} 条。`,
+                    summary: `Found ${patches.length} saved patch transaction(s); returned ${page.length}.`,
                     docType,
                     docId,
                     revision: record.revision,
@@ -1370,12 +1375,12 @@ export async function executeTavernStateTool(
                     patches: page,
                 };
             }
-            return { ok: false, summary: `不支持的 StateRead 模式：${mode}`, docType, docId, error: 'state_read_mode_invalid' };
+            return { ok: false, summary: `Unsupported StateRead mode: ${mode}`, docType, docId, error: 'state_read_mode_invalid' };
         }
 
         if (toolName === TAVERN_STATE_TOOL_NAMES.PATCH) {
             if (!Array.isArray(args.ops)) {
-                return { ok: false, summary: 'StatePatch ops 必须是真正的数组。', docType, docId, error: 'state_patch_ops_must_be_array' };
+                return { ok: false, summary: 'StatePatch ops must be a real array.', docType, docId, error: 'state_patch_ops_must_be_array' };
             }
             await options.beforeWriteGuard?.();
             return await db.transaction(
@@ -1390,7 +1395,7 @@ export async function executeTavernStateTool(
                     if (Number.isFinite(Number(args.baseRevision)) && Number(args.baseRevision) !== currentRevision) {
                         return {
                             ok: false,
-                            summary: `revision 已变化：当前 ${currentRevision}，调用基于 ${Number(args.baseRevision)}。请重新 StateRead 后再改。`,
+                            summary: `Revision changed: current is ${currentRevision}, but this call was based on ${Number(args.baseRevision)}. Run StateRead again before patching.`,
                             docType,
                             docId,
                             revision: currentRevision,
@@ -1404,7 +1409,7 @@ export async function executeTavernStateTool(
                         const failureSummary = summarizePatchFailures(patch.failed);
                         return {
                             ok: false,
-                            summary: `StatePatch 未保存：${patch.failed.length} 项失败。${failureSummary ? ` ${failureSummary}` : ''}`,
+                            summary: `StatePatch was not saved: ${patch.failed.length} op(s) failed.${failureSummary ? ` ${failureSummary}` : ''}`,
                             docType,
                             docId,
                             revision: currentRevision,
@@ -1420,7 +1425,7 @@ export async function executeTavernStateTool(
                     if (!patch.changed) {
                         return {
                             ok: true,
-                            summary: '状态已是目标结果，无需重复写入。',
+                            summary: 'State is already at the target result. No write was needed.',
                             docType,
                             docId,
                             revision: currentRevision,
@@ -1437,7 +1442,7 @@ export async function executeTavernStateTool(
                     if (args.dryRun === true) {
                         return {
                             ok: true,
-                            summary: `dryRun 通过：将更新 ${docType}/${docId} 到 revision ${nextRevision}，应用 ${patch.appliedCount} 项；未保存。`,
+                            summary: `Dry run passed: ${docType}/${docId} would advance to revision ${nextRevision} with ${patch.appliedCount} applied op(s). Nothing was saved.`,
                             docType,
                             docId,
                             title: mapTitle(patch.document),
@@ -1492,7 +1497,7 @@ export async function executeTavernStateTool(
                     }
                     return {
                         ok: true,
-                        summary: `已更新 ${docType}/${docId} 到 revision ${saved.revision}，应用 ${patch.appliedCount} 项。`,
+                        summary: `Updated ${docType}/${docId} to revision ${saved.revision} with ${patch.appliedCount} applied op(s).`,
                         docType,
                         docId,
                         title: saved.title,
@@ -1512,7 +1517,7 @@ export async function executeTavernStateTool(
             );
         }
 
-        return { ok: false, summary: `${toolName} 不可用。`, error: 'state_tool_not_available' };
+        return { ok: false, summary: `${toolName} is not available.`, error: 'state_tool_not_available' };
     } catch (error) {
         const name = error instanceof Error ? error.name : '';
         const message = error instanceof Error ? error.message : String(error || 'state_tool_failed');

@@ -1441,7 +1441,7 @@ function resolveReadLimit(value, fallback = DEFAULT_AUTO_READ_LINES) {
 
 function resolveReadTail(value) {
     const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return null;
+    if (!Number.isFinite(numeric) || numeric <= 0) return null;
     return Math.max(1, Math.min(Math.trunc(numeric), DEFAULT_AUTO_READ_LINES));
 }
 

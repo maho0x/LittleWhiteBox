@@ -114,3 +114,13 @@ test('tavern split UI keeps App-owned DOM refs explicitly wired', () => {
     assert.match(chatPageSource, /function setManagerComposeTextareaRef/);
     assert.doesNotMatch(`${chatPageSource}\n${apiPanelSource}`, /ref="(?:apiSettingsRootRef|chatScrollRef|chatComposeTextareaRef|managerScrollRef|managerComposeTextareaRef)"/);
 });
+
+test('tavern streaming action-check UI renders from live runtime events and keeps dark card styling aligned', () => {
+    const chatPageSource = readRepoFile('modules/tavern/app-src/components/chat/TavernChatPage.vue');
+    const cssSource = readRepoFile('modules/tavern/app-src/styles/chat/messages.css');
+    assert.match(chatPageSource, /hasRenderableLiveAssistantContent/);
+    assert.match(chatPageSource, /hasRenderableLiveAssistantMarkdown/);
+    assert.match(chatPageSource, /runtimeActionCheckEvents/);
+    assert.match(cssSource, /\.xb-os-shell\.theme-dark \.action-check-card-grid>span/);
+    assert.doesNotMatch(cssSource, /\.xb-os-shell\.theme-dark \.action-check-card-grid>div/);
+});

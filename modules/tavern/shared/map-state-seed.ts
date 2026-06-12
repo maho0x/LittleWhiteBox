@@ -18,12 +18,12 @@ export interface TavernSeedMapDocument {
 
 export function buildSeedMapHint(): string {
     return [
-        '空地图。本轮若存在明确的当前场景，就照下面的最小样例初始化；把 <尖括号> 换成本场景事实，再按需增减元素。',
-        '室内场景样例：{"ops":[{"op":"meta","set":{"name":"<地点名>","viewBox":[0,0,400,300],"status":"active"}},{"op":"add","element":{"id":"wall","at":[40,40],"rect":[320,220],"cat":"wall"}},{"op":"add","element":{"id":"door","at":[200,260],"icon":"o","cat":"door"}},{"op":"add","element":{"id":"player","at":[200,180],"icon":"o","cat":"marker"}},{"op":"add","element":{"id":"label","at":[200,24],"text":"<地点名>","cat":"label"}}]}',
-        '室外场景样例：{"ops":[{"op":"meta","set":{"name":"<地点名>","viewBox":[0,0,800,600],"status":"active"}},{"op":"add","element":{"id":"ground","at":[400,300],"circle":150,"cat":"terrain"}},{"op":"add","element":{"id":"path","at":[0,300],"path":[[800,0]],"cat":"road"}},{"op":"add","element":{"id":"player","at":[400,320],"icon":"o","cat":"marker"}},{"op":"add","element":{"id":"label","at":[400,130],"text":"<地点名>","cat":"label"}}]}',
-        '要求：至少放一个空间几何元素（rect/circle/path/curve/icon），不能只发 text 标签。以后每轮只增量 add/modify/remove；无空间变化就跳过，不要重置整张图。',
-        '`viewBox` 是相机/取景框，改它不会移动任何元素；玩家移动先改玩家 `at`，若玩家超出当前取景框，再用 `meta.viewBox` 跟随。',
-        '元素统一用 `at:[x,y]` 加一个形状字段：rect/circle/path/curve/icon/text。path/curve 有 `at` 时是相对偏移；没有 `at` 时点数组视为绝对坐标，首点会被当作锚点。',
+        'Empty map. If this turn establishes a clear current scene, initialize it with one minimal StatePatch like the examples below. Replace <angle brackets> with scene facts, then add or remove elements as needed.',
+        'Indoor example: {"ops":[{"op":"meta","set":{"name":"<Place Name>","viewBox":[0,0,400,300],"status":"active"}},{"op":"add","element":{"id":"wall","at":[40,40],"rect":[320,220],"cat":"wall"}},{"op":"add","element":{"id":"door","at":[200,260],"icon":"o","cat":"door"}},{"op":"add","element":{"id":"player","at":[200,180],"icon":"o","cat":"marker"}},{"op":"add","element":{"id":"label","at":[200,24],"text":"<Place Name>","cat":"label"}}]}',
+        'Outdoor example: {"ops":[{"op":"meta","set":{"name":"<Place Name>","viewBox":[0,0,800,600],"status":"active"}},{"op":"add","element":{"id":"ground","at":[400,300],"circle":150,"cat":"terrain"}},{"op":"add","element":{"id":"path","at":[0,300],"path":[[800,0]],"cat":"road"}},{"op":"add","element":{"id":"player","at":[400,320],"icon":"o","cat":"marker"}},{"op":"add","element":{"id":"label","at":[400,130],"text":"<Place Name>","cat":"label"}}]}',
+        'Requirement: include at least one spatial geometry element (`rect`, `circle`, `path`, `curve`, or `icon`). Do not send only `text` labels. After initialization, use only incremental `add` / `modify` / `remove` ops. If nothing changes spatially, skip the map update instead of resetting the whole map.',
+        '`viewBox` is the camera. Changing it does not move any element. Move the player by updating the player `at`, then adjust `meta.viewBox` only if the camera should follow.',
+        'Elements use `at:[x,y]` plus one shape field: `rect`, `circle`, `path`, `curve`, `icon`, or `text`. With `at`, `path` and `curve` points are relative offsets. Without `at`, points are absolute coordinates and the first point becomes the anchor.',
     ].join(' ');
 }
 

@@ -23,6 +23,7 @@ export interface TavernContractManagerPromptOptions {
 export interface TavernContractRuntimeCapability {
     includeMemoryFiles?: boolean;
     includeStructuredStates?: boolean;
+    includeActionChecks?: boolean;
     includeRandomEncounters?: boolean;
     automaticManagerWork?: boolean;
     managerPromptMemory?: boolean;
@@ -34,6 +35,7 @@ export interface TavernSessionContractRuntime {
     enabledKeys: TavernContractPermissionKey[];
     includeMemoryFiles: boolean;
     includeStructuredStates: boolean;
+    includeActionChecks: boolean;
     includeRandomEncounters: boolean;
     hasAutomaticManagerWork: boolean;
     managerPromptOptions: TavernContractManagerPromptOptions;
@@ -124,7 +126,9 @@ export const TAVERN_CONTRACT_RUNTIME_CAPABILITIES: Record<TavernContractPermissi
         automaticManagerWork: true,
         managerPromptCartography: true,
     },
-    actionChecks: {},
+    actionChecks: {
+        includeActionChecks: true,
+    },
     randomEncounters: {
         includeRandomEncounters: true,
     },
@@ -178,6 +182,7 @@ export function resolveTavernSessionContractRuntime(
             ...current,
             includeMemoryFiles: current.includeMemoryFiles || capability.includeMemoryFiles === true,
             includeStructuredStates: current.includeStructuredStates || capability.includeStructuredStates === true,
+            includeActionChecks: current.includeActionChecks || capability.includeActionChecks === true,
             includeRandomEncounters: current.includeRandomEncounters || capability.includeRandomEncounters === true,
             hasAutomaticManagerWork: current.hasAutomaticManagerWork || capability.automaticManagerWork === true,
             managerPromptOptions: {
@@ -190,6 +195,7 @@ export function resolveTavernSessionContractRuntime(
         enabledKeys,
         includeMemoryFiles: false,
         includeStructuredStates: false,
+        includeActionChecks: false,
         includeRandomEncounters: false,
         hasAutomaticManagerWork: false,
         managerPromptOptions: {
