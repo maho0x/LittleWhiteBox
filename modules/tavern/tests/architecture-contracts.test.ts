@@ -124,3 +124,10 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(cssSource, /\.xb-os-shell\.theme-dark \.action-check-card-grid>span/);
     assert.doesNotMatch(cssSource, /\.xb-os-shell\.theme-dark \.action-check-card-grid>div/);
 });
+
+test('tavern memory sidebar keeps session-scoped lazy file loading and index-backed search text', () => {
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    assert.match(appSource, /selectedMemoryFileRecord\.value\?\.sessionId === selectedSessionId\.value/);
+    assert.match(appSource, /function invalidateMemoryFileRecordLoad/);
+    assert.match(appSource, /file\.searchText \|\| file\.preview \|\| ''/);
+});

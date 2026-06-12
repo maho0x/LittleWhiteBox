@@ -12,14 +12,12 @@ import db, {
     getActiveTavernPresetId,
     getSelectedTavernSessionId,
     getTavernSession,
-    listTavernEpisodeSummaries,
     listTavernManagerMessages,
     listTavernManagerMemorySnapshots,
     listTavernManagerStateSnapshots,
     listTavernManagerRuns,
     listUserTavernPresets,
     listTavernMessages,
-    listTavernTurnSummaries,
     markTavernMemoryStaleFromOrder,
     loadActiveTavernPreset,
     mergeWorldEntryStates,
@@ -34,8 +32,6 @@ import db, {
     updateTavernMessage,
     updateTavernManagerRun,
     updateTavernSessionState,
-    upsertTavernEpisodeSummary,
-    upsertTavernTurnSummary,
     createTavernManagerRun,
     getTavernStructuredStateDocument,
     listTavernStructuredStatePatches,
@@ -63,11 +59,33 @@ import {
     writeTavernMemoryFile,
 } from '../shared/memory-files';
 import { executeTavernStateTool, getTavernStateToolDefinitions } from '../shared/structured-state';
+import { retrieveXbTavernMemoryContext, setXbTavernMemoryTokenizerForTest } from '../shared/memory-retrieval';
 import * as looseToolArgumentsModule from '../../agent-core/runtime/loose-tool-arguments.js';
 
 const { repairLooseToolArguments } = looseToolArgumentsModule as unknown as {
     repairLooseToolArguments: (text: string, toolName?: string) => string;
 };
+
+function tokenizeForMemoryTests(text: string): string[] {
+    const value = String(text || '').normalize('NFKC').toLowerCase();
+    const tokens: string[] = value.match(/[a-z0-9]{3,}/g) || [];
+    const runs = value.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{2,}/gu) || [];
+    runs.forEach((run) => {
+        for (let size = 2; size <= Math.min(6, run.length); size += 1) {
+            for (let index = 0; index <= run.length - size; index += 1) {
+                tokens.push(run.slice(index, index + size));
+            }
+        }
+    });
+    return tokens;
+}
+
+setXbTavernMemoryTokenizerForTest({
+    jiebaCut: (text) => tokenizeForMemoryTests(text),
+    tinySegmenter: {
+        segment: (text) => tokenizeForMemoryTests(text),
+    },
+});
 
 function turnMemoryPathFor(userMessage: { order: number }, assistantMessage: { createdAt?: number }): string {
     return buildTurnMemoryPath(userMessage.order, Number(assistantMessage.createdAt) || Date.now());
@@ -255,19 +273,6 @@ test('tavern session db deletes sessions with related records', async () => {
     const other = await createTavernSession({ title: 'Keep me', characterName: 'Nia' });
     const userMessage = await appendTavernMessage(session.id, { role: 'user', content: 'Hi.' });
     const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: 'Hello.' });
-    await upsertTavernTurnSummary({
-        sessionId: session.id,
-        turn: 1,
-        userOrder: userMessage.order,
-        assistantOrder: assistantMessage.order,
-        summary: 'They greeted each other.',
-    });
-    await upsertTavernEpisodeSummary({
-        sessionId: session.id,
-        id: 'episode-delete',
-        title: 'Greeting',
-        summary: 'Greeting.',
-    });
     await createTavernManagerRun({
         sessionId: session.id,
         turn: 1,
@@ -282,8 +287,6 @@ test('tavern session db deletes sessions with related records', async () => {
     assert.equal(await deleteTavernSession(session.id), 1);
     assert.equal(await getTavernSession(session.id), null);
     assert.equal((await listTavernMessages(session.id)).length, 0);
-    assert.equal((await listTavernTurnSummaries(session.id)).length, 0);
-    assert.equal((await listTavernEpisodeSummaries(session.id)).length, 0);
     assert.equal((await listTavernManagerRuns(session.id)).length, 0);
     assert.equal(await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main'), null);
     assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 0);
@@ -468,28 +471,17 @@ test('replaceTavernSessionState preserves stored contract when runtime rebuild o
     });
 });
 
-test('tavern memory db stores turn summaries, episodes, and manager runs', async () => {
+test('tavern memory db tracks turn files and manager runs', async () => {
     await db.delete();
     await db.open();
 
     const session = await createTavernSession({ title: 'Memory' });
-    const turnSummary = await upsertTavernTurnSummary({
-        sessionId: session.id,
-        turn: 1,
-        userOrder: 0,
-        assistantOrder: 1,
-        summary: '两人确认了共同目标。',
-        hooks: ['下一步去码头'],
-        tags: ['目标'],
-    });
-    const episode = await upsertTavernEpisodeSummary({
-        sessionId: session.id,
-        title: '码头前夜',
-        summary: '阶段围绕出发前的试探。',
-        startTurn: 1,
-        endTurn: 1,
-        turnSummaryIds: [turnSummary.id],
-        keyChanges: ['关系缓和'],
+    await writeTavernMemoryFile(session.id, 'memory/turns/20260601-0000.md', [
+        '# 去码头',
+        '',
+        '两人确认了共同目标。',
+    ].join('\n'), {
+        source: 'manager',
     });
     const run = await createTavernManagerRun({
         sessionId: session.id,
@@ -503,14 +495,12 @@ test('tavern memory db stores turn summaries, episodes, and manager runs', async
         parsedAction: 'create_new_episode',
     });
 
-    assert.equal((await listTavernTurnSummaries(session.id))[0]?.episodeId, episode.id);
-    assert.equal((await listTavernEpisodeSummaries(session.id))[0]?.title, '码头前夜');
+    assert.equal((await listTavernMemoryFiles(session.id)).some((file) => file.path === 'memory/turns/20260601-0000.md'), true);
     assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'completed');
 
     assert.equal(await markTavernMemoryStaleFromOrder(session.id, 0), 1);
-    assert.equal((await listTavernTurnSummaries(session.id)).length, 0);
-    assert.equal((await listTavernTurnSummaries(session.id, { includeStale: true }))[0]?.status, 'stale');
-    assert.equal((await listTavernEpisodeSummaries(session.id, { includeStale: true }))[0]?.status, 'stale');
+    assert.equal((await listTavernMemoryFiles(session.id)).some((file) => file.path === 'memory/turns/20260601-0000.md'), false);
+    assert.equal((await listTavernMemoryFiles(session.id, { includeStale: true }))[0]?.status, 'stale');
 });
 
 test('tavern manager run heartbeat only touches active running runs', async () => {
@@ -545,8 +535,6 @@ test('tavern memory files are scoped markdown sources with derived index', async
     const session = await createTavernSession({ title: 'Memory files', characterName: 'Aster' });
     const defaults = await ensureTavernMemoryDefaults(session.id, { characterName: 'Aster' });
     assert.deepEqual(defaults.map((file) => file.path).sort(), [
-        'memory/episodes/001.md',
-        'memory/inbox.md',
         'memory/session.md',
         'memory/state.md',
     ]);
@@ -583,7 +571,7 @@ test('tavern memory files are scoped markdown sources with derived index', async
     const index = await rebuildTavernMemoryDerivedIndex(session.id);
     assert.equal(index.status, 'ready');
     assert.equal((await getTavernMemoryIndex(session.id))?.status, 'ready');
-    assert.equal((await listTavernTurnSummaries(session.id)).length, 0);
+    assert.equal(index.files?.find((file) => file.path === 'memory/turns/20260601-0000.md')?.searchText?.includes('Aster 把银钥匙藏在码头钟楼下面'), true);
 
     await executeTavernMemoryTool(session.id, 'MemoryWrite', {
         filePath: 'memory/turns/20260601-0000.md',
@@ -595,6 +583,9 @@ test('tavern memory files are scoped markdown sources with derived index', async
     });
     const rebuilt = await rebuildTavernMemoryDerivedIndex(session.id);
     assert.equal(rebuilt.status, 'ready');
+    assert.equal(Array.isArray(rebuilt.files), true);
+    assert.equal(rebuilt.files?.some((file) => file.path === 'memory/state.md'), true);
+    assert.equal(rebuilt.files?.find((file) => file.path === 'memory/turns/20260601-0000.md')?.contentLength, '# Broken\n\n这份记录没有固定标题，但仍然是普通 Markdown 档案。'.length);
     const looseGrep = await executeTavernMemoryTool(session.id, 'MemoryGrep', {
         pattern: '固定标题',
         path: 'memory/turns/',
@@ -604,6 +595,24 @@ test('tavern memory files are scoped markdown sources with derived index', async
     assert.equal(await markTavernMemoryStaleFromOrder(session.id, 0), 1);
     assert.equal((await listTavernMemoryFiles(session.id, { includeStale: true }))
         .find((file) => file.path === 'memory/turns/20260601-0000.md')?.status, 'stale');
+});
+
+test('tavern memory retrieval uses the derived file index only', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Derived retrieval' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# Current State\n\nThe silver key is still on hand.', { source: 'manager' });
+    await writeTavernMemoryFile(session.id, 'memory/turns/20260601-0000.md', '# Harbor Coordinates\n\nThe harbor coordinates are now clear. Harbor coordinates marked on the wall.', { source: 'manager' });
+
+    const memory = await retrieveXbTavernMemoryContext({
+        sessionId: session.id,
+        queryText: 'harbor coordinates',
+        includeStructuredStates: false,
+    });
+
+    assert.equal(memory.memoryFiles?.find((file) => file.path === 'memory/turns/20260601-0000.md')?.content.includes('harbor coordinates'), true);
+    assert.equal(memory.memoryFiles?.some((file) => file.path === 'memory/state.md'), true);
 });
 
 test('ChatHistory range mode treats missing endOrder as open-ended', async () => {
@@ -1369,7 +1378,7 @@ test('tavern manager uses memory tools and records tool trace', async () => {
     assert.equal(result.ok, true);
     assert.deepEqual(result.changedFiles, [turnPath]);
     assert.equal((await listTavernMemoryFiles(session.id)).some((file) => file.path === turnPath), true);
-    assert.match((await listTavernTurnSummaries(session.id))[0]?.summary || '', /银钥匙/);
+    assert.match((await getTavernMemoryFile(session.id, turnPath))?.content || '', /银钥匙/);
     const run = (await listTavernManagerRuns(session.id))[0];
     assert.equal(run?.status, 'completed');
     assert.equal(Array.isArray(run?.toolTrace), true);
@@ -2112,7 +2121,7 @@ test('tavern manager accepts arbitrary turn markdown without schema parsing', as
     assert.equal(run?.status, 'completed');
     const file = await getTavernMemoryFile(session.id, turnPath);
     assert.doesNotMatch(file?.content || '', /messages 0\/1/);
-    assert.match((await listTavernTurnSummaries(session.id))[0]?.summary || '', /固定骨架/);
+    assert.match(file?.content || '', /固定骨架/);
     assert.notEqual(await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main'), null);
 });
 
@@ -2187,16 +2196,6 @@ test('tavern manager keeps episode markdown as readable files without parsing su
     const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '去码头。' });
     const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '她答应了。' });
     const turnPath = turnMemoryPathFor(userMessage, assistantMessage);
-    const summaries: Array<Awaited<ReturnType<typeof upsertTavernTurnSummary>>> = [];
-    for (let index = 0; index < 6; index += 1) {
-        summaries.push(await upsertTavernTurnSummary({
-            sessionId: session.id,
-            turn: index + 1,
-            userOrder: 10 + index * 2,
-            assistantOrder: 11 + index * 2,
-            summary: `第 ${index + 1} 条摘要。`,
-        }));
-    }
 
     let calls = 0;
     await runXbTavernManagerAfterTurn({
@@ -2205,8 +2204,6 @@ test('tavern manager keeps episode markdown as readable files without parsing su
         userMessage,
         assistantMessage,
         turn: 7,
-        recentTurnSummaries: summaries,
-        recentEpisodeSummaries: [],
         executeManagerOnce: async () => {
             calls += 1;
             if (calls === 1) {
@@ -2224,21 +2221,18 @@ test('tavern manager keeps episode markdown as readable files without parsing su
                             ].join('\n'),
                         },
                     }, {
-                        id: 'write-episode',
+                        id: 'write-turn-extra',
                         name: 'MemoryWrite',
                         arguments: {
-                            filePath: 'memory/episodes/007.md',
+                            filePath: 'memory/turns/20260607-0007.md',
                             content: [
-                                '# 码头',
+                                '# 码头小记',
                                 '',
-                                '- Range: turn 1-7',
-                                '',
-                                '## 阶段概述',
                                 '最近几轮开始转向码头。',
                                 '',
                                 '## 相关流水',
-                                `- ${summaries[0]?.id}`,
-                                `- ${summaries[5]?.id}`,
+                                '- memory/turns/20260601-0001.md',
+                                '- memory/turns/20260606-0006.md',
                                 '- not-real',
                             ].join('\n'),
                         },
@@ -2246,17 +2240,16 @@ test('tavern manager keeps episode markdown as readable files without parsing su
                 };
             }
             return {
-                text: '已更新码头阶段档案。',
+                text: '已更新码头小记。',
             };
         },
     });
 
-    assert.equal((await listTavernEpisodeSummaries(session.id)).length, 0);
-    const episodeFile = await getTavernMemoryFile(session.id, 'memory/episodes/007.md');
-    assert.match(episodeFile?.content || '', /not-real/);
+    const extraTurnFile = await getTavernMemoryFile(session.id, 'memory/turns/20260607-0007.md');
+    assert.match(extraTurnFile?.content || '', /not-real/);
     const grep = await executeTavernMemoryTool(session.id, 'MemoryGrep', {
         pattern: '最近几轮开始转向码头',
-        path: 'memory/episodes/',
+        path: 'memory/turns/',
     });
     assert.equal(grep.count, 1);
 });
@@ -2318,7 +2311,6 @@ test('tavern manager refuses to write memory when source messages changed', asyn
 
     assert.equal(result.ok, false);
     assert.equal(result.error, 'manager_source_messages_changed');
-    assert.equal((await listTavernTurnSummaries(session.id)).length, 0);
     assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'superseded');
 });
 
@@ -2343,11 +2335,11 @@ test('tavern manager rolls back earlier memory writes when source messages chang
                 return {
                     text: '',
                     toolCalls: [{
-                        id: 'write-episode',
+                        id: 'write-turn',
                         name: 'MemoryWrite',
                         arguments: {
-                            filePath: 'memory/episodes/mid-run.md',
-                            content: '# 临时阶段\n\n这条写入稍后必须回滚。',
+                            filePath: 'memory/turns/mid-run.md',
+                            content: '# 临时小记\n\n这条写入稍后必须回滚。',
                         },
                     }],
                 };
@@ -2369,13 +2361,13 @@ test('tavern manager rolls back earlier memory writes when source messages chang
 
     assert.equal(result.ok, false);
     assert.equal(result.error, 'manager_source_messages_changed');
-    assert.equal((await getTavernMemoryFile(session.id, 'memory/episodes/mid-run.md')), null);
+    assert.equal((await getTavernMemoryFile(session.id, 'memory/turns/mid-run.md')), null);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /不应该写到这里/);
     const run = (await listTavernManagerRuns(session.id))[0];
     assert.equal(run?.status, 'rolled_back');
     const snapshots = await listTavernManagerMemorySnapshots(run?.id || '');
     assert.equal(snapshots.length, 1);
-    assert.equal(snapshots[0]?.path, 'memory/episodes/mid-run.md');
+    assert.equal(snapshots[0]?.path, 'memory/turns/mid-run.md');
     assert.equal(snapshots[0]?.rollbackStatus, 'rolled_back');
 });
 
@@ -2409,10 +2401,10 @@ test('tavern manager cancellation aborts an active auto run and rolls back writt
                 return {
                     text: '',
                     toolCalls: [{
-                        id: 'write-episode',
+                        id: 'write-turn',
                         name: 'MemoryWrite',
                         arguments: {
-                            filePath: 'memory/episodes/cancelled.md',
+                            filePath: 'memory/turns/cancelled.md',
                             content: '# 会被取消\n\n旧管理员写入。',
                         },
                     }],
@@ -2427,13 +2419,13 @@ test('tavern manager cancellation aborts an active auto run and rolls back writt
     await secondRoundSeen;
     const rollback = await cancelAndRollbackXbTavernManagersForMessageRange(session.id, assistantMessage.order);
     assert.equal(rollback.rolledBack, 1);
-    assert.equal(await getTavernMemoryFile(session.id, 'memory/episodes/cancelled.md'), null);
+    assert.equal(await getTavernMemoryFile(session.id, 'memory/turns/cancelled.md'), null);
     releaseSecondRound();
     const completed = await scheduled.completion;
 
     assert.equal(completed?.ok, false);
     assert.notEqual(completed?.managerRun.status, 'completed');
-    assert.equal((await getTavernMemoryFile(session.id, 'memory/episodes/cancelled.md')), null);
+    assert.equal((await getTavernMemoryFile(session.id, 'memory/turns/cancelled.md')), null);
     const run = (await listTavernManagerRuns(session.id))[0];
     assert.equal(run?.status, 'rolled_back');
 });
@@ -2456,7 +2448,7 @@ test('tavern manager rollback uses snapshots even when changedFiles were not fin
     });
 
     const writeResult = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
-        filePath: 'memory/episodes/not-finalized.md',
+        filePath: 'memory/turns/not-finalized.md',
         content: '# 尚未 finalize\n\nchangedFiles 还没落库。',
     }, {
         caller: 'auto',
@@ -2467,7 +2459,7 @@ test('tavern manager rollback uses snapshots even when changedFiles were not fin
     const rollback = await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
 
     assert.equal(rollback.rolledBack, 1);
-    assert.equal(await getTavernMemoryFile(session.id, 'memory/episodes/not-finalized.md'), null);
+    assert.equal(await getTavernMemoryFile(session.id, 'memory/turns/not-finalized.md'), null);
     assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'rolled_back');
 });
 
@@ -2485,10 +2477,10 @@ test('tavern manager memory rollback is idempotent', async () => {
         assistantOrder: assistantMessage.order,
         trigger: 'after_turn',
         status: 'completed',
-        changedFiles: ['memory/episodes/idempotent.md'],
+        changedFiles: ['memory/turns/idempotent.md'],
     });
     await executeTavernMemoryTool(session.id, 'MemoryWrite', {
-        filePath: 'memory/episodes/idempotent.md',
+        filePath: 'memory/turns/idempotent.md',
         content: '# 可重复回滚\n\n第一次回滚后第二次不应冲突。',
     }, {
         caller: 'auto',

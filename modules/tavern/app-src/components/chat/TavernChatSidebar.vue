@@ -26,7 +26,7 @@ const {
     normalizeTavernSessionState,
     rememberBrokenAvatar,
     removeSession,
-    selectedMemoryFile,
+    selectedMemoryFilePath,
     selectedSessionId,
     selectMemoryFile,
     selectSession,
@@ -209,7 +209,7 @@ const {
               :key="file.path"
               type="button"
               class="memory-file"
-              :class="{ active: selectedMemoryFile?.path === file.path, stale: file.status === 'stale' }"
+              :class="{ active: selectedMemoryFilePath === file.path, stale: file.status === 'stale' }"
               @click="selectMemoryFile(file.path)"
             >
               <span class="memory-file-main">{{ memoryFileDisplayName(file) }}</span>

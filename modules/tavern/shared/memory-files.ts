@@ -7,8 +7,9 @@ import {
     tavernSessionsTable,
     ensureTavernManagerMemorySnapshot,
     updateTavernManagerMemorySnapshotAfter,
-    upsertTavernTurnSummary,
+    type TavernMemoryFileListEntry,
     type TavernMemoryFileRecord,
+    type TavernMemoryIndexFileEntry,
     type TavernMemoryFileStatus,
     type TavernMemoryIndexRecord,
     type TavernMessageRecord,
@@ -65,6 +66,17 @@ const MAX_MEMORY_GREP_LIMIT = 100;
 
 function now(): number {
     return Date.now();
+}
+
+function memoryFileTitleFromPath(path = ''): string {
+    if (path === 'memory/session.md') {return '剧情脉络';}
+    if (path === 'memory/state.md') {return '状态栏';}
+    const turnMatch = String(path || '').match(/^memory\/turns\/(\d{8})-(\d+)\.md$/);
+    if (turnMatch) {
+        const order = Number(turnMatch[2]) || 0;
+        return order > 0 ? `第 ${order} 楼小记` : '楼层小记';
+    }
+    return String(path || '').replace(/^memory\//, '').replace(/\.md$/i, '') || '记忆档案';
 }
 
 function normalizeInline(value: unknown = '', limit = 400): string {
@@ -183,40 +195,6 @@ function defaultMemoryFiles(sessionId = '', characterName = ''): TavernMemoryFil
                 '- 暂无。',
             ].join('\n'),
         },
-        {
-            ...base,
-            path: 'memory/episodes/001.md',
-            content: [
-                '# 初始阶段',
-                '',
-                '- Range: turn 0-0',
-                '',
-                '## Summary',
-                '暂无。',
-                '',
-                '## Key Changes',
-                '- 暂无。',
-                '',
-                '## Unresolved',
-                '- 暂无。',
-                '',
-                '## 相关流水',
-                '- 暂无。',
-            ].join('\n'),
-        },
-        {
-            ...base,
-            path: 'memory/inbox.md',
-            content: [
-                '# 管理员收件箱',
-                '',
-                '## 待判断',
-                '- 暂无。',
-                '',
-                '## 失败记录',
-                '- 暂无。',
-            ].join('\n'),
-        },
     ];
 }
 
@@ -238,6 +216,38 @@ export async function listTavernMemoryFiles(sessionId = '', options: {
     if (!id) {return [];}
     const rows = await tavernMemoryFilesTable.where('sessionId').equals(id).sortBy('path');
     return options.includeStale ? rows : rows.filter((row) => row.status !== 'stale');
+}
+
+function buildMemoryFilePreview(file: Pick<TavernMemoryFileRecord, 'path' | 'content'>): string {
+    const path = String(file.path || '');
+    const limit = ['memory/session.md', 'memory/state.md'].includes(path) ? 2400 : 1200;
+    return normalizeBody(file.content, limit);
+}
+
+function buildMemoryFileListEntry(file: TavernMemoryFileRecord): TavernMemoryFileListEntry {
+    return {
+        path: file.path,
+        status: file.status,
+        createdAt: file.createdAt,
+        updatedAt: file.updatedAt,
+        source: file.source,
+        staleFromOrder: file.staleFromOrder,
+        contentLength: String(file.content || '').length,
+        preview: buildMemoryFilePreview(file),
+    };
+}
+
+function buildMemoryIndexFileEntry(file: TavernMemoryFileRecord): TavernMemoryIndexFileEntry {
+    const entry = buildMemoryFileListEntry(file);
+    return {
+        ...entry,
+        title: memoryFileTitleFromPath(file.path),
+        searchText: normalizeBody([
+            file.path,
+            memoryFileTitleFromPath(file.path),
+            file.content || '',
+        ].filter(Boolean).join('\n'), 20000),
+    };
 }
 
 export async function getTavernMemoryFile(sessionId = '', pathInput = ''): Promise<TavernMemoryFileRecord | null> {
@@ -276,6 +286,7 @@ export async function markTavernMemoryIndexStale(sessionId = '', error = ''): Pr
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('memory_session_required');}
     const timestamp = now();
+    const existing = await tavernMemoryIndexesTable.get([id, 'markdown-derived']);
     const record: TavernMemoryIndexRecord = {
         sessionId: id,
         kind: 'markdown-derived',
@@ -284,6 +295,7 @@ export async function markTavernMemoryIndexStale(sessionId = '', error = ''): Pr
         sourceFingerprint: '',
         derivedAt: timestamp,
         updatedAt: timestamp,
+        files: Array.isArray(existing?.files) ? existing.files : [],
     };
     await tavernMemoryIndexesTable.put(record);
     return record;
@@ -293,31 +305,6 @@ export async function getTavernMemoryIndex(sessionId = '', kind = 'markdown-deri
     const id = String(sessionId || '').trim();
     if (!id) {return null;}
     return await tavernMemoryIndexesTable.get([id, kind]) || null;
-}
-
-function isTurnMemoryPath(path = ''): boolean {
-    return /^memory\/turns\/.+\.md$/i.test(String(path || ''));
-}
-
-async function upsertTurnSummaryForMemoryFile(file: TavernMemoryFileRecord, options: {
-    turn?: number;
-    sourceUserOrder?: number;
-    sourceAssistantOrder?: number;
-    tags?: string[];
-} = {}): Promise<void> {
-    if (!isTurnMemoryPath(file.path)) {return;}
-    const userOrder = Number(options.sourceUserOrder);
-    const assistantOrder = Number(options.sourceAssistantOrder);
-    if (!Number.isInteger(userOrder) || !Number.isInteger(assistantOrder)) {return;}
-    await upsertTavernTurnSummary({
-        sessionId: file.sessionId,
-        turn: toNonNegativeInteger(options.turn, 0),
-        userOrder,
-        assistantOrder,
-        summary: normalizeBody(file.content, 2000),
-        tags: options.tags || [],
-        status: 'active',
-    });
 }
 
 function buildFingerprint(files: TavernMemoryFileRecord[]): string {
@@ -344,6 +331,7 @@ export async function rebuildTavernMemoryDerivedIndex(sessionId = ''): Promise<T
             sourceFingerprint: buildFingerprint(files),
             derivedAt: timestamp,
             updatedAt: timestamp,
+            files: files.map(buildMemoryIndexFileEntry),
         };
         await tavernMemoryIndexesTable.put(record);
         return record;
@@ -356,10 +344,32 @@ export async function rebuildTavernMemoryDerivedIndex(sessionId = ''): Promise<T
             sourceFingerprint: '',
             derivedAt: timestamp,
             updatedAt: timestamp,
+            files: [],
         };
         await tavernMemoryIndexesTable.put(record);
         return record;
     }
+}
+
+export async function listTavernMemoryFileEntries(sessionId = ''): Promise<TavernMemoryFileListEntry[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    let index = await getTavernMemoryIndex(id);
+    if (!index || index.status !== 'ready' || !Array.isArray(index.files)) {
+        index = await rebuildTavernMemoryDerivedIndex(id);
+    }
+    return Array.isArray(index.files)
+        ? index.files.map((file) => ({
+            path: file.path,
+            status: file.status,
+            createdAt: Number(file.createdAt) || Number(file.updatedAt) || 0,
+            updatedAt: Number(file.updatedAt) || 0,
+            source: String(file.source || ''),
+            staleFromOrder: Number.isFinite(Number(file.staleFromOrder)) ? Number(file.staleFromOrder) : undefined,
+            contentLength: Math.max(0, Number(file.contentLength) || 0),
+            preview: String(file.preview || ''),
+        }))
+        : [];
 }
 
 function getToolPath(args: Record<string, unknown>): string {
@@ -389,13 +399,13 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
                     'Read a current-session memory Markdown file.',
                     'Returns raw `content` plus line-numbered `numberedContent`. Large files include continuation hints.',
                     'Use `tail` by itself when you need the end of a file. Do not combine `tail` with `offset` or `limit`.',
-                    'The argument name is `filePath`, not `path`. Memory file paths look like `memory/state.md` or `memory/episodes/001.md`.',
+                    'The argument name is `filePath`, not `path`. Memory file paths look like `memory/session.md`, `memory/state.md`, or `memory/turns/20260612-0042.md`.',
                     'This reads memory files only. Use ChatHistory for original RP chat messages.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
                     properties: {
-                        filePath: { type: 'string', description: 'Memory file path, for example `memory/session.md`, `memory/state.md`, `memory/inbox.md`, or `memory/episodes/001.md`. Do not pass path.' },
+                        filePath: { type: 'string', description: 'Memory file path, for example `memory/session.md`, `memory/state.md`, or `memory/turns/20260612-0042.md`. Do not pass path.' },
                         offset: { type: 'number', description: '1-based line offset. Default 1.' },
                         limit: { type: 'number', description: 'Maximum lines to return. Default 1200, max 2000.' },
                         tail: { type: 'number', description: 'Return the final N lines. Use by itself when you need the end of a file; do not combine it with offset or limit.' },
@@ -411,7 +421,7 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
                 name: TAVERN_MEMORY_TOOL_NAMES.WRITE,
                 description: [
                     'Write a complete current-session memory Markdown file.',
-                    'Use for creating turn, episode, inbox, state, or session files, or for whole-file rewrites where most content is new.',
+                    'Use for creating or replacing session, state, or turn-note files, or for whole-file rewrites where most content is new.',
                     'Read the target file first when it already exists. Write overwrites the entire file, so include all original content you want to keep.',
                     'The argument names are `filePath` and `content`. Write replaces the complete target file content.',
                     'Use MemoryEdit instead for small corrections inside an existing file.',
@@ -504,7 +514,7 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
                     type: 'object',
                     properties: {
                         pattern: { type: 'string', description: 'Search pattern. Treated as literal text by default; use regex/useRegex only when you intentionally need regex.' },
-                        path: { type: 'string', description: 'Optional search scope. Can be a directory like memory/episodes/ or one file like memory/state.md.' },
+                        path: { type: 'string', description: 'Optional search scope. Can be a directory like `memory/turns/` or one file like `memory/state.md`.' },
                         filePath: { type: 'string', description: 'Optional exact file scope. Alias for path when targeting one memory file such as memory/state.md.' },
                         outputMode: { type: 'string', enum: ['content', 'files_with_matches', 'count'], description: '`content` returns matched lines, `files_with_matches` returns files only, and `count` returns match counts. Default content.' },
                         limit: { type: 'number', description: 'Maximum results to return. Default 100, max 100.' },
@@ -669,7 +679,6 @@ export async function executeTavernMemoryTool(
             if (options.managerRunId) {
                 await updateTavernManagerMemorySnapshotAfter({ managerRunId: options.managerRunId, sessionId: id, path: file.path });
             }
-            await upsertTurnSummaryForMemoryFile(file, options);
             const saved = await getTavernMemoryFile(id, file.path);
             if (!saved || saved.content !== file.content) {
                 return {
@@ -725,7 +734,6 @@ export async function executeTavernMemoryTool(
                         details: editResults,
                     };
                 }
-                await upsertTurnSummaryForMemoryFile(saved, options);
             }
             return {
                 ok: !!result.ok,

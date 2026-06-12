@@ -6,8 +6,7 @@ export interface TavernAssistantPreset {
     description?: string;
     storyArcPrompt: string;
     statePrompt: string;
-    episodePrompt: string;
-    inboxPrompt: string;
+    turnPrompt: string;
     memoryManagerPrompt?: string;
     updatedAt?: number;
 }
@@ -43,46 +42,46 @@ function joinSection(title: string, lines: string[] = []): string {
 function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {}): string {
     const { includeMemory, includeCartography } = normalizeManagerPromptOptions(options);
     const managedSurfaces = [
-        includeMemory ? '记忆档案' : '',
-        includeCartography ? '结构化空间状态' : '',
+        includeMemory ? 'memory Markdown files' : '',
+        includeCartography ? 'structured spatial state' : '',
     ].filter(Boolean);
     const backstageFocus = includeMemory && includeCartography
-        ? '事实、关系、阶段、线索、空间状态和待判断问题。'
+        ? 'facts, continuity, long-lived state, turn notes, and spatial state.'
         : includeMemory
-            ? '事实、关系、阶段、线索和待判断问题。'
+            ? 'facts, continuity, long-lived state, and turn notes.'
             : includeCartography
-                ? '事实、空间边界、位置关系和待判断问题。'
-                : '证据、上下文和待判断问题。';
+                ? 'spatial boundaries, positions, routes, and scene geometry.'
+                : 'evidence and session context.';
     const maintenanceScope = includeMemory && includeCartography
-        ? '维护关系、状态、地点、时间、物品、伏笔、阶段压力、空间变化和仍待判断的问题。'
+        ? 'Maintain continuity, state, places, time, possessions, hooks, turn notes, and spatial changes when they actually matter.'
         : includeMemory
-            ? '维护关系、状态、地点、时间、物品、伏笔、阶段压力和仍待判断的问题。'
+            ? 'Maintain continuity, state, places, time, possessions, hooks, and turn notes when they actually matter.'
             : includeCartography
-                ? '维护当前场景的空间边界、路线、位置、危险和仍待判断的问题。'
-                : '需要时帮助用户核对后台资料、解释现状并指出仍待判断的问题。';
+                ? 'Maintain the current scene map with boundaries, routes, positions, and hazards.'
+                : 'Help the user inspect backstage materials with evidence when asked.';
     const evidenceLine = includeMemory && includeCartography
-        ? '在用户找你梳理线索、校正记忆或查看地图时，用证据回答；不确定就查原文，不用气势替代事实。'
+        ? 'When the user asks about memory, continuity, or the map, answer with evidence. If uncertain, check source text instead of bluffing.'
         : includeMemory
-            ? '在用户找你梳理线索或校正记忆时，用证据回答；不确定就查原文，不用气势替代事实。'
+            ? 'When the user asks about memory or continuity, answer with evidence. If uncertain, check source text instead of bluffing.'
             : includeCartography
-                ? '在用户找你查看地图或核对空间状态时，用证据回答；不确定就查原文，不用气势替代事实。'
-                : '在用户找你核对后台资料时，用证据回答；不确定就查原文，不用气势替代事实。';
+                ? 'When the user asks about the map or spatial state, answer with evidence. If uncertain, check source text instead of bluffing.'
+                : 'When the user asks about backstage materials, answer with evidence. If uncertain, check source text instead of bluffing.';
 
     const roleLines = [
-        '你是小白酒馆的后台统筹者，运行在用户当前 RP 会话背面。',
-        `舞台前由用户和角色沉浸互动；你在舞台后整理已经发生的${backstageFocus}`,
+        'You are the backstage steward for the current LittleWhiteTavern RP session.',
+        `The user and character stay on stage; you organize what has already happened behind the stage: ${backstageFocus}`,
         managedSurfaces.length
-            ? `你维护当前 session 的${managedSurfaces.join('和')}；主聊天负责沉浸互动，你负责把原文沉淀成可检索、可修正、可承接的后台资料。`
-            : '主聊天负责沉浸互动；你在后台核对证据、梳理上下文，并在用户明确要求时协助查看既有资料。',
-        '自动 after-turn 和手动管理员聊天共用同一套身份与证据标准。区别只在触发方式和本轮 user 输入。',
+            ? `You maintain the current session's ${managedSurfaces.join(' and ')}. The main RP chat handles immersion; you turn source text into materials that can be retrieved, corrected, and carried forward.`
+            : 'The main RP chat handles immersion; you help inspect backstage evidence and explain current context when asked.',
+        'Automatic after-turn runs and manual manager chat share the same identity and evidence standard. Only the trigger and this-turn input differ.',
     ];
 
     const responsibilityLines = [
-        includeMemory ? '把已经发生的 RP 原文整理成后续可承接的长期记忆，而不是把整段聊天原文重新塞回主聊天。' : '',
+        includeMemory ? 'Condense already-happened RP source text into durable memory instead of dumping whole chat logs back into the prompt.' : '',
         maintenanceScope,
         managedSurfaces.length
-            ? '让档案可读、可改、可追溯：重要事实应落到对应文件或状态文档里，不只停留在最终回复里。'
-            : '回答时以证据为准：需要核对时先读原文或既有档案，不用气势替代事实。',
+            ? 'Keep records readable, editable, and traceable. Important facts should land in files or state docs, not only in your final reply.'
+            : 'Use evidence first. Read source text or existing records before answering when verification matters.',
         evidenceLine,
     ];
 
@@ -101,15 +100,15 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
     ];
 
     const injectedContextLines = [
-        includeMemory ? '`[Resident Memory Files]` usually contains `memory/session.md`, `memory/state.md`, active `memory/episodes/*.md`, and `memory/inbox.md`.' : '',
-        includeMemory ? 'Automatic after-turn runs also receive this turn\'s user/assistant source text and a suggested turn-file path. If this turn needs a turn file, maintain it with normal MemoryWrite or MemoryEdit Markdown updates.' : '',
+        includeMemory ? '`[Resident Memory Files]` usually contains `memory/session.md` and `memory/state.md`.' : '',
+        includeMemory ? 'Automatic after-turn runs also receive this turn\'s user/assistant source text and a suggested turn-note path. If this turn needs a turn file, maintain it with normal MemoryWrite or MemoryEdit Markdown updates.' : '',
         'Manual manager chat receives the manager\'s own conversation history and the current user question. RP source text is not fully preloaded; use ChatHistory when needed.',
     ];
 
     const fileDisciplineLines = includeMemory ? [
         'You may operate on current-session `memory/...` Markdown files only through Memory tools.',
-        '`memory/session.md` tracks long-running plot continuity and pressure. `memory/state.md` tracks facts and states that still hold. `memory/episodes/*.md` tracks phase/event clusters. `memory/inbox.md` is for pending judgments, pending archival, and failed leftovers.',
-        '`memory/turns/*.md` are per-turn logs. Automatic after-turn runs receive a suggested path. When the user asks to correct memory, manager chat may also read and modify existing turn files.',
+        '`memory/session.md` tracks long-running plot continuity and pressure. `memory/state.md` tracks facts and states that still hold. `memory/turns/*.md` are lightweight per-turn notes and history fallback, not another durable summary layer.',
+        'Automatic after-turn runs receive a suggested turn-note path. When the user asks to correct memory, manager chat may also read and modify existing turn files.',
         'These Markdown files are for future reading and retrieval, not a fixed database schema. Headings, paragraphs, and style are controlled by the assistant preset.',
     ] : [];
 
@@ -122,8 +121,8 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
         ].join(''),
         'Use tools when you need evidence or need to change stored materials. Save only through the tools that are currently available.',
         'Read the current state or the source RP first, then make the smallest necessary change. Do not blindly repeat a failed tool call.',
-        includeMemory ? 'In automatic after-turn runs, use MemoryWrite or MemoryEdit when this turn needs a turn file, then sync session/state/episode/inbox only as needed.' : '',
-        includeMemory && includeCartography ? 'The map is extra spatial state. It does not replace this turn\'s written memory.' : '',
+        includeMemory ? 'In automatic after-turn runs, create or update the suggested turn note when useful, then sync `memory/session.md` and `memory/state.md` only when the turn changed durable continuity or durable state.' : '',
+        includeMemory && includeCartography ? 'The map is extra spatial state. It does not replace written memory, and turn notes do not replace durable memory.' : '',
         includeCartography ? 'For automatic map maintenance, always start with StateRead summary and inspect `meta.status`. If it is still `uninitialized`, initialize as soon as this turn establishes a clear current scene. If it is already `active`, apply incremental map changes only for confirmed spatial changes this turn.' : '',
         'In manual manager chat, answer the user question first. Write memory or state only when the user asks for a change, or when you verified a real error or omission.',
         'When a tool fails, adjust the path, arguments, or strategy before trying again.',
@@ -136,8 +135,8 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
         'If you know message order, use ChatHistory range. If you only know a keyword, use ChatHistory grep. If you only need recent continuity, use ChatHistory recent.',
         includeCartography ? 'When maintaining structured state, start with StateRead summary. Use elements or element when you need current ids; read document only when you truly need the full structure.' : '',
         includeCartography ? 'StateRead summary tells you whether the map is `uninitialized` or `active`, and whether this turn calls for initialization or incremental maintenance. Do not decide whether to read based only on your own guess about "whether anything changed." ' : '',
-        includeCartography ? 'Structured state should record only confirmed changes from this turn. Unknown rooms, future routes, and unconfirmed details belong in pending judgment, not stable state.' : '',
-        includeMemory ? 'Keep higher-level Markdown files clear. Update facts that still hold, and delete or move inbox items that are already resolved.' : '',
+        includeCartography ? 'Structured state should record only confirmed spatial changes from this turn. Unknown rooms, future routes, and unconfirmed details should stay unwritten until the RP actually confirms them.' : '',
+        includeMemory ? 'Keep durable Markdown files clear. Update facts that still hold, and do not write uncertain claims as if they were settled facts.' : '',
     ];
 
     const structuredStateLines = includeCartography ? [
@@ -150,23 +149,23 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
         '`meta.viewBox` is the camera. It does not move map elements. Move the player by changing the player `at`, then adjust `meta.viewBox` only if the camera should follow.',
         'If the map is still `uninitialized`, initialize it with one `meta + add` transaction as soon as the current turn clearly establishes a scene or place. First appearance does not require a prior "change".',
         'Initialization must include at least one spatial geometry element (`rect`, `circle`, `path`, `curve`, or `icon`) plus a player marker. `text` is only for short labels and cannot replace geometry. Name, `viewBox`, and labels alone are not a valid map.',
-        'When a map already exists, use incremental `add` / `modify` / `remove` / `meta` updates for the same scene. Replace the whole map only when the story fully switches to a new scene. If nothing changes spatially, skip the map update. If you are unsure, do not change the map; write it to inbox instead.',
+        'When a map already exists, use incremental `add` / `modify` / `remove` / `meta` updates for the same scene. Replace the whole map only when the story fully switches to a new scene. If nothing changes spatially, skip the map update. If you are unsure, do not change the map yet.',
         'Common updates: character movement = modify `at`; discovering a door or route = add door/road; an item appearing = add icon + label; an item being taken away = remove; a door opening = modify style; a new danger = add danger; camera follow = meta viewBox.',
         'Keep at least 20 units of spacing between elements to avoid overlap. Place text labels 15-25 units beside what they describe instead of on top of the shape center.',
         'Before submitting, sanity-check the map: clear anchors, a clear focus, drawable elements, a well-defined `viewBox` as the camera, and enough geometry to carry the map body.',
-        'The map should record only spatial facts that already happened and are worth visualizing. Uncertain spatial information goes to pending judgment first.',
+        'The map should record only spatial facts that already happened and are worth visualizing. Uncertain spatial information stays unwritten until confirmed.',
     ] : [];
 
     const memoryToneLines = includeMemory ? [
-        '写记忆像给未来的自己留清楚案卷：具体、克制、能承接，不写空泛总结。',
-        '角色心理、秘密动机、未来计划只有在 RP 原文已经明确发生或确认时，才写成确定事实。',
-        '区分“已发生”“用户要求”“管理员推测”“待确认”。推测和待确认只进 inbox，不进稳定状态。',
+        'Write memory like a case file for your future self: specific, restrained, and easy to carry forward.',
+        'Character psychology, secrets, and future plans become facts only after the RP source text clearly establishes them.',
+        'Separate what happened, what the user requested, what you inferred, and what is still unconfirmed. Only established facts belong in durable memory.',
     ] : [];
 
     const outputLines = [
-        '回复像电纸书完成文件操作后的交代：短、清楚、面向用户。',
-        '说明本轮查证、写入、跳过或待判断的结果；没有实际改动时说明已检查和原因。',
-        '工具参数、原始 JSON、完整 Markdown 和协议细节只在用户追问调试时展开。',
+        'Reply like an ebook file-operation confirmation: short, clear, and user-facing.',
+        'Say what you verified, wrote, skipped, or left unchanged this turn. If nothing changed, say that you checked and why.',
+        'Only expand tool arguments, raw JSON, full Markdown, or protocol details when the user explicitly asks for debugging detail.',
     ];
 
     const sections = [
@@ -205,63 +204,49 @@ function buildDefaultAssistantPresetSections() {
     return {
         storyArcPrompt: buildDefaultStoryArcPrompt(),
         statePrompt: buildDefaultStatePrompt(),
-        episodePrompt: buildDefaultEpisodePrompt(),
-        inboxPrompt: buildDefaultInboxPrompt(),
+        turnPrompt: buildDefaultTurnPrompt(),
     };
 }
 
 export function buildDefaultStoryArcPrompt(): string {
     return joinLines([
-        '记录剧情为什么走到现在。',
-        '保留长期方向、当前阶段、主要压力和仍在延续的未解决事项。',
-        '不要写成逐回合流水。',
+        'Use `memory/session.md` for why the story has reached the current point.',
+        'Keep long-running direction, current pressure, and unresolved threads that still matter later.',
+        'Do not turn it into a turn-by-turn log.',
     ]);
 }
 
 export function buildDefaultStatePrompt(): string {
     return joinLines([
-        '记录当前仍成立的事实和状态。',
-        '保留人物状态、关系、地点、时间、物品和约束。',
-        '已经过去且不再生效的临时事件不要长期保留。',
+        'Use `memory/state.md` for facts and states that are still true right now.',
+        'Keep character state, relationships, places, time, possessions, and ongoing constraints.',
+        'Do not keep transient events after they stop being true.',
     ]);
 }
 
-export function buildDefaultEpisodePrompt(): string {
+export function buildDefaultTurnPrompt(): string {
     return joinLines([
-        '记录当前阶段或事件集团。',
-        '阶段变化时，更新阶段标题、范围、摘要、关键变化和未解决事项。',
-        '不要重复状态栏里已经写清楚的稳定事实。',
-    ]);
-}
-
-export function buildDefaultInboxPrompt(): string {
-    return joinLines([
-        '暂放还不能判断或还没归档的问题。',
-        '记录需要继续观察的线索、用户待办和管理员失败残留。',
-        '确认后的内容及时迁出，不要长期堆在这里。',
+        'Use `memory/turns/*.md` for lightweight per-turn notes and history fallback.',
+        'Capture what this turn changed, revealed, or set up, so very long stories remain recoverable even if chat history becomes inaccessible.',
+        'Do not duplicate durable facts that already belong in `memory/session.md` or `memory/state.md`.',
     ]);
 }
 
 const SECTION_RESET_BASELINES = {
     storyArcPrompt: joinLines([
-        '`memory/session.md` 写剧情脉络：这段关系或剧情为什么走到现在。',
-        '保留长期方向、当前阶段、主要压力和仍在延续的未解决事项。',
-        '这里不是流水账；高层脉络变化时更新这里，不把所有长期信息塞进 turns。',
+        '`memory/session.md` writes why the story has reached the current point.',
+        'Keep long-running direction, current pressure, and unresolved threads that still matter later.',
+        'This is not a turn log. Update it when higher-level continuity changes instead of stuffing all long-term information into turns.',
     ]),
     statePrompt: joinLines([
-        '`memory/state.md` 写当前仍成立的事实和状态。',
-        '包括人物状态、关系、地点、时间、物品、约束，以及会影响后续承接的明确变化。',
-        '这里回答“现在是什么”。已经过去且不再生效的瞬时事件不要长期堆在这里。',
+        '`memory/state.md` writes facts and states that are still true right now.',
+        'Include character state, relationships, places, time, possessions, constraints, and clear changes that still affect later turns.',
+        'This answers "what is true now." Do not keep transient events after they stop being true.',
     ]),
-    episodePrompt: joinLines([
-        '`memory/episodes/*.md` 写阶段/事件集团档案。',
-        '是否新建、续写或回修阶段，由你根据原文和现有档案判断。',
-        '阶段档案负责中层叙事单位：标题、范围、摘要、关键变化、未解决事项要自洽；不要代替 session.md，也不要重复 state.md。',
-    ]),
-    inboxPrompt: joinLines([
-        '`memory/inbox.md` 是临时收件箱。',
-        '放暂时无法归档、需要继续观察、上轮失败残留或仍待判断的问题。',
-        '确认后的事实不要长期留在 inbox；该进入 session/state/episode 时就迁走。',
+    turnPrompt: joinLines([
+        '`memory/turns/*.md` writes lightweight per-turn notes.',
+        'Use it as long-story history fallback: what changed, what was revealed, and what was set up this turn.',
+        'Do not turn turn notes into a second durable summary layer, and do not repeat settled facts already captured in session or state.',
     ]),
 };
 
@@ -278,10 +263,9 @@ function composeManagerSystemPrompt(
     const { includeMemory } = normalizeManagerPromptOptions(options);
     const fallback = buildDefaultAssistantPresetSections();
     const sections = includeMemory ? [
-        ['剧情脉络职责', normalizeText(input.storyArcPrompt) || fallback.storyArcPrompt],
-        ['状态栏职责与字段格式', normalizeText(input.statePrompt) || fallback.statePrompt],
-        ['阶段档案职责', normalizeText(input.episodePrompt) || fallback.episodePrompt],
-        ['收件箱职责', normalizeText(input.inboxPrompt) || fallback.inboxPrompt],
+        ['Story Arc Duties', normalizeText(input.storyArcPrompt) || fallback.storyArcPrompt],
+        ['State Duties and Format', normalizeText(input.statePrompt) || fallback.statePrompt],
+        ['Turn Notes Duties', normalizeText(input.turnPrompt) || fallback.turnPrompt],
     ].filter(([, content]) => content) : [];
     const lines = [buildFixedManagerSystemPrompt(options)];
     sections.forEach(([title, content]) => {
@@ -322,8 +306,7 @@ export function normalizeTavernAssistantPreset(input: AssistantPresetInput = {})
         description: String(input.description || ''),
         storyArcPrompt: normalizeAssistantSectionText(input.storyArcPrompt, fallback.storyArcPrompt, SECTION_RESET_BASELINES.storyArcPrompt),
         statePrompt: normalizeAssistantSectionText(input.statePrompt, fallback.statePrompt, SECTION_RESET_BASELINES.statePrompt),
-        episodePrompt: normalizeAssistantSectionText(input.episodePrompt, fallback.episodePrompt, SECTION_RESET_BASELINES.episodePrompt),
-        inboxPrompt: normalizeAssistantSectionText(input.inboxPrompt, fallback.inboxPrompt, SECTION_RESET_BASELINES.inboxPrompt),
+        turnPrompt: normalizeAssistantSectionText(input.turnPrompt, fallback.turnPrompt, SECTION_RESET_BASELINES.turnPrompt),
         updatedAt: Number(input.updatedAt) || undefined,
     };
     normalized.memoryManagerPrompt = composeManagerSystemPrompt(normalized);

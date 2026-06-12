@@ -294,8 +294,6 @@ export interface XbTavernRuntimeState {
 }
 
 export interface XbTavernMemoryContext {
-    episodeSummaries?: XbTavernMemoryEpisodeSummary[];
-    turnSummaries?: XbTavernMemoryTurnSummary[];
     memoryFiles?: XbTavernMemoryFileSummary[];
     structuredStates?: XbTavernStructuredStateSummary[];
 }
@@ -312,34 +310,6 @@ export interface XbTavernMemoryFileSummary {
     path?: string;
     title?: string;
     content?: string;
-    recallReason?: string;
-    recallScore?: number;
-}
-
-export interface XbTavernMemoryEpisodeSummary {
-    id?: string;
-    title?: string;
-    summary?: string;
-    startTurn?: number;
-    endTurn?: number;
-    keyChanges?: string[];
-    unresolved?: string[];
-    recallReason?: string;
-    recallScore?: number;
-}
-
-export interface XbTavernMemoryTurnSummary {
-    id?: string;
-    turn?: number;
-    summary?: string;
-    episodeId?: string;
-    userOrder?: number;
-    assistantOrder?: number;
-    characterState?: string;
-    relationshipChange?: string;
-    locationTimeItems?: string;
-    hooks?: string[];
-    tags?: string[];
     recallReason?: string;
     recallScore?: number;
 }
@@ -1601,8 +1571,6 @@ function formatMemoryList(items: unknown[] = []): string {
 }
 
 function buildMemoryBlock(memoryContext: XbTavernMemoryContext = {}): string {
-    const episodes = Array.isArray(memoryContext.episodeSummaries) ? memoryContext.episodeSummaries : [];
-    const turns = Array.isArray(memoryContext.turnSummaries) ? memoryContext.turnSummaries : [];
     const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
     const structuredStates = Array.isArray(memoryContext.structuredStates) ? memoryContext.structuredStates : [];
     const sections: string[] = [];
@@ -1617,61 +1585,6 @@ function buildMemoryBlock(memoryContext: XbTavernMemoryContext = {}): string {
         .filter(Boolean);
     if (fileLines.length) {
         sections.push(`## 固定记忆档案\n${fileLines.join('\n\n')}`);
-    }
-
-    const formatEpisodeLine = (episode: XbTavernMemoryEpisodeSummary) => {
-        const title = normalizeText(episode.title) || '未命名阶段';
-        const range = Number.isFinite(Number(episode.startTurn)) || Number.isFinite(Number(episode.endTurn))
-            ? `turn ${Number(episode.startTurn) || 0}-${Number(episode.endTurn) || 0}`
-            : '';
-        const summary = normalizeText(episode.summary);
-        const keyChanges = formatMemoryList(episode.keyChanges || []);
-        const unresolved = formatMemoryList(episode.unresolved || []);
-        return [
-            `### ${title}${range ? ` (${range})` : ''}`,
-            summary,
-            keyChanges ? `关键变化：\n${keyChanges}` : '',
-            unresolved ? `未解决：\n${unresolved}` : '',
-        ].filter(Boolean).join('\n');
-    };
-    const fixedEpisodeLines = episodes
-        .filter((episode) => ['current', 'open'].includes(String(episode.recallReason || '')))
-        .map(formatEpisodeLine)
-        .filter(Boolean);
-    if (fixedEpisodeLines.length) {
-        sections.push(`## 当前/未解决阶段\n${fixedEpisodeLines.join('\n\n')}`);
-    }
-
-    const matchedEpisodeLines = episodes
-        .filter((episode) => !['current', 'open'].includes(String(episode.recallReason || '')))
-        .map(formatEpisodeLine)
-        .filter(Boolean);
-    if (matchedEpisodeLines.length) {
-        sections.push(`## 召回命中阶段\n${matchedEpisodeLines.join('\n\n')}`);
-    }
-
-    const turnLines = turns
-        .map((turn) => {
-            const source = [
-                Number.isFinite(Number(turn.turn)) ? `turn ${Number(turn.turn)}` : '',
-                Number.isFinite(Number(turn.userOrder)) && Number.isFinite(Number(turn.assistantOrder))
-                    ? `messages ${Number(turn.userOrder)}/${Number(turn.assistantOrder)}`
-                    : '',
-            ].filter(Boolean).join(' · ');
-            const tags = (turn.tags || []).map((tag) => normalizeText(tag)).filter(Boolean).join('、');
-            const summary = normalizeText(turn.summary);
-            if (!summary) {return '';}
-            const details = [
-                turn.characterState ? `人物状态：${normalizeText(turn.characterState)}` : '',
-                turn.relationshipChange ? `关系变化：${normalizeText(turn.relationshipChange)}` : '',
-                turn.locationTimeItems ? `时地物：${normalizeText(turn.locationTimeItems)}` : '',
-                turn.hooks?.length ? `钩子：${turn.hooks.map((hook) => normalizeText(hook)).filter(Boolean).join('、')}` : '',
-            ].filter(Boolean).join('；');
-            return `- ${source ? `${source}: ` : ''}${summary}${details ? `（${details}）` : ''}${tags ? ` [${tags}]` : ''}`;
-        })
-        .filter(Boolean);
-    if (turnLines.length) {
-        sections.push(`## 召回命中小总结\n${turnLines.join('\n')}`);
     }
 
     const stateLines = structuredStates

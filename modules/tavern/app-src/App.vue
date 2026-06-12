@@ -25,7 +25,7 @@ import {
 } from '../shared/memory-retrieval';
 import {
     getTavernMemoryIndex,
-    listTavernMemoryFiles,
+    getTavernMemoryFile,
     rebuildTavernMemoryDerivedIndex,
     writeTavernMemoryFile,
 } from '../shared/memory-files';
@@ -44,12 +44,10 @@ import {
     getActiveTavernAssistantPresetId,
     getSelectedTavernSessionId,
     listTavernAssistantPresets,
-    listTavernEpisodeSummaries,
     listTavernManagerRuns,
     loadActiveTavernAssistantPreset,
     listTavernMessages,
     listTavernSessions,
-    listTavernTurnSummaries,
     markTavernMemoryStaleFromOrder,
     normalizeTavernSessionState,
     replaceTavernSessionState,
@@ -60,9 +58,10 @@ import {
     updateTavernManagerMessage,
     updateTavernMessage,
     updateTavernSessionSnapshot,
-    type TavernEpisodeSummaryRecord,
     type TavernManagerMessageRecord,
     type TavernManagerRunRecord,
+    type TavernMemoryFileListEntry,
+    type TavernMemoryIndexFileEntry,
     type TavernMemoryFileRecord,
     type TavernMemoryIndexRecord,
     type TavernMessageRecord,
@@ -70,7 +69,6 @@ import {
     type TavernStructuredStateDocumentRecord,
     type TavernStructuredStatePatchRecord,
     type TavernSessionRecord,
-    type TavernTurnSummaryRecord,
 } from '../shared/session-db';
 import { getTavernMapStateForSession } from '../shared/structured-state';
 import {
@@ -159,8 +157,7 @@ interface PromptEditorRow {
 type AssistantPresetSectionKey =
     | 'storyArcPrompt'
     | 'statePrompt'
-    | 'episodePrompt'
-    | 'inboxPrompt';
+    | 'turnPrompt';
 
 interface AssistantPresetSectionRow {
     key: AssistantPresetSectionKey;
@@ -309,13 +306,13 @@ const drawProgressText = ref('');
 const sessions = ref<TavernSessionRecord[]>([]);
 const selectedSessionId = ref('');
 const sessionMessages = ref<TavernMessageRecord[]>([]);
-const turnSummaries = ref<TavernTurnSummaryRecord[]>([]);
-const episodeSummaries = ref<TavernEpisodeSummaryRecord[]>([]);
 const managerRuns = ref<TavernManagerRunRecord[]>([]);
-const memoryFiles = ref<TavernMemoryFileRecord[]>([]);
+const memoryFiles = ref<TavernMemoryIndexFileEntry[]>([]);
 const memoryIndex = ref<TavernMemoryIndexRecord | null>(null);
 const memoryTokenizerStatus = ref(getXbTavernMemoryTokenizerStatus());
 const selectedMemoryFilePath = ref('');
+const selectedMemoryFileRecord = ref<TavernMemoryFileRecord | null>(null);
+const stateMemoryFile = ref<TavernMemoryFileRecord | null>(null);
 const memoryEditorDraft = ref('');
 const memoryEditorLoadedPath = ref('');
 const memoryEditorBaseContent = ref('');
@@ -355,8 +352,7 @@ const initialAssistantPreset: TavernAssistantPreset = createDefaultTavernAssista
 const assistantPresetSections: AssistantPresetSectionRow[] = [
     { key: 'storyArcPrompt', label: '剧情脉络', summary: '长期脉络档案' },
     { key: 'statePrompt', label: '状态栏', summary: '当前状态档案' },
-    { key: 'episodePrompt', label: '阶段档案', summary: '事件集团档案' },
-    { key: 'inboxPrompt', label: '收件箱', summary: '待判断档案' },
+    { key: 'turnPrompt', label: '楼层小记', summary: '每回合轻量记录' },
 ];
 const preset = ref<TavernChatPromptPresetBundle>(initialChatPreset);
 const activeChatPreset = ref<TavernChatPromptPresetBundle>(initialChatPreset);
@@ -745,7 +741,7 @@ const tavernDrawController = ref<AbortController | null>(null);
 const markdownHtmlCache = new Map<string, string>();
 const characterOptionCache = new Map<string, { signature: string; option: TavernCharacterOption }>();
 const sessionSearchCorpusCache = new Map<string, { signature: string; corpus: string }>();
-const memoryFileSearchCorpusCache = new WeakMap<TavernMemoryFileRecord, string>();
+const memoryFileSearchCorpusCache = new WeakMap<TavernMemoryIndexFileEntry, string>();
 const apiSettingsPanelState: Record<string, unknown> = {
     config: {},
     configDraft: null,
@@ -995,7 +991,6 @@ const hiddenManagerRunCount = computed(() => {
     return Math.max(0, managerRuns.value.length - currentCount - archivedManagerRuns.value.length);
 });
 const managerBusy = computed(() => managerRuns.value.some((run) => ['queued', 'running'].includes(run.status)));
-const recentTurnSummaries = computed(() => [...turnSummaries.value].reverse().slice(0, 8));
 const filteredChatSidebarSessions = computed(() => {
     const currentCharacterId = String(selectedSession.value?.characterId || effectiveContext.value.character?.id || '').trim();
     const sameCharacter = currentCharacterId
@@ -1019,21 +1014,21 @@ const chatSidebarSessions = computed(() => {
 const filteredChatSidebarSessionCount = computed(() => filteredChatSidebarSessions.value.length);
 const hiddenChatSidebarSessionCount = computed(() => Math.max(0, filteredChatSidebarSessionCount.value - chatSidebarSessions.value.length));
 const activeMemoryFiles = computed(() => memoryFiles.value.filter((file) => file.status !== 'stale'));
-const selectedMemoryFile = computed(() => (
+const selectedMemoryFileEntry = computed(() => (
     memoryFiles.value.find((file) => file.path === selectedMemoryFilePath.value)
     || memoryFiles.value[0]
     || null
 ));
-function memoryFileDisplayName(fileOrPath: TavernMemoryFileRecord | string | null | undefined) {
+const selectedMemoryFile = computed(() => (
+    selectedMemoryFileRecord.value?.sessionId === selectedSessionId.value
+    && selectedMemoryFileRecord.value?.path === selectedMemoryFileEntry.value?.path
+        ? selectedMemoryFileRecord.value
+        : null
+));
+function memoryFileDisplayName(fileOrPath: TavernMemoryFileListEntry | TavernMemoryFileRecord | string | null | undefined) {
     const path = typeof fileOrPath === 'string' ? fileOrPath : String(fileOrPath?.path || '');
     if (path === 'memory/session.md') {return '剧情脉络';}
     if (path === 'memory/state.md') {return '状态栏';}
-    if (path === 'memory/inbox.md') {return '待整理';}
-    const episodeMatch = path.match(/^memory\/episodes\/([^/]+)\.md$/);
-    if (episodeMatch) {
-        const number = episodeMatch[1].replace(/^0+/, '') || episodeMatch[1];
-        return `阶段 ${number}`;
-    }
     const turnMatch = path.match(/^memory\/turns\/(\d{8})-(\d+)\.md$/);
     if (turnMatch) {
         const order = Number(turnMatch[2]) || 0;
@@ -1042,12 +1037,10 @@ function memoryFileDisplayName(fileOrPath: TavernMemoryFileRecord | string | nul
     return path.replace(/^memory\//, '').replace(/\.md$/i, '') || '记忆档案';
 }
 
-function memoryFileKindLabel(fileOrPath: TavernMemoryFileRecord | string | null | undefined) {
+function memoryFileKindLabel(fileOrPath: TavernMemoryFileListEntry | TavernMemoryFileRecord | string | null | undefined) {
     const path = typeof fileOrPath === 'string' ? fileOrPath : String(fileOrPath?.path || '');
     if (path === 'memory/session.md') {return '剧情为什么走到现在';}
     if (path === 'memory/state.md') {return '当前事实与状态';}
-    if (path === 'memory/inbox.md') {return '待归档问题';}
-    if (path.startsWith('memory/episodes/')) {return '阶段总结';}
     if (path.startsWith('memory/turns/')) {return '每回合小总结';}
     return '记忆档案';
 }
@@ -1055,22 +1048,20 @@ function memoryFileKindLabel(fileOrPath: TavernMemoryFileRecord | string | null 
 function memoryFileSortWeight(path = '') {
     if (path === 'memory/session.md') {return 0;}
     if (path === 'memory/state.md') {return 1;}
-    if (path === 'memory/inbox.md') {return 2;}
-    if (path.startsWith('memory/episodes/')) {return 10;}
     if (path.startsWith('memory/turns/')) {return 20;}
     return 30;
 }
 
-function memoryFileSearchCorpus(file: TavernMemoryFileRecord) {
+function memoryFileSearchCorpus(file: TavernMemoryIndexFileEntry) {
     const cached = memoryFileSearchCorpusCache.get(file);
     if (cached) {return cached;}
-    const corpus = normalizedSearchText(buildSearchCorpus([
+    const corpus = normalizedSearchText([
         file.path,
         memoryFileDisplayName(file),
         memoryFileKindLabel(file),
         file.status,
-        file.content,
-    ], 1000));
+        file.searchText || file.preview || '',
+    ].filter(Boolean).join('\n'));
     memoryFileSearchCorpusCache.set(file, corpus);
     return corpus;
 }
@@ -1094,32 +1085,25 @@ const memoryDirectoryGroups = computed(() => {
         {
             key: 'core',
             title: '核心档案',
-            files: [] as TavernMemoryFileRecord[],
-        },
-        {
-            key: 'episodes',
-            title: '阶段档案',
-            files: [] as TavernMemoryFileRecord[],
+            files: [] as TavernMemoryIndexFileEntry[],
         },
         {
             key: 'turns',
             title: '楼层小记',
-            files: [] as TavernMemoryFileRecord[],
+            files: [] as TavernMemoryIndexFileEntry[],
         },
     ];
-    const rest: TavernMemoryFileRecord[] = [];
+    const rest: TavernMemoryIndexFileEntry[] = [];
     [...memoryFiles.value]
         .sort((left, right) => (
             memoryFileSortWeight(left.path) - memoryFileSortWeight(right.path)
             || String(left.path || '').localeCompare(String(right.path || ''))
         ))
         .forEach((file) => {
-            if (['memory/session.md', 'memory/state.md', 'memory/inbox.md'].includes(file.path)) {
+            if (['memory/session.md', 'memory/state.md'].includes(file.path)) {
                 groups[0].files.push(file);
-            } else if (file.path.startsWith('memory/episodes/')) {
-                groups[1].files.push(file);
             } else if (file.path.startsWith('memory/turns/')) {
-                groups[2].files.push(file);
+                groups[1].files.push(file);
             } else {
                 rest.push(file);
             }
@@ -1155,7 +1139,7 @@ const memoryDirectoryGroups = computed(() => {
         })
         .filter((group) => group.filteredCount || !query);
 });
-const memoryEditorDocumentAvailable = computed(() => !!selectedMemoryFile.value || !!memoryEditorLoadedPath.value);
+const memoryEditorDocumentAvailable = computed(() => !!selectedMemoryFileEntry.value || !!memoryEditorLoadedPath.value);
 const memoryEditorReadOnly = computed(() => false);
 const memoryEditorDirty = computed(() => (
     !!memoryEditorLoadedPath.value
@@ -2711,40 +2695,51 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
     const id = String(sessionId || '').trim();
     if (!id) {
         managerChatMessages.value = [];
-        turnSummaries.value = [];
-        episodeSummaries.value = [];
         managerRuns.value = [];
         memoryFiles.value = [];
         memoryIndex.value = null;
+        invalidateMemoryFileRecordLoad();
+        stateMemoryFile.value = null;
         mapStateDocument.value = null;
         mapStatePatches.value = [];
         selectedMemoryFilePath.value = '';
         return;
     }
-    const [managerMessages, turns, episodes, runs, files, index, mapState] = await Promise.all([
+    const [managerMessages, runs, rawIndex, mapState, nextStateFile] = await Promise.all([
         listTavernManagerMessages(id),
-        listTavernTurnSummaries(id),
-        listTavernEpisodeSummaries(id),
         listTavernManagerRuns(id, { limit: 18 }),
-        listTavernMemoryFiles(id, { includeStale: true }),
         getTavernMemoryIndex(id),
         getTavernMapStateForSession(id),
+        getTavernMemoryFile(id, 'memory/state.md'),
     ]);
+    const index = rawIndex && rawIndex.status === 'ready' && Array.isArray(rawIndex.files)
+        ? rawIndex
+        : await rebuildTavernMemoryDerivedIndex(id);
     if (id !== selectedSessionId.value) {return;}
     managerChatMessages.value = managerMessages;
-    turnSummaries.value = turns;
-    episodeSummaries.value = episodes.reverse();
     managerRuns.value = runs;
-    memoryFiles.value = files;
+    memoryFiles.value = Array.isArray(index.files) ? index.files.map((file) => ({
+        path: String(file.path || ''),
+        status: file.status === 'stale' ? 'stale' : 'active',
+        createdAt: Number(file.createdAt) || Number(file.updatedAt) || 0,
+        updatedAt: Number(file.updatedAt) || 0,
+        source: String(file.source || ''),
+        staleFromOrder: Number.isFinite(Number(file.staleFromOrder)) ? Number(file.staleFromOrder) : undefined,
+        contentLength: Math.max(0, Number(file.contentLength) || 0),
+        title: String(file.title || ''),
+        preview: String(file.preview || ''),
+        searchText: String(file.searchText || ''),
+    })) : [];
     memoryIndex.value = index;
+    stateMemoryFile.value = nextStateFile;
     mapStateDocument.value = mapState.document;
     mapStatePatches.value = mapState.patches;
-    if (!files.some((file) => file.path === selectedMemoryFilePath.value)) {
+    if (!memoryFiles.value.some((file) => file.path === selectedMemoryFilePath.value)) {
         if (memoryEditorDirty.value && selectedMemoryFilePath.value) {
             memoryEditorStatus.value = '当前档案已变化，草稿仍保留';
             return;
         }
-        selectedMemoryFilePath.value = files[0]?.path || '';
+        selectedMemoryFilePath.value = memoryFiles.value[0]?.path || '';
     }
 }
 
@@ -2958,6 +2953,7 @@ async function selectCharacterAndCreateSession(characterId: string) {
 
 async function selectSession(sessionId: string) {
     resetSessionPreviewState();
+    invalidateMemoryFileRecordLoad();
     selectedSessionId.value = sessionId;
     await setSelectedTavernSessionId(sessionId);
     sessionMessages.value = await listTavernMessages(sessionId);
@@ -3107,10 +3103,6 @@ function formatManagerSource(run: TavernManagerRunRecord) {
     return `第 ${run.turn || 0} 轮 · ${run.userOrder}/${run.assistantOrder}`;
 }
 
-function formatSummarySource(summary: TavernTurnSummaryRecord) {
-    return `第 ${summary.turn || 0} 轮 · ${summary.userOrder}/${summary.assistantOrder}`;
-}
-
 function formatRunModelLine(run: TavernManagerRunRecord) {
     if (run.status === 'queued') {return '等待后台模型';}
     if (run.status === 'running') {return '后台模型运行中';}
@@ -3188,8 +3180,16 @@ function memoryFileStatusLabel(status = '') {
     return status === 'stale' ? '过期' : '可用';
 }
 
-function formatMemoryFileMeta(file: TavernMemoryFileRecord) {
-    return `${memoryFileStatusLabel(file.status)} · ${Math.max(0, String(file.content || '').length)} 字`;
+function memoryFileContentLength(file: TavernMemoryFileListEntry | TavernMemoryFileRecord | null | undefined): number {
+    if (!file) {return 0;}
+    if ('contentLength' in file && Number.isFinite(Number(file.contentLength))) {
+        return Math.max(0, Number(file.contentLength) || 0);
+    }
+    return 'content' in file ? Math.max(0, String(file.content || '').length) : 0;
+}
+
+function formatMemoryFileMeta(file: TavernMemoryFileListEntry | TavernMemoryFileRecord) {
+    return `${memoryFileStatusLabel(file.status)} · ${memoryFileContentLength(file)} 字`;
 }
 
 function loadMemoryFileIntoEditor(file: TavernMemoryFileRecord | null | undefined) {
@@ -3199,6 +3199,29 @@ function loadMemoryFileIntoEditor(file: TavernMemoryFileRecord | null | undefine
     memoryEditorDraft.value = content;
     memoryEditorMode.value = 'preview';
     memoryEditorStatus.value = '';
+}
+
+let memoryFileLoadToken = 0;
+
+function invalidateMemoryFileRecordLoad(clearRecord = true) {
+    memoryFileLoadToken += 1;
+    if (clearRecord) {
+        selectedMemoryFileRecord.value = null;
+    }
+}
+
+async function loadSelectedMemoryFileRecord(path = '') {
+    const sessionId = String(selectedSessionId.value || '').trim();
+    const nextPath = String(path || '').trim();
+    const loadToken = ++memoryFileLoadToken;
+    if (!sessionId || !nextPath) {
+        invalidateMemoryFileRecordLoad();
+        return null;
+    }
+    const file = await getTavernMemoryFile(sessionId, nextPath);
+    if (loadToken !== memoryFileLoadToken) {return null;}
+    selectedMemoryFileRecord.value = file;
+    return file;
 }
 
 function selectMemoryFile(path = '') {
@@ -3211,7 +3234,7 @@ function selectMemoryFile(path = '') {
 }
 
 async function saveSelectedMemoryFile() {
-    const file = selectedMemoryFile.value;
+    const file = selectedMemoryFileEntry.value;
     if (!selectedSessionId.value || !file) {return;}
     memoryEditorStatus.value = '保存中';
     try {
@@ -5168,9 +5191,7 @@ watch(() => selectedSessionId.value, () => {
 });
 
 watch([() => activeMemoryFiles.value.length, () => filteredChatSidebarSessionCount.value], ([memoryCount, sessionCount]) => {
-    if (chatSidePanel.value === 'memory' && !memoryCount && sessionCount) {
-        chatSidePanel.value = 'sessions';
-    } else if (chatSidePanel.value === 'sessions' && memoryCount && !sessionCount) {
+    if (chatSidePanel.value === 'sessions' && memoryCount && !sessionCount) {
         chatSidePanel.value = 'memory';
     }
 });
@@ -5226,21 +5247,27 @@ watch(selectedWorldbookName, (name) => {
     void loadSelectedWorldbookPreview(name);
 });
 
-watch(selectedMemoryFile, (file) => {
+watch(selectedMemoryFileEntry, async (file) => {
     const nextPath = String(file?.path || '');
     if (!nextPath) {
         if (memoryEditorDirty.value) {
             memoryEditorStatus.value = '当前档案已变化，草稿仍保留';
             return;
         }
+        invalidateMemoryFileRecordLoad();
         loadMemoryFileIntoEditor(null);
         return;
     }
     if (memoryEditorLoadedPath.value === nextPath && memoryEditorDirty.value) {
+        if (selectedMemoryFileRecord.value?.sessionId !== selectedSessionId.value) {
+            selectedMemoryFileRecord.value = null;
+        }
         memoryEditorStatus.value = '档案已刷新，当前草稿仍保留';
         return;
     }
-    loadMemoryFileIntoEditor(file);
+    const loaded = await loadSelectedMemoryFileRecord(nextPath);
+    if (String(selectedMemoryFilePath.value || '') !== nextPath) {return;}
+    loadMemoryFileIntoEditor(loaded);
 }, { immediate: true });
 
 watch(homeThemeDark, (isDark) => {
@@ -5317,7 +5344,6 @@ provide(TAVERN_APP_UI_CONTEXT, {
     drawProgressText,
     editingMessageDraft,
     enterMemoryEditMode,
-    episodeSummaries,
     expandMemoryFileGroup,
     expandRegexGroup,
     filteredChatSidebarSessionCount,
@@ -5331,7 +5357,6 @@ provide(TAVERN_APP_UI_CONTEXT, {
     formatMemoryFileMeta,
     formatMessageTime,
     formatRunModelLine,
-    formatSummarySource,
     handleChatScroll,
     handleChatSubmit,
     handleChatTouchMove,
@@ -5426,7 +5451,6 @@ provide(TAVERN_APP_UI_CONTEXT, {
     promptRowIndex,
     promptSearchText,
     promptVisibleLimit,
-    recentTurnSummaries,
     refreshRegexFromHost,
     syncWorldbooksFromHost,
     REGEX_GROUP_BATCH_SIZE,
@@ -5465,7 +5489,9 @@ provide(TAVERN_APP_UI_CONTEXT, {
     selectAssistantPresetItem,
     selectChatPresetFromHost,
     selectedAssistantPresetItem,
+    selectedMemoryFileEntry,
     selectedMemoryFile,
+    selectedMemoryFilePath,
     selectedPresetSourceId,
     selectedPromptIdentifier,
     selectedPromptRow,
@@ -5490,12 +5516,12 @@ provide(TAVERN_APP_UI_CONTEXT, {
     showManagerScrollTop,
     startEditMessage,
     startEditManagerMessage,
+    stateMemoryFile,
     thoughtBlocks,
     thoughtSummaryLabel,
     togglePromptRow,
     toggleRegexPlacement,
     toolTraceSummary,
-    turnSummaries,
     updateAssistantPresetPatch,
     updateChatScrollButtons,
     updateManagerScrollButtons,

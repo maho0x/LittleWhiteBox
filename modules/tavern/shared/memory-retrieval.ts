@@ -3,25 +3,19 @@ import type {
     XbTavernMemoryContext,
 } from './message-assembler';
 import { extensionFolderPath } from '../../../core/constants.js';
-import { listTavernMemoryFiles } from './memory-files';
+import { getTavernMemoryIndex, rebuildTavernMemoryDerivedIndex } from './memory-files';
 import { listTavernStructuredStateDigests } from './structured-state';
 import * as stopwordsBase from '../../story-summary/vector/utils/stopwords-base.js';
 import * as stopwordsPatch from '../../story-summary/vector/utils/stopwords-patch.js';
 import {
     type TavernMemoryFileRecord,
-    type TavernEpisodeSummaryRecord,
-    type TavernTurnSummaryRecord,
+    type TavernMemoryIndexFileEntry,
 } from './session-db';
 
 export interface XbTavernMemorySelectionInput {
-    episodeSummaries?: TavernEpisodeSummaryRecord[];
-    turnSummaries?: TavernTurnSummaryRecord[];
-    memoryFiles?: TavernMemoryFileRecord[];
+    memoryFiles?: Array<TavernMemoryIndexFileEntry | TavernMemoryFileRecord>;
     queryText?: string;
     ignoredTerms?: string[];
-    recentEpisodeCount?: number;
-    recentTurnCount?: number;
-    recentMemoryFileCount?: number;
 }
 
 interface MemoryDocument {
@@ -441,66 +435,33 @@ function weightedField(text: unknown, weight: number): WeightedMemoryField {
     };
 }
 
-function episodeFields(episode: TavernEpisodeSummaryRecord): WeightedMemoryField[] {
-    return [
-        weightedField(episode.title, 2.2),
-        weightedField((episode.unresolved || []).join('\n'), 2.0),
-        weightedField((episode.keyChanges || []).join('\n'), 1.6),
-        weightedField(episode.summary, 1.0),
-    ];
-}
-
-function turnFields(summary: TavernTurnSummaryRecord): WeightedMemoryField[] {
-    return [
-        weightedField((summary.tags || []).join('\n'), 2.2),
-        weightedField((summary.hooks || []).join('\n'), 1.8),
-        weightedField(summary.summary, 1.2),
-        weightedField(summary.relationshipChange, 1.1),
-        weightedField(summary.locationTimeItems, 1.1),
-        weightedField(summary.characterState, 1.0),
-    ];
-}
-
-function memoryFileTitle(file: TavernMemoryFileRecord): string {
-    const heading = String(file.content || '').match(/^\s*#\s+(.+?)\s*$/m)?.[1];
+function memoryFileTitle(file: TavernMemoryIndexFileEntry | TavernMemoryFileRecord): string {
+    if ('title' in file && file.title) {return String(file.title || '').trim();}
+    const heading = 'content' in file ? String(file.content || '').match(/^\s*#\s+(.+?)\s*$/m)?.[1] : '';
     return String(heading || file.path.split('/').pop() || file.path).trim();
 }
 
-function memoryFileFields(file: TavernMemoryFileRecord): WeightedMemoryField[] {
+function memoryFileFields(file: TavernMemoryIndexFileEntry | TavernMemoryFileRecord): WeightedMemoryField[] {
     const path = String(file.path || '');
     const pathWeight = path === 'memory/state.md' ? 2.2
         : path === 'memory/session.md' ? 2.0
-            : path.startsWith('memory/episodes/') ? 1.8
-                : path.startsWith('memory/turns/') ? 1.6
-                    : 1.4;
+            : path.startsWith('memory/turns/') ? 1.6
+                : 1.4;
     return [
         weightedField(file.path, pathWeight),
         weightedField(memoryFileTitle(file), pathWeight),
-        weightedField(file.content, 1.0),
+        weightedField(
+            ('searchText' in file && file.searchText) || ('preview' in file && file.preview) || ('content' in file ? file.content : ''),
+            1.0,
+        ),
     ];
 }
 
-function isRecallMemoryFile(file: TavernMemoryFileRecord): boolean {
+function isRecallMemoryFile(file: Pick<TavernMemoryIndexFileEntry, 'path' | 'status'> | Pick<TavernMemoryFileRecord, 'path' | 'status'>): boolean {
     const path = String(file.path || '');
     if (file.status === 'stale') {return false;}
-    return ['memory/session.md', 'memory/state.md', 'memory/inbox.md'].includes(path)
-        || path.startsWith('memory/episodes/')
+    return ['memory/session.md', 'memory/state.md'].includes(path)
         || path.startsWith('memory/turns/');
-}
-
-function byTurn(left: TavernTurnSummaryRecord, right: TavernTurnSummaryRecord): number {
-    return (Number(left.turn) || 0) - (Number(right.turn) || 0)
-        || (Number(left.userOrder) || 0) - (Number(right.userOrder) || 0);
-}
-
-function byEpisode(left: TavernEpisodeSummaryRecord, right: TavernEpisodeSummaryRecord): number {
-    return (Number(left.startTurn) || 0) - (Number(right.startTurn) || 0)
-        || (Number(left.updatedAt) || 0) - (Number(right.updatedAt) || 0);
-}
-
-function sliceRecent<T>(items: T[], count: number): T[] {
-    if (count <= 0) {return [];}
-    return items.slice(-count);
 }
 
 export function buildXbTavernMemoryIgnoredTerms(context: XbTavernContext = {}): string[] {
@@ -521,71 +482,22 @@ export function buildXbTavernMemoryQuery(context: XbTavernContext = {}, currentU
 }
 
 export function selectXbTavernMemoryContext(input: XbTavernMemorySelectionInput = {}): XbTavernMemoryContext {
-    const episodes = [...(input.episodeSummaries || [])].sort(byEpisode);
-    const turns = [...(input.turnSummaries || [])].sort(byTurn);
     const memoryFiles = [...(input.memoryFiles || [])]
         .filter(isRecallMemoryFile)
         .sort((left, right) => left.path.localeCompare(right.path));
-    const recentEpisodeCount = Math.max(0, Number(input.recentEpisodeCount ?? 1) || 0);
     const ignoredTerms = normalizeIgnoredTerms(input.ignoredTerms || []);
     const queryTokens = tokenizeMemoryText(input.queryText, ignoredTerms);
-    const episodeDocuments = buildMemoryDocuments(
-        episodes,
-        (record) => episodeFields(record),
-        (record) => record.id,
-    );
-    const turnDocuments = buildMemoryDocuments(
-        turns,
-        (record) => turnFields(record),
-        (record) => record.id,
-    );
     const memoryFileDocuments = buildMemoryDocuments(
         memoryFiles,
         (record) => memoryFileFields(record),
         (record) => record.path,
     );
-    const allDocuments = [...episodeDocuments, ...turnDocuments, ...memoryFileDocuments];
+    const allDocuments = [...memoryFileDocuments];
     const idf = buildIdf(allDocuments);
     const averageLength = averageWeightedLength(allDocuments);
-    const episodeDocumentById = new Map(episodeDocuments.map((document) => [document.id, document]));
-    const turnDocumentById = new Map(turnDocuments.map((document) => [document.id, document]));
     const memoryFileDocumentById = new Map(memoryFileDocuments.map((document) => [document.id, document]));
 
-    const recentEpisodeIds = new Set(sliceRecent(episodes, recentEpisodeCount).map((episode) => episode.id));
-    const selectedEpisodes = episodes
-        .map((episode) => ({
-            episode,
-            score: scoreDocument(episodeDocumentById.get(episode.id), queryTokens, idf, averageLength),
-            hasOpenThread: (episode.unresolved || []).some((item) => normalizeText(item)),
-        }))
-        .filter((item) => recentEpisodeIds.has(item.episode.id) || item.score >= MEMORY_RECALL_MIN_SCORE || item.hasOpenThread)
-        .map((item) => ({
-            ...item,
-            reason: recentEpisodeIds.has(item.episode.id) ? 'current'
-                : item.hasOpenThread ? 'open'
-                    : 'matched',
-        }))
-        .sort((left, right) => byEpisode(left.episode, right.episode))
-        .map((item) => ({
-            ...item.episode,
-            recallReason: item.reason,
-            recallScore: item.score,
-        }));
-
-    const selectedTurns = turns
-        .map((summary) => ({
-            summary,
-            score: scoreDocument(turnDocumentById.get(summary.id), queryTokens, idf, averageLength),
-        }))
-        .filter((item) => item.score >= MEMORY_RECALL_MIN_SCORE)
-        .sort((left, right) => byTurn(left.summary, right.summary))
-        .map((item) => ({
-            ...item.summary,
-            recallReason: 'matched',
-            recallScore: item.score,
-        }));
-
-    const alwaysKeepMemoryPaths = new Set(['memory/session.md', 'memory/state.md', 'memory/inbox.md']);
+    const alwaysKeepMemoryPaths = new Set(['memory/session.md', 'memory/state.md']);
     const selectedMemoryFiles = memoryFiles
         .map((file) => ({
             file,
@@ -596,7 +508,9 @@ export function selectXbTavernMemoryContext(input: XbTavernMemorySelectionInput 
         .sort((left, right) => left.file.path.localeCompare(right.file.path))
         .map((item) => ({
             ...item.file,
-            recallReason: alwaysKeepMemoryPaths.has(item.file.path) ? 'fixed' : 'matched',
+            recallReason: alwaysKeepMemoryPaths.has(item.file.path)
+                ? 'fixed'
+                : 'matched',
             recallScore: item.score,
         }));
 
@@ -604,35 +518,9 @@ export function selectXbTavernMemoryContext(input: XbTavernMemorySelectionInput 
         memoryFiles: selectedMemoryFiles.map((file) => ({
             path: file.path,
             title: memoryFileTitle(file),
-            content: String(file.content || '').slice(0, 2400),
+            content: String(('preview' in file && file.preview) || ('content' in file ? file.content : '') || '').slice(0, 2400),
             recallReason: file.recallReason,
             recallScore: file.recallScore,
-        })),
-        episodeSummaries: selectedEpisodes.map((episode) => ({
-            id: episode.id,
-            title: episode.title,
-            summary: episode.summary,
-            startTurn: episode.startTurn,
-            endTurn: episode.endTurn,
-            keyChanges: episode.keyChanges || [],
-            unresolved: episode.unresolved || [],
-            recallReason: episode.recallReason,
-            recallScore: episode.recallScore,
-        })),
-        turnSummaries: selectedTurns.map((summary) => ({
-            id: summary.id,
-            turn: summary.turn,
-            summary: summary.summary,
-            episodeId: summary.episodeId || '',
-            userOrder: summary.userOrder,
-            assistantOrder: summary.assistantOrder,
-            characterState: summary.characterState || '',
-            relationshipChange: summary.relationshipChange || '',
-            locationTimeItems: summary.locationTimeItems || '',
-            hooks: summary.hooks || [],
-            tags: summary.tags || [],
-            recallReason: summary.recallReason,
-            recallScore: summary.recallScore,
         })),
     };
 }
@@ -648,16 +536,25 @@ export async function retrieveXbTavernMemoryContext(input: {
     if (!sessionId) {return {};}
     const includeMemoryFiles = input.includeMemoryFiles !== false;
     const includeStructuredStates = input.includeStructuredStates !== false;
-    const [memoryFiles, structuredStates] = await Promise.all([
-        includeMemoryFiles ? listTavernMemoryFiles(sessionId) : Promise.resolve([]),
+    const [memoryIndex, structuredStates] = await Promise.all([
+        includeMemoryFiles ? getTavernMemoryIndex(sessionId) : Promise.resolve(null),
         includeStructuredStates ? listTavernStructuredStateDigests(sessionId) : Promise.resolve([]),
     ]);
-    if (!memoryFiles.some(isRecallMemoryFile) && !structuredStates.length) {return {};}
-    if (memoryFiles.some(isRecallMemoryFile)) {
+    const readyMemoryIndex = includeMemoryFiles && memoryIndex?.status === 'ready' && Array.isArray(memoryIndex.files)
+        ? memoryIndex
+        : includeMemoryFiles && memoryIndex?.status === 'stale' && memoryIndex.error && Array.isArray(memoryIndex.files)
+            ? memoryIndex
+            : includeMemoryFiles
+                ? await rebuildTavernMemoryDerivedIndex(sessionId)
+                : null;
+    const memoryFiles = Array.isArray(readyMemoryIndex?.files) ? readyMemoryIndex.files : [];
+    const hasRecallMemory = memoryFiles.some(isRecallMemoryFile);
+    if (!hasRecallMemory && !structuredStates.length) {return {};}
+    if (hasRecallMemory) {
         await ensureXbTavernMemoryTokenizerReady();
     }
     return {
-        ...(memoryFiles.some(isRecallMemoryFile) ? selectXbTavernMemoryContext({
+        ...(hasRecallMemory ? selectXbTavernMemoryContext({
             memoryFiles,
             queryText: input.queryText,
             ignoredTerms: input.ignoredTerms,

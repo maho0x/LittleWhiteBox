@@ -101,21 +101,10 @@ test('xb tavern brain injects memory between history and current user message', 
         preset,
         currentUserMessage: 'Continue.',
         memoryContext: {
-            episodeSummaries: [{
-                id: 'episode-1',
-                title: '初遇',
-                summary: '双方完成试探。',
-                startTurn: 1,
-                endTurn: 3,
-                keyChanges: ['信任增加'],
-            }],
-            turnSummaries: [{
-                id: 'turn-3',
-                turn: 3,
-                userOrder: 4,
-                assistantOrder: 5,
-                summary: 'Aster 接受了邀请。',
-                tags: ['邀请'],
+            memoryFiles: [{
+                path: 'memory/session.md',
+                title: '剧情脉络',
+                content: '双方已经完成试探，信任正在增加。',
             }],
         },
     });
@@ -129,5 +118,5 @@ test('xb tavern brain injects memory between history and current user message', 
     assert.ok(memoryLayer.index > historyLayer.index);
     assert.ok(memoryLayer.index < currentUserLayer.index);
     assert.match(brain.buildResult.messages[memoryLayer.index]?.content || '', /<session_memory>/);
-    assert.match(brain.rawMessagesJson, /Aster 接受了邀请/);
+    assert.match(brain.rawMessagesJson, /信任正在增加/);
 });

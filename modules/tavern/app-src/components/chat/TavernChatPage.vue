@@ -153,6 +153,7 @@ const {
     scrollChatToTop,
     scrollManagerToBottom,
     scrollManagerToTop,
+    selectedMemoryFileEntry,
     selectedMemoryFile,
     selectedSessionId,
     shortText,
@@ -162,6 +163,7 @@ const {
     showManagerScrollTop,
     startEditMessage,
     startEditManagerMessage,
+    stateMemoryFile,
     thoughtBlocks,
     thoughtSummaryLabel,
     toolTraceSummary,
@@ -182,9 +184,7 @@ const contractSaving = ref(false);
 const contractError = ref('');
 const contractDraft = ref<TavernSessionContract>(normalizeTavernSessionContract(sessionContract.value));
 
-const currentStateFile = computed(() => (
-    (memoryFiles.value || []).find((file: { path?: string }) => file.path === 'memory/state.md') || null
-));
+const currentStateFile = computed(() => stateMemoryFile.value || null);
 const currentStateContent = computed(() => String(currentStateFile.value?.content || '').trim());
 const currentStatePreviewHtml = computed(() => renderChatMarkdown(currentStateContent.value));
 const contractDraftDirty = computed(() => JSON.stringify(contractDraft.value) !== JSON.stringify(sessionContract.value));
@@ -1266,9 +1266,9 @@ onUpdated(() => {
         :preview-html="renderChatMarkdown(memoryEditorDraft)"
         :preview-signature="markdownSignature(memoryEditorDraft)"
         :status="memoryEditorStatus"
-        :has-selected-file="!!selectedMemoryFile"
+        :has-selected-file="!!selectedMemoryFileEntry"
         :loaded-path="memoryEditorLoadedPath"
-        :file-meta="selectedMemoryFile ? formatMemoryFileMeta(selectedMemoryFile) : ''"
+        :file-meta="selectedMemoryFileEntry ? formatMemoryFileMeta(selectedMemoryFileEntry) : ''"
         @enter-edit="enterMemoryEditMode"
         @preview="previewMemoryDraft"
         @discard="discardMemoryDraft"

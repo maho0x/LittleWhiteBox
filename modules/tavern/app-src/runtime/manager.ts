@@ -30,11 +30,9 @@ import {
     rollbackManagerStateRunsForMessageRange,
     touchRunningTavernManagerRun,
     updateTavernManagerRun,
-    type TavernEpisodeSummaryRecord,
     type TavernManagerMessageRecord,
     type TavernManagerRunRecord,
     type TavernMessageRecord,
-    type TavernTurnSummaryRecord,
 } from '../../shared/session-db';
 import { executeTavernStateTool, TAVERN_STATE_TOOL_NAMES, type TavernStateToolResult } from '../../shared/structured-state';
 import { resolveTavernSessionContractRuntime, type TavernSessionContract, type TavernSessionContractRuntime } from '../../shared/session-contract';
@@ -100,8 +98,6 @@ export interface XbTavernManagerRunInput {
     trigger?: string;
     managerRunId?: string;
     sessionContract?: TavernSessionContract;
-    recentTurnSummaries?: TavernTurnSummaryRecord[];
-    recentEpisodeSummaries?: TavernEpisodeSummaryRecord[];
     assistantPreset?: TavernAssistantPreset;
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
@@ -111,8 +107,6 @@ export interface XbTavernManagerRunInput {
 export interface XbTavernManagerRunResult {
     ok: boolean;
     managerRun: TavernManagerRunRecord;
-    turnSummary?: TavernTurnSummaryRecord;
-    episodeSummary?: TavernEpisodeSummaryRecord;
     changedFiles?: string[];
     changedStates?: string[];
     error?: string;
@@ -223,25 +217,14 @@ function resolveSessionContractRuntime(contract?: Partial<TavernSessionContract>
     return resolveTavernSessionContractRuntime(contract);
 }
 
-function selectActiveEpisodeBlock(memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>): string {
-    const activeEpisode = memoryFiles
-        .filter((file) => file.status !== 'stale' && file.path.startsWith('memory/episodes/'))
-        .sort((left, right) => right.updatedAt - left.updatedAt)[0];
-    if (!activeEpisode) {return '';}
-    return ['[active_episode]', activeEpisode.path, activeEpisode.content].join('\n');
-}
-
 function buildResidentMemoryBlock(memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>): string {
     const sessionFile = memoryFiles.find((file) => file.path === 'memory/session.md');
     const stateFile = memoryFiles.find((file) => file.path === 'memory/state.md');
-    const inboxFile = memoryFiles.find((file) => file.path === 'memory/inbox.md');
     const blocks = [
         sessionFile ? ['[memory/session.md]', sessionFile.content].join('\n') : '',
         stateFile ? ['[memory/state.md]', stateFile.content].join('\n') : '',
-        selectActiveEpisodeBlock(memoryFiles),
-        inboxFile ? ['[memory/inbox.md]', inboxFile.content].join('\n') : '',
     ].filter(Boolean);
-    return ['[常驻记忆档案]', ...blocks].join('\n\n');
+    return ['[Resident Memory Files]', ...blocks].join('\n\n');
 }
 
 function buildAutoManagerUserPrompt(input: {
@@ -267,10 +250,10 @@ function buildAutoManagerUserPrompt(input: {
         step += 1;
     }
     if (allowMemory && allowMap) {
-        requirements.push(`${step}. Sync session/state/episode/inbox only when needed. The map does not replace this turn's written memory.`);
+        requirements.push(`${step}. Keep turn notes lightweight, and sync \`memory/session.md\` / \`memory/state.md\` only when this turn changed durable continuity or durable state. The map does not replace written memory.`);
         step += 1;
     } else if (allowMemory) {
-        requirements.push(`${step}. Sync session/state/episode/inbox only when needed.`);
+        requirements.push(`${step}. Keep turn notes lightweight, and sync \`memory/session.md\` / \`memory/state.md\` only when this turn changed durable continuity or durable state.`);
         step += 1;
     } else if (allowMap) {
         requirements.push(`${step}. This contract authorizes only the map system. Do not write memory Markdown.`);

@@ -424,8 +424,6 @@ function filterMemoryContextByRuntime(
     }
     const filtered: XbTavernMemoryContext = {};
     if (runtime.includeMemoryFiles) {
-        if (Array.isArray(memoryContext.episodeSummaries)) {filtered.episodeSummaries = memoryContext.episodeSummaries;}
-        if (Array.isArray(memoryContext.turnSummaries)) {filtered.turnSummaries = memoryContext.turnSummaries;}
         if (Array.isArray(memoryContext.memoryFiles)) {filtered.memoryFiles = memoryContext.memoryFiles;}
     }
     if (runtime.includeStructuredStates && Array.isArray(memoryContext.structuredStates)) {
