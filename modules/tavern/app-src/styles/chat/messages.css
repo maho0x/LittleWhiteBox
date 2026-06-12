@@ -55,6 +55,7 @@
         var(--xb-chat-scroll-bg);
     padding: var(--xb-chat-scroll-padding);
     scroll-padding: 44px 0 38px;
+    scrollbar-color: transparent transparent;
 }
 
 .xb-os-shell.theme-dark .tavern-chat.xb-page .chat-scroll {
@@ -65,6 +66,26 @@
             rgba(184, 178, 166, 0.016) 39px,
             rgba(184, 178, 166, 0.016) 40px),
         var(--xb-chat-scroll-bg);
+}
+
+.tavern-chat.xb-page .chat-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+}
+
+.tavern-chat.xb-page .chat-scroll.is-scrolling {
+    scrollbar-color: rgba(120, 112, 98, 0.34) transparent;
+}
+
+.tavern-chat.xb-page .chat-scroll.is-scrolling::-webkit-scrollbar-thumb {
+    background: rgba(120, 112, 98, 0.34);
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .chat-scroll.is-scrolling {
+    scrollbar-color: rgba(184, 178, 166, 0.26) transparent;
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .chat-scroll.is-scrolling::-webkit-scrollbar-thumb {
+    background: rgba(184, 178, 166, 0.26);
 }
 
 .tavern-chat.xb-page .chat-runtime-event.scene-narration {

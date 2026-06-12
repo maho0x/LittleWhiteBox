@@ -19,10 +19,8 @@ const {
     MEMORY_TURN_BATCH_SIZE,
     memoryDirectoryGroups,
     memoryFileDisplayName,
-    memoryFileKindLabel,
     memoryFiles,
     memoryFileSearchText,
-    memoryFileStatusLabel,
     normalizeTavernSessionState,
     rememberBrokenAvatar,
     removeSession,
@@ -201,7 +199,7 @@ const {
         >
           <div class="memory-file-group-title">
             <span>{{ group.title }}</span>
-            <em>{{ group.files.length }} / {{ group.filteredCount }} / {{ group.totalCount }}</em>
+            <em>{{ group.totalCount }}</em>
           </div>
           <div class="memory-file-tree">
             <button
@@ -213,7 +211,6 @@ const {
               @click="selectMemoryFile(file.path)"
             >
               <span class="memory-file-main">{{ memoryFileDisplayName(file) }}</span>
-              <small>{{ memoryFileKindLabel(file) }} · {{ memoryFileStatusLabel(file.status) }}</small>
             </button>
             <button
               v-if="group.hiddenCount"
@@ -222,7 +219,6 @@ const {
               @click="expandMemoryFileGroup(group.key)"
             >
               <span class="memory-file-main">再显示 {{ Math.min(group.hiddenCount, group.key === 'turns' ? MEMORY_TURN_BATCH_SIZE : MEMORY_FILE_BATCH_SIZE) }} 个</span>
-              <small>{{ group.title }} 还有 {{ group.hiddenCount }} 个未显示</small>
             </button>
           </div>
         </div>

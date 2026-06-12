@@ -44,7 +44,6 @@ const {
     chatComposeTextareaRef,
     chatScrollControlsActive,
     chatScrollRef,
-    chatSubtitle,
     chatWorkspacePanel,
     copyMessage,
     copyManagerMessage,
@@ -110,7 +109,6 @@ const {
     managerScrollRef,
     managerRunTone,
     managerStatusLabel,
-    managerStatusLine,
     managerToolStatusLabel,
     managerToolTone,
     managerToolTraceItems,
@@ -296,7 +294,7 @@ watch(() => selectedSessionId.value, () => {
 
 onBeforeUpdate(() => {
     pendingChatScrollSnapshot = captureElementScrollState(chatScrollRef.value, {
-        itemSelector: '[data-chat-anchor-key]',
+        itemSelector: '.chat-bubble[data-chat-anchor-key], .chat-history-gate[data-chat-anchor-key]',
         datasetKey: 'chatAnchorKey',
     });
     pendingManagerScrollSnapshot = captureElementScrollState(managerScrollRef.value, {
@@ -309,7 +307,7 @@ onUpdated(() => {
     const shouldAutoScrollChat = activeView.value === 'chat' && chatFocus.value === 'chat' && chatAutoScroll.value !== false;
     const shouldAutoScrollManager = activeView.value === 'chat' && chatFocus.value === 'manager' && managerAutoScroll.value !== false;
     restoreElementScrollState(chatScrollRef.value, pendingChatScrollSnapshot, {
-        itemSelector: '[data-chat-anchor-key]',
+        itemSelector: '.chat-bubble[data-chat-anchor-key], .chat-history-gate[data-chat-anchor-key]',
         datasetKey: 'chatAnchorKey',
     }, {
         forceBottom: shouldAutoScrollChat,
@@ -367,10 +365,6 @@ onUpdated(() => {
             >
           </div>
           <header class="chat-head">
-            <div>
-              <h2>角色聊天</h2>
-              <p>{{ chatSubtitle }}</p>
-            </div>
             <div class="chat-head-actions">
               <button
                 type="button"
@@ -669,13 +663,17 @@ onUpdated(() => {
               >
                 写一句话，开始。
               </p>
+              <div
+                class="chat-compose-spacer"
+                aria-hidden="true"
+              />
             </div>
             <TavernScrollControls
               :active="chatScrollControlsActive"
               :show-top="showChatScrollTop"
               :show-bottom="showChatScrollBottom"
               @top="scrollChatToTop"
-              @bottom="scrollChatToBottom(true, { collapseWindow: true })"
+              @bottom="scrollChatToBottom(true, { collapseWindow: true, revealHelpers: true })"
             />
           </div>
           <form
@@ -691,7 +689,7 @@ onUpdated(() => {
             <textarea
               :ref="setChatComposeTextareaRef"
               v-model="currentUserMessage"
-              rows="3"
+              rows="2"
               placeholder="对角色说一句话..."
               :disabled="isRunning"
               @input="handleComposeInput"
@@ -701,8 +699,17 @@ onUpdated(() => {
               type="submit"
               class="primary-action"
               :disabled="!canSendMessage"
+              :aria-label="isCancellingRun ? '正在停止' : isRunning ? '停止' : '发送'"
             >
-              {{ isCancellingRun ? '正在停止' : isRunning ? '停止' : '发送' }}
+              <span
+                class="compose-send-icon"
+                aria-hidden="true"
+              >
+                {{ isCancellingRun ? '...' : isRunning ? '■' : '➤' }}
+              </span>
+              <span class="compose-send-label">
+                {{ isCancellingRun ? '正在停止' : isRunning ? '停止' : '发送' }}
+              </span>
             </button>
           </form>
         </section>
@@ -712,13 +719,6 @@ onUpdated(() => {
           :aria-hidden="chatFocus === 'chat'"
         >
           <header class="manager-head">
-            <div>
-              <p class="eyebrow">
-                Assistant
-              </p>
-              <h2>助手聊天</h2>
-              <p>{{ managerStatusLine }}</p>
-            </div>
             <div class="manager-head-actions">
               <button
                 type="button"
@@ -1176,7 +1176,7 @@ onUpdated(() => {
               :show-top="showManagerScrollTop"
               :show-bottom="showManagerScrollBottom"
               @top="scrollManagerToTop"
-              @bottom="scrollManagerToBottom(true, { collapseWindow: true })"
+              @bottom="scrollManagerToBottom(true, { collapseWindow: true, revealHelpers: true })"
             />
           </div>
 

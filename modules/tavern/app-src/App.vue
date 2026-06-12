@@ -2808,6 +2808,7 @@ function resetManagerMessageWindowState() {
 
 function revealOlderChatMessages(force = false) {
     const node = chatScrollRef.value;
+    if (!force && chatAutoScroll.value !== false) {return false;}
     if (!node || (!force && node.scrollTop > 64)) {return false;}
     const state = { uiMessageWindowLimit: chatMessageWindowLimit.value };
     if (!expandMessageWindow(state, chatMessages.value.length)) {return false;}
@@ -2818,6 +2819,7 @@ function revealOlderChatMessages(force = false) {
 
 function revealOlderManagerMessages(force = false) {
     const node = managerScrollRef.value;
+    if (!force && managerAutoScroll.value !== false) {return false;}
     if (!node || (!force && node.scrollTop > 64)) {return false;}
     const state = { uiMessageWindowLimit: managerMessageWindowLimit.value };
     if (!expandMessageWindow(state, managerChatDisplayItems.value.length)) {return false;}
@@ -2889,6 +2891,7 @@ async function createSessionAndOpenChat(options: { contextSnapshot?: XbTavernCon
     await createSessionFromContext(options);
     activeView.value = 'chat';
     chatFocus.value = 'chat';
+    scrollChatToBottom(true);
 }
 
 async function handleHomePrimaryAction() {
@@ -2961,6 +2964,7 @@ async function selectSession(sessionId: string) {
     void syncSessionCharacterContext({ sessionId, force: true });
     activeView.value = 'chat';
     chatFocus.value = 'chat';
+    scrollChatToBottom(true);
 }
 
 async function removeSession(sessionId: string, event?: Event) {
@@ -2987,11 +2991,13 @@ async function removeSession(sessionId: string, event?: Event) {
     }
     activeView.value = 'chat';
     chatFocus.value = 'chat';
+    scrollChatToBottom(true);
 }
 
 function openChatView() {
     activeView.value = 'chat';
     chatFocus.value = 'chat';
+    scrollChatToBottom(true);
 }
 
 function openPromptInspector(tab: 'history' | 'simulate' = 'history') {
@@ -4083,6 +4089,10 @@ function startEditManagerMessage(message: TavernManagerMessageRecord) {
 function cancelEditMessage() {
     editingMessageKey.value = '';
     editingMessageDraft.value = '';
+    void nextTick(() => {
+        enhanceChatMarkdown();
+        enhanceManagerMarkdown();
+    });
 }
 
 function autoSizeTextarea(
@@ -4130,7 +4140,11 @@ function handleEditInput(event: Event) {
 }
 
 function handleComposeInput(event: Event) {
-    autoSizeTextarea(event.target as HTMLTextAreaElement, { minHeight: 48, maxHeight: 180 });
+    const textarea = event.target as HTMLTextAreaElement;
+    const isManagerCompose = !!textarea.closest('.manager-compose');
+    autoSizeTextarea(textarea, isManagerCompose
+        ? { minHeight: 48, maxHeight: 180 }
+        : { minHeight: 36, maxHeight: 99 });
 }
 
 async function saveEditMessage(message: TavernMessageRecord, options: { rerun?: boolean } = {}) {
@@ -4384,22 +4398,26 @@ function updateManagerScrollButtons() {
 
 function scheduleHideChatScrollHelpers() {
     chatScrollControlsActive.value = true;
+    chatScrollRef.value?.classList.add('is-scrolling');
     if (chatScrollHideTimer) {
         window.clearTimeout(chatScrollHideTimer);
     }
     chatScrollHideTimer = window.setTimeout(() => {
         chatScrollControlsActive.value = false;
+        chatScrollRef.value?.classList.remove('is-scrolling');
         chatScrollHideTimer = null;
     }, 1500);
 }
 
 function scheduleHideManagerScrollHelpers() {
     managerScrollControlsActive.value = true;
+    managerScrollRef.value?.classList.add('is-scrolling');
     if (managerScrollHideTimer) {
         window.clearTimeout(managerScrollHideTimer);
     }
     managerScrollHideTimer = window.setTimeout(() => {
         managerScrollControlsActive.value = false;
+        managerScrollRef.value?.classList.remove('is-scrolling');
         managerScrollHideTimer = null;
     }, 1500);
 }
@@ -4430,7 +4448,7 @@ function collapseManagerMessageWindowIfBottom(force = false) {
     return true;
 }
 
-function scrollChatToBottom(force = false, options: { collapseWindow?: boolean } = {}) {
+function scrollChatToBottom(force = false, options: { collapseWindow?: boolean; revealHelpers?: boolean } = {}) {
     if (!force && !chatAutoScroll.value) {return;}
     if (force) {chatAutoScroll.value = true;}
     if (options.collapseWindow || chatAutoScroll.value) {
@@ -4448,7 +4466,9 @@ function scrollChatToBottom(force = false, options: { collapseWindow?: boolean }
             requestAnimationFrame(() => {
                 apply();
                 updateChatScrollButtons();
-                scheduleHideChatScrollHelpers();
+                if (options.revealHelpers) {
+                    scheduleHideChatScrollHelpers();
+                }
             });
         });
     });
@@ -4465,7 +4485,7 @@ function scrollChatToTop() {
     scheduleHideChatScrollHelpers();
 }
 
-function scrollManagerToBottom(force = false, options: { collapseWindow?: boolean } = {}) {
+function scrollManagerToBottom(force = false, options: { collapseWindow?: boolean; revealHelpers?: boolean } = {}) {
     if (!force && !managerAutoScroll.value) {return;}
     if (force) {managerAutoScroll.value = true;}
     if (options.collapseWindow || managerAutoScroll.value) {
@@ -4483,7 +4503,9 @@ function scrollManagerToBottom(force = false, options: { collapseWindow?: boolea
             requestAnimationFrame(() => {
                 apply();
                 updateManagerScrollButtons();
-                scheduleHideManagerScrollHelpers();
+                if (options.revealHelpers) {
+                    scheduleHideManagerScrollHelpers();
+                }
             });
         });
     });
@@ -5177,6 +5199,12 @@ watch([
     }
 });
 
+watch([() => activeView.value, () => chatFocus.value], () => {
+    if (activeView.value === 'chat' && chatFocus.value === 'chat') {
+        scrollChatToBottom(true);
+    }
+});
+
 watch(() => selectedSessionId.value, () => {
     resetChatMessageWindowState();
     resetManagerMessageWindowState();
@@ -5188,6 +5216,10 @@ watch(() => selectedSessionId.value, () => {
     memoryFileGroupVisibleLimits.value = {};
     chatSessionSearchText.value = '';
     chatSidebarSessionLimit.value = CHAT_SIDEBAR_INITIAL_LIMIT;
+    void nextTick(() => {
+        scrollChatToBottom(true);
+        scrollManagerToBottom(true);
+    });
 });
 
 watch([() => activeMemoryFiles.value.length, () => filteredChatSidebarSessionCount.value], ([memoryCount, sessionCount]) => {
@@ -5581,6 +5613,9 @@ onMounted(async () => {
     if (selectedSessionId.value) {
         void syncSessionCharacterContext({ sessionId: selectedSessionId.value, force: true });
     }
+    if (activeView.value === 'chat' && chatFocus.value === 'chat') {
+        scrollChatToBottom(true);
+    }
 });
 
 onUnmounted(() => {
@@ -5601,10 +5636,12 @@ onUnmounted(() => {
         window.clearTimeout(chatScrollHideTimer);
         chatScrollHideTimer = null;
     }
+    chatScrollRef.value?.classList.remove('is-scrolling');
     if (managerScrollHideTimer) {
         window.clearTimeout(managerScrollHideTimer);
         managerScrollHideTimer = null;
     }
+    managerScrollRef.value?.classList.remove('is-scrolling');
     if (composeErrorHideTimer) {
         window.clearTimeout(composeErrorHideTimer);
         composeErrorHideTimer = null;

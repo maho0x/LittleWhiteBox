@@ -1,26 +1,51 @@
 /* Tavern chat: bottom script input dock. */
 
+.tavern-chat.xb-page .chat-main {
+    --xb-compose-safe-space: 52px;
+    --xb-compose-breathing-space: 0px;
+}
+
 .tavern-chat.xb-page .chat-compose {
     position: relative;
     z-index: 2;
     flex: 0 0 auto;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 82px;
-    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) 50px;
+    align-items: center;
+    gap: 0;
     border-top: 0;
-    background: var(--xb-chat-compose-bg);
-    padding: 22px min(6vw, 64px) 24px;
+    background: transparent;
+    padding: 11px 12px 13px;
+}
+
+.tavern-chat.xb-page .chat-main > .chat-compose {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+.tavern-chat.xb-page .chat-main > .chat-scroll-shell .chat-scroll {
+    scroll-padding-bottom: calc(var(--xb-compose-safe-space) + var(--xb-compose-breathing-space));
+}
+
+.tavern-chat.xb-page .chat-compose-spacer {
+    flex: 0 0 calc(var(--xb-compose-safe-space) + var(--xb-compose-breathing-space));
+    width: 100%;
+    pointer-events: none;
 }
 
 .tavern-chat.xb-page .chat-compose::before {
     content: "";
     position: absolute;
-    inset: 14px min(6vw, 64px) 18px;
+    inset: 7px 12px 8px;
     z-index: -1;
     border: 1px solid var(--xb-rule);
-    border-radius: 9px;
+    border-radius: 12px;
     background: var(--xb-chat-pop-bg);
-    box-shadow: 0 12px 34px rgba(26, 26, 26, 0.055);
+    box-shadow:
+        1px 1px 0 rgba(26, 26, 26, 0.026),
+        0 8px 22px rgba(26, 26, 26, 0.046);
 }
 
 .xb-os-shell.theme-dark .tavern-chat.xb-page .chat-compose::before {
@@ -28,15 +53,15 @@
 }
 
 .chat-compose textarea {
-    min-height: 70px;
-    max-height: 190px;
+    min-height: 36px;
+    max-height: 99px;
     resize: vertical;
     border: 0;
     border-radius: 0;
     background: transparent;
     color: var(--xb-ink);
-    padding: 16px 6px 16px 18px;
-    font: 17px/1.68 var(--xb-font-serif);
+    padding: 8px 10px 8px 16px;
+    font: 17px/1.48 var(--xb-font-serif);
 }
 
 .chat-compose textarea::placeholder {
@@ -63,16 +88,24 @@
 }
 
 .chat-compose button {
-    align-self: stretch;
+    position: relative;
+    align-self: center;
+    justify-self: stretch;
+    display: inline-grid;
+    place-items: center;
     min-width: 0;
-    min-height: 70px;
+    min-height: 36px;
     border: 0;
     border-left: 1px solid var(--xb-rule);
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 12px 12px 0;
     background: transparent;
     color: var(--xb-stamp);
-    padding: 0 14px;
+    padding: 0;
     font: 760 14px/1 var(--xb-font-ui);
+    transition:
+        background-color 0.18s ease,
+        color 0.18s ease,
+        transform 0.18s ease;
 }
 
 .chat-compose button.primary-action,
@@ -89,8 +122,31 @@
     color: var(--xb-stamp);
 }
 
+.chat-compose button:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
 .chat-compose button:disabled {
     color: var(--xb-ink-faint);
+}
+
+.chat-compose .compose-send-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    font-size: 17px;
+    line-height: 1;
+}
+
+.chat-compose .compose-send-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
 }
 
 .chat-compose .compose-error {
@@ -106,30 +162,41 @@
 }
 
 @media (max-width: 980px) {
+    .tavern-chat.xb-page .chat-main {
+        --xb-compose-safe-space: 45px;
+        --xb-compose-breathing-space: 0px;
+    }
+
+    .tavern-chat.xb-page .chat-main > .chat-scroll-shell .chat-scroll {
+        scroll-padding-bottom: calc(var(--xb-compose-safe-space) + var(--xb-compose-breathing-space));
+    }
+
     .tavern-chat.xb-page .chat-compose {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) 46px;
         gap: 0;
-        padding: 16px 18px 18px;
+        padding: 9px 8px 11px;
     }
 
     .tavern-chat.xb-page .chat-compose::before {
-        inset: 10px 14px 12px;
+        inset: 6px 8px 7px;
     }
 
     .chat-compose textarea {
-        min-height: 62px;
-        padding: 14px 16px 8px;
+        min-height: 34px;
+        max-height: 88px;
+        padding: 7px 8px 7px 15px;
     }
 
     .chat-compose button {
-        justify-self: end;
+        justify-self: stretch;
         align-self: center;
         width: auto;
-        min-width: 74px;
-        min-height: 38px;
-        margin: 0 8px 8px 0;
-        border: 1px solid var(--xb-rule);
-        border-radius: 999px;
-        padding: 0 16px;
+        min-width: 0;
+        min-height: 34px;
+        margin: 0;
+        border: 0;
+        border-left: 1px solid var(--xb-rule);
+        border-radius: 0 12px 12px 0;
+        padding: 0;
     }
 }

@@ -77,6 +77,19 @@
     overflow: auto;
     background: var(--xb-manager-bg);
     padding: var(--xb-manager-scroll-padding);
+    scrollbar-color: transparent transparent;
+}
+
+.tavern-chat.xb-page .manager-chat-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+}
+
+.tavern-chat.xb-page .manager-chat-scroll.is-scrolling {
+    scrollbar-color: rgba(143, 183, 202, 0.30) transparent;
+}
+
+.tavern-chat.xb-page .manager-chat-scroll.is-scrolling::-webkit-scrollbar-thumb {
+    background: rgba(143, 183, 202, 0.30);
 }
 
 .tavern-chat.xb-page .manager-compaction-overlay {
@@ -153,20 +166,19 @@
 
 .tavern-chat.xb-page .chat-head,
 .tavern-chat.xb-page .manager-head {
-    min-height: 70px;
+    min-height: 46px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    border-bottom: 1px solid var(--xb-rule);
+    justify-content: flex-end;
+    gap: 8px;
+    border-bottom: 0;
     background: var(--xb-chat-head-bg);
-    padding: 18px 34px 12px;
+    padding: 10px 34px 0;
 }
 
 .tavern-chat.xb-page .manager-head {
     flex: 0 0 auto;
-    padding: 18px 34px 12px;
-    border-bottom-color: var(--xb-manager-line);
+    padding: 10px 34px 0;
     background: var(--xb-chat-head-bg);
 }
 
@@ -209,14 +221,18 @@
 .tavern-chat.xb-page .manager-compose {
     --xb-chat-compose-bg: var(--xb-manager-bg);
     --xb-chat-pop-bg: var(--xb-manager-panel);
+    grid-template-columns: minmax(0, 1fr) 82px;
 }
 
 .tavern-chat.xb-page .manager-compose textarea {
+    max-height: 180px;
     color: var(--xb-manager-text);
     font-family: var(--xb-font-mono);
 }
 
 .tavern-chat.xb-page .manager-compose button.primary-action {
+    min-height: 58px;
+    padding: 0 14px;
     color: var(--xb-manager-accent);
 }
 
@@ -803,12 +819,12 @@
 
     .tavern-chat.xb-page .chat-head,
     .tavern-chat.xb-page .manager-head {
-        min-height: 58px;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+        min-height: 42px;
+        display: flex;
+        justify-content: flex-end;
         align-items: center;
         gap: 8px;
-        padding: 12px 14px 10px;
+        padding: 8px 14px 0;
     }
 }
 
