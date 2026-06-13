@@ -270,16 +270,45 @@
 }
 
 @media (max-width: 760px) {
+    .character-preview-panel {
+        gap: 20px;
+        padding: 18px 16px calc(22px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .sys-mono {
+        display: none;
+    }
+
     .dossier-title-row {
         align-items: stretch;
         flex-direction: column;
-        gap: 14px;
+        gap: 10px;
+    }
+
+    .dossier-title-row h3 {
+        font-size: 28px;
+    }
+
+    .dossier-summary {
+        margin-top: 10px;
+        padding: 12px;
+        font-size: 13px;
     }
 
     .os-system-act-btn {
         width: 100%;
+        min-height: 38px;
         padding-left: 18px;
         padding-right: 18px;
+    }
+
+    .data-group {
+        gap: 16px;
+    }
+
+    .data-block {
+        max-height: 150px;
+        padding: 14px;
     }
 
     .greeting-choice {

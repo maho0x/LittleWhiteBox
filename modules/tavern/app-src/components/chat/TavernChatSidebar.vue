@@ -36,6 +36,12 @@ const {
 
 <template>
   <aside class="chat-side xb-sidebar">
+    <button
+      type="button"
+      class="chat-mobile-sheet-handle"
+      title="收起目录"
+      aria-label="收起目录"
+    />
     <section class="chat-profile xb-brand">
       <div class="avatar-orb">
         <img

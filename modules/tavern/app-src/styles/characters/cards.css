@@ -170,3 +170,38 @@
     border-color: var(--xb-ink);
     color: var(--xb-ink);
 }
+
+@media (max-width: 640px) {
+    .character-card-grid {
+        padding: 4px 8px 8px;
+    }
+
+    .character-card-option {
+        min-height: 56px;
+        gap: 10px;
+        padding: 8px 10px;
+        contain-intrinsic-size: 56px;
+    }
+
+    .character-card-avatar {
+        flex-basis: 34px;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+    }
+
+    .character-card-title {
+        font-size: 14px;
+    }
+
+    .character-card-desc,
+    .card-status-tags {
+        display: none;
+    }
+
+    .character-index-panel .archive-load-more {
+        min-height: 34px;
+        margin: 4px 8px 8px;
+        padding: 8px 10px;
+    }
+}

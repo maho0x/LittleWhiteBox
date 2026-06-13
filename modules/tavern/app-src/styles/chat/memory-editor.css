@@ -210,6 +210,27 @@
     box-shadow: none;
 }
 
+.tavern-chat.xb-page .tavern-memory-workspace {
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.tavern-chat.xb-page .tavern-memory-directory {
+    display: none;
+}
+
+.tavern-chat.xb-page .tavern-mobile-memory-picker {
+    display: none;
+}
+
+.tavern-chat.xb-page .tavern-memory-workspace .tavern-memory-editor {
+    flex: 1 1 auto;
+}
+
 .tavern-chat.xb-page .tavern-editor-head,
 .tavern-chat.xb-page .tavern-editor-foot {
     border-color: var(--xb-rule);
@@ -335,5 +356,229 @@
     .tavern-chat.xb-page .tavern-editor-foot {
         min-height: 30px;
         padding: 7px 14px 10px;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page.chat-layout-chat .tavern-workspace-panel,
+    .tavern-chat.xb-page.chat-layout-editor .tavern-workspace-panel,
+    .tavern-chat.xb-page.chat-layout-balanced .tavern-workspace-panel,
+    .tavern-chat.xb-page .tavern-workspace-panel {
+        position: absolute;
+        inset: 0;
+        z-index: 86;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        display: flex;
+        overflow: hidden;
+        border: 0;
+        border-radius: 0;
+        background: rgba(244, 243, 238, 0.98);
+        box-shadow: none;
+        transform: translateY(104%);
+        transition: transform 0.42s var(--xb-fluid);
+    }
+
+    .xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-workspace-panel {
+        background: rgba(18, 17, 15, 0.98);
+        box-shadow: none;
+    }
+
+    .tavern-chat.xb-page.is-mobile-workspace-open .tavern-workspace-panel {
+        transform: translateY(0);
+    }
+
+    .tavern-chat.xb-page.chat-layout-editor .chat-workbench {
+        display: block;
+    }
+
+    .tavern-chat.xb-page .tavern-workspace-panel > .chat-mobile-sheet-handle {
+        margin: calc(10px + env(safe-area-inset-top, 0px)) auto 4px;
+    }
+
+    .tavern-chat.xb-page .tavern-workspace-tabs {
+        flex: 0 0 auto;
+        min-height: 40px;
+        justify-content: center;
+        padding: 6px 16px 0;
+    }
+
+    .tavern-chat.xb-page .tavern-state-panel .tavern-map-panel {
+        min-height: min(44vh, 360px);
+    }
+
+    .tavern-chat.xb-page .tavern-current-state {
+        min-height: 220px;
+        flex: 1 1 auto;
+    }
+
+    .tavern-chat.xb-page .tavern-editor-head {
+        min-height: 48px;
+        padding: 8px 14px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-workspace {
+        position: relative;
+        background: var(--xb-chat-panel-bg);
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory {
+        position: absolute;
+        top: 46px;
+        right: 12px;
+        left: 12px;
+        z-index: 8;
+        max-height: min(58vh, 430px);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        overflow: auto;
+        border: 1px solid var(--xb-rule);
+        border-radius: 14px;
+        background:
+            linear-gradient(180deg, rgba(var(--xb-accent-rgb), 0.026), transparent 86px),
+            var(--xb-chat-panel-bg);
+        box-shadow: 0 18px 42px rgba(26, 26, 26, 0.16);
+        padding: 12px 14px 14px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-8px) scale(0.985);
+        transition: opacity 0.18s ease, transform 0.22s var(--xb-fluid);
+    }
+
+    .xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-memory-directory {
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+    }
+
+    .tavern-chat.xb-page .tavern-memory-workspace.is-memory-directory-open .tavern-memory-directory {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0) scale(1);
+    }
+
+    .tavern-chat.xb-page .tavern-mobile-memory-picker {
+        width: calc(100% - 28px);
+        min-height: 34px;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin: 8px 14px 7px;
+        border: 1px solid var(--xb-rule);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.24);
+        color: var(--xb-ink-soft);
+        padding: 0 14px;
+        font: 700 12px/1 var(--xb-font-ui);
+    }
+
+    .xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-mobile-memory-picker {
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .tavern-chat.xb-page .tavern-mobile-memory-picker span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .tavern-chat.xb-page .tavern-mobile-memory-picker em {
+        color: var(--xb-ink-faint);
+        font-style: normal;
+        transition: transform 0.2s ease;
+    }
+
+    .tavern-chat.xb-page .tavern-mobile-memory-picker.is-open em {
+        transform: rotate(180deg);
+    }
+
+    .tavern-chat.xb-page .tavern-mobile-memory-picker:hover:not(:disabled),
+    .tavern-chat.xb-page .tavern-mobile-memory-picker:focus-visible:not(:disabled),
+    .tavern-chat.xb-page .tavern-mobile-memory-picker.is-open {
+        outline: none;
+        border-color: var(--xb-stamp);
+        background: var(--xb-stamp-soft);
+        color: var(--xb-stamp);
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory-head {
+        min-height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--xb-ink-soft);
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory-head strong {
+        font: 700 12px/1 var(--xb-font-ui);
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory-head span {
+        color: var(--xb-stamp);
+        font: 700 11px/1 var(--xb-font-mono);
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory .memory-search {
+        flex: 0 0 auto;
+        gap: 3px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory .memory-search span {
+        font-size: 9px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory .memory-search input {
+        font-size: 14px;
+        padding: 4px 0;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory .memory-directory-list {
+        min-height: 0;
+        flex: 1 1 auto;
+        display: grid;
+        gap: 12px;
+        overflow: visible;
+        padding: 0;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory .memory-file-group {
+        gap: 6px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory .memory-file-group-title {
+        min-height: 20px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory .memory-file-tree {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-directory .memory-file {
+        min-height: 30px;
+        padding: 6px 8px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-workspace .tavern-editor-head {
+        min-height: 38px;
+        padding: 5px 14px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-workspace .tavern-editor-actions {
+        gap: 6px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-workspace .tavern-editor-actions button {
+        min-height: 28px;
+        padding: 0 10px;
+    }
+
+    .tavern-chat.xb-page .tavern-memory-workspace .tavern-editor-body {
+        padding-top: 10px;
     }
 }

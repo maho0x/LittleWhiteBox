@@ -54,10 +54,13 @@
 .tavern-chat.xb-page .chat-head-actions button,
 .tavern-chat.xb-page .manager-head-actions button {
     min-height: 32px;
+    display: inline-grid;
+    place-items: center;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.045);
     color: var(--xb-text-muted);
     font-size: 12px;
+    line-height: 1;
     padding: 0 12px;
 }
 
@@ -819,12 +822,7 @@
 
     .tavern-chat.xb-page .chat-head,
     .tavern-chat.xb-page .manager-head {
-        min-height: 42px;
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 14px 0;
+        display: none;
     }
 }
 
@@ -851,6 +849,13 @@
     .tavern-chat.xb-page .manager-head-actions {
         flex-wrap: nowrap;
         gap: 6px;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .manager-head-actions .chat-flip-trigger {
+        display: none;
     }
 }
 

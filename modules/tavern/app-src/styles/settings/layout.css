@@ -361,6 +361,72 @@
 }
 
 @media (max-width: 560px) {
+    .settings-layout {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .settings-layout .settings-sidebar {
+        flex: 0 0 auto;
+        padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 8px;
+        background: var(--xb-settings-head-bg);
+        backdrop-filter: blur(18px);
+    }
+
+    .settings-layout .guide-card {
+        gap: 0;
+    }
+
+    .settings-layout .guide-card h2 {
+        display: none;
+    }
+
+    .settings-layout .guide-steps {
+        gap: 6px;
+        padding: 0 106px 2px 0;
+        scrollbar-width: none;
+    }
+
+    .settings-layout .guide-steps::-webkit-scrollbar {
+        display: none;
+    }
+
+    .settings-layout .guide-step {
+        min-width: auto;
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        padding: 0 12px;
+    }
+
+    .settings-layout .guide-step strong {
+        font-size: 13px;
+        font-weight: 700;
+    }
+
+    .settings-layout .guide-step span,
+    .settings-layout .guide-step em {
+        display: none;
+    }
+
+    .settings-layout .guide-step.active {
+        box-shadow: none;
+    }
+
+    .settings-layout .xb-main {
+        flex: 1 1 auto;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .settings-layout .step-panel {
+        min-height: 100%;
+        overflow: visible;
+    }
+
     .settings-layout .page-corner-actions {
         top: 10px;
         right: 10px;

@@ -44,6 +44,7 @@ const {
     chatComposeTextareaRef,
     chatScrollControlsActive,
     chatScrollRef,
+    chatSidePanel,
     chatWorkspacePanel,
     copyMessage,
     copyManagerMessage,
@@ -58,6 +59,7 @@ const {
     discardMemoryDraft,
     editingMessageDraft,
     enterMemoryEditMode,
+    expandMemoryFileGroup,
     formatRunActivityLine,
     formatRunIssueLine,
     formatRunInputLine,
@@ -115,6 +117,9 @@ const {
     managerToolTurnPreview,
     managerToolTurnSummary,
     markdownSignature,
+    MEMORY_FILE_BATCH_SIZE,
+    MEMORY_TURN_BATCH_SIZE,
+    memoryDirectoryGroups,
     memoryEditorDirty,
     memoryEditorDocumentAvailable,
     memoryEditorDraft,
@@ -123,6 +128,7 @@ const {
     memoryEditorReadOnly,
     memoryEditorStatus,
     memoryFileDisplayName,
+    memoryFileSearchText,
     memoryFiles,
     memoryIndexStatusLine,
     mapStateDocument,
@@ -153,7 +159,9 @@ const {
     scrollManagerToTop,
     selectedMemoryFileEntry,
     selectedMemoryFile,
+    selectedMemoryFilePath,
     selectedSessionId,
+    selectMemoryFile,
     shortText,
     showChatScrollBottom,
     showChatScrollTop,
@@ -181,6 +189,8 @@ const contractModalOpen = ref(false);
 const contractSaving = ref(false);
 const contractError = ref('');
 const contractDraft = ref<TavernSessionContract>(normalizeTavernSessionContract(sessionContract.value));
+const mobileChatPanel = ref<'none' | 'directory' | 'workspace'>('none');
+const mobileMemoryDirectoryOpen = ref(false);
 
 const currentStateFile = computed(() => stateMemoryFile.value || null);
 const currentStateContent = computed(() => String(currentStateFile.value?.content || '').trim());
@@ -240,6 +250,46 @@ function setManagerScrollRef(element: Element | null) {
 
 function setManagerComposeTextareaRef(element: Element | null) {
     managerComposeTextareaRef.value = element instanceof HTMLTextAreaElement ? element : null;
+}
+
+function closeMobileChatPanel() {
+    mobileChatPanel.value = 'none';
+    mobileMemoryDirectoryOpen.value = false;
+}
+
+function toggleMobileChatPanel(panel: 'directory' | 'workspace') {
+    mobileChatPanel.value = mobileChatPanel.value === panel ? 'none' : panel;
+}
+
+function toggleMobileSessionsPanel() {
+    chatSidePanel.value = 'sessions';
+    toggleMobileChatPanel('directory');
+}
+
+function toggleMobileWorkspacePanel(panel: 'state' | 'memory') {
+    const sameOpenPanel = mobileChatPanel.value === 'workspace' && chatWorkspacePanel.value === panel;
+    chatWorkspacePanel.value = panel;
+    mobileChatPanel.value = sameOpenPanel ? 'none' : 'workspace';
+    mobileMemoryDirectoryOpen.value = false;
+}
+
+function handleMobileDirectoryClick(event: Event) {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest?.('.chat-mobile-sheet-handle')) {
+        closeMobileChatPanel();
+        return;
+    }
+    if (!target?.closest?.('.session-open, .memory-file:not(.memory-file-more)')) {return;}
+    closeMobileChatPanel();
+}
+
+function toggleMobileMemoryDirectory() {
+    mobileMemoryDirectoryOpen.value = !mobileMemoryDirectoryOpen.value;
+}
+
+function selectMobileMemoryFile(path: string) {
+    selectMemoryFile(path);
+    mobileMemoryDirectoryOpen.value = false;
 }
 
 function openContractModal() {
@@ -333,7 +383,14 @@ onUpdated(() => {
   <section
     v-if="activeView === 'chat'"
     class="tavern-chat xb-page"
-    :class="[`chat-focus-${chatFocus}`, `chat-layout-${chatLayout}`]"
+    :class="[
+      `chat-focus-${chatFocus}`,
+      `chat-layout-${chatLayout}`,
+      {
+        'is-mobile-directory-open': mobileChatPanel === 'directory',
+        'is-mobile-workspace-open': mobileChatPanel === 'workspace',
+      },
+    ]"
   >
     <TavernCornerActions
       include-home
@@ -342,7 +399,175 @@ onUpdated(() => {
       @toggle-theme="homeThemeDark = !homeThemeDark"
       @exit="postToHost('xb-tavern:close')"
     />
-    <TavernChatSidebar />
+    <header class="chat-mobile-topbar">
+      <div class="chat-mobile-primary-row">
+        <div
+          class="chat-mobile-segment"
+          role="tablist"
+          aria-label="聊天视图"
+        >
+          <span aria-hidden="true" />
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="chatFocus === 'chat'"
+            :class="{ active: chatFocus === 'chat' }"
+            @click="chatFocus = 'chat'; closeMobileChatPanel()"
+          >
+            角色
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="chatFocus === 'manager'"
+            :class="{ active: chatFocus === 'manager' }"
+            @click="chatFocus = 'manager'; closeMobileChatPanel()"
+          >
+            助手
+          </button>
+        </div>
+        <div class="chat-mobile-action-group">
+          <button
+            type="button"
+            class="chat-mobile-icon-button chat-mobile-utility-button"
+            title="首页"
+            aria-label="首页"
+            @click="activeView = 'home'; closeMobileChatPanel()"
+          >
+            <svg
+              class="chat-mobile-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 11.5 12 4l9 7.5" />
+              <path d="M5.5 10.5V20h13v-9.5" />
+              <path d="M9.5 20v-5.5h5V20" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-mobile-icon-button chat-mobile-utility-button"
+            :title="homeThemeDark ? '切换到白天' : '切换到夜间'"
+            :aria-label="homeThemeDark ? '切换到白天' : '切换到夜间'"
+            @click="homeThemeDark = !homeThemeDark"
+          >
+            <svg
+              v-if="homeThemeDark"
+              class="chat-mobile-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="4"
+              />
+              <path d="M12 2v2" />
+              <path d="M12 20v2" />
+              <path d="m4.93 4.93 1.41 1.41" />
+              <path d="m17.66 17.66 1.41 1.41" />
+              <path d="M2 12h2" />
+              <path d="M20 12h2" />
+              <path d="m6.34 17.66-1.41 1.41" />
+              <path d="m19.07 4.93-1.41 1.41" />
+            </svg>
+            <svg
+              v-else
+              class="chat-mobile-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20.2 14.5A7.3 7.3 0 0 1 9.5 3.8 8.7 8.7 0 1 0 20.2 14.5Z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-mobile-icon-button chat-mobile-utility-button"
+            title="退出"
+            aria-label="退出"
+            @click="postToHost('xb-tavern:close')"
+          >
+            <svg
+              class="chat-mobile-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.9"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="M16 17l5-5-5-5" />
+              <path d="M21 12H9" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="chat-mobile-context-row">
+        <button
+          type="button"
+          class="chat-mobile-context-button"
+          :class="{ 'is-active': mobileChatPanel === 'directory' }"
+          title="会话"
+          aria-label="会话"
+          @click="toggleMobileSessionsPanel"
+        >
+          会话
+        </button>
+        <button
+          type="button"
+          class="chat-mobile-context-button"
+          :class="{ 'is-active': mobileChatPanel === 'workspace' }"
+          title="状态"
+          aria-label="状态"
+          @click="toggleMobileWorkspacePanel('state')"
+        >
+          状态
+        </button>
+        <button
+          type="button"
+          class="chat-mobile-context-button"
+          title="契约"
+          aria-label="契约"
+          @click="closeMobileChatPanel(); openContractModal()"
+        >
+          契约
+        </button>
+        <button
+          type="button"
+          class="chat-mobile-context-button"
+          title="请求日志"
+          aria-label="请求日志"
+          @click="closeMobileChatPanel(); openPromptInspector('history')"
+        >
+          日志
+        </button>
+      </div>
+    </header>
+    <button
+      type="button"
+      class="chat-mobile-sheet-scrim"
+      title="收起面板"
+      aria-label="收起面板"
+      @click="closeMobileChatPanel"
+    />
+    <TavernChatSidebar @click="handleMobileDirectoryClick" />
 
     <section
       class="chat-workbench"
@@ -1212,6 +1437,13 @@ onUpdated(() => {
     </section>
 
     <aside class="tavern-workspace-panel">
+      <button
+        type="button"
+        class="chat-mobile-sheet-handle"
+        title="收起记忆面板"
+        aria-label="收起记忆面板"
+        @click="closeMobileChatPanel"
+      />
       <div class="tavern-workspace-tabs">
         <button
           type="button"
@@ -1256,24 +1488,105 @@ onUpdated(() => {
           </div>
         </article>
       </section>
-      <TavernMemoryEditor
+      <section
         v-else
-        v-model:draft="memoryEditorDraft"
-        :document-available="memoryEditorDocumentAvailable"
-        :read-only="memoryEditorReadOnly"
-        :dirty="memoryEditorDirty"
-        :mode="memoryEditorMode"
-        :preview-html="renderChatMarkdown(memoryEditorDraft)"
-        :preview-signature="markdownSignature(memoryEditorDraft)"
-        :status="memoryEditorStatus"
-        :has-selected-file="!!selectedMemoryFileEntry"
-        :loaded-path="memoryEditorLoadedPath"
-        :file-meta="selectedMemoryFileEntry ? formatMemoryFileMeta(selectedMemoryFileEntry) : ''"
-        @enter-edit="enterMemoryEditMode"
-        @preview="previewMemoryDraft"
-        @discard="discardMemoryDraft"
-        @save="saveSelectedMemoryFile"
-      />
+        class="tavern-memory-workspace"
+        :class="{ 'is-memory-directory-open': mobileMemoryDirectoryOpen }"
+      >
+        <aside class="tavern-memory-directory">
+          <header class="tavern-memory-directory-head">
+            <strong>记忆文档</strong>
+            <span>{{ activeMemoryFiles.length }}</span>
+          </header>
+          <label
+            v-if="memoryFiles.length"
+            class="memory-search tavern-memory-search"
+          >
+            <span>检索档案</span>
+            <input
+              v-model="memoryFileSearchText"
+              type="search"
+              placeholder="剧情、状态、楼层"
+            >
+          </label>
+          <div
+            v-if="memoryFiles.length"
+            class="memory-directory-list xb-files"
+          >
+            <div
+              v-for="group in memoryDirectoryGroups"
+              :key="group.key"
+              class="memory-file-group"
+            >
+              <div class="memory-file-group-title">
+                <span>{{ group.title }}</span>
+                <em>{{ group.totalCount }}</em>
+              </div>
+              <div class="memory-file-tree">
+                <button
+                  v-for="file in group.files"
+                  :key="file.path"
+                  type="button"
+                  class="memory-file"
+                  :class="{ active: selectedMemoryFilePath === file.path, stale: file.status === 'stale' }"
+                  @click="selectMobileMemoryFile(file.path)"
+                >
+                  <span class="memory-file-main">{{ memoryFileDisplayName(file) }}</span>
+                </button>
+                <button
+                  v-if="group.hiddenCount"
+                  type="button"
+                  class="memory-file memory-file-more"
+                  @click="expandMemoryFileGroup(group.key)"
+                >
+                  <span class="memory-file-main">再显示 {{ Math.min(group.hiddenCount, group.key === 'turns' ? MEMORY_TURN_BATCH_SIZE : MEMORY_FILE_BATCH_SIZE) }} 个</span>
+                </button>
+              </div>
+            </div>
+            <p
+              v-if="memoryFileSearchText && !memoryDirectoryGroups.length"
+              class="muted compact"
+            >
+              没有匹配的记忆档案。
+            </p>
+          </div>
+          <p
+            v-else
+            class="muted compact"
+          >
+            还没有记忆档案。
+          </p>
+        </aside>
+        <button
+          type="button"
+          class="tavern-mobile-memory-picker"
+          :class="{ 'is-open': mobileMemoryDirectoryOpen }"
+          :disabled="!memoryFiles.length"
+          title="选择记忆文档"
+          aria-label="选择记忆文档"
+          @click="toggleMobileMemoryDirectory"
+        >
+          <span>{{ selectedMemoryFileEntry ? memoryFileDisplayName(selectedMemoryFileEntry) : '选择记忆文档' }}</span>
+          <em aria-hidden="true">⌄</em>
+        </button>
+        <TavernMemoryEditor
+          v-model:draft="memoryEditorDraft"
+          :document-available="memoryEditorDocumentAvailable"
+          :read-only="memoryEditorReadOnly"
+          :dirty="memoryEditorDirty"
+          :mode="memoryEditorMode"
+          :preview-html="renderChatMarkdown(memoryEditorDraft)"
+          :preview-signature="markdownSignature(memoryEditorDraft)"
+          :status="memoryEditorStatus"
+          :has-selected-file="!!selectedMemoryFileEntry"
+          :loaded-path="memoryEditorLoadedPath"
+          :file-meta="selectedMemoryFileEntry ? formatMemoryFileMeta(selectedMemoryFileEntry) : ''"
+          @enter-edit="enterMemoryEditMode"
+          @preview="previewMemoryDraft"
+          @discard="discardMemoryDraft"
+          @save="saveSelectedMemoryFile"
+        />
+      </section>
     </aside>
 
     <TavernContractModal
