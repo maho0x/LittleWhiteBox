@@ -30,6 +30,8 @@
 
 .home-brand-panel {
     position: relative;
+    grid-column: 1;
+    grid-row: 1;
     min-height: 0;
     align-content: center;
     padding: 12px 0;
@@ -52,6 +54,10 @@
     letter-spacing: 0;
 }
 
+.home-brand-panel h2 span {
+    display: inline;
+}
+
 .home-brand-panel p {
     max-width: 620px;
     margin: 0;
@@ -68,7 +74,18 @@
     letter-spacing: 0.04em;
 }
 
+.home-enter-mobile-label,
+.home-enter-mobile-title,
+.home-enter-mobile-arrow,
+.home-menu-icon,
+.home-menu-mark {
+    display: none;
+}
+
 .home-enter-chat {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
     margin-top: 38px;
     align-self: flex-start;
     min-height: 44px;
@@ -88,6 +105,8 @@
 }
 
 .home-menu-panel {
+    grid-column: 2;
+    grid-row: 1 / span 2;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -168,6 +187,12 @@
 
     .home-brand-panel h2 {
         font-size: 56px;
+    }
+
+    .home-enter-chat,
+    .home-menu-panel {
+        grid-column: 1;
+        grid-row: auto;
     }
 
     .home-menu-item {
