@@ -185,22 +185,12 @@
 }
 
 .prompt-inspector-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
+    position: relative;
+    display: block;
+    text-align: center;
     border-bottom: 1px solid var(--prompt-border);
     background: var(--prompt-surface-raised);
-    padding: 18px clamp(20px, 3vw, 30px);
-}
-
-.prompt-inspector-head .eyebrow {
-    margin: 0 0 5px;
-    color: var(--prompt-accent);
-    font-family: var(--xb-font-mono);
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    padding: 22px clamp(20px, 3vw, 30px) 16px;
 }
 
 .prompt-inspector-head h2 {
@@ -213,35 +203,30 @@
     line-height: 1.15;
 }
 
-.prompt-inspector-head p:last-child {
-    margin: 6px 0 0;
+.prompt-inspector-close {
+    position: absolute;
+    top: 16px;
+    right: clamp(20px, 3vw, 30px);
+    min-width: 54px;
+    height: 34px;
+    min-height: 34px;
+    border: 1px solid var(--prompt-border);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.28);
     color: var(--prompt-muted);
     font-family: var(--xb-font-ui);
     font-size: 12px;
-    line-height: 1.35;
-}
-
-.prompt-inspector-head > button {
-    width: 42px;
-    min-width: 42px;
-    height: 42px;
-    min-height: 42px;
-    border: 1px solid var(--prompt-border);
-    border-radius: 999px;
-    background: var(--prompt-surface-soft);
-    color: var(--prompt-muted);
-    font-family: var(--xb-font-mono);
-    font-size: 24px;
+    font-weight: 600;
     line-height: 1;
-    padding: 0;
+    padding: 0 12px;
 }
 
-.prompt-inspector-head > button:hover:not(:disabled),
-.prompt-inspector-head > button:focus-visible {
+.prompt-inspector-close:hover:not(:disabled),
+.prompt-inspector-close:focus-visible {
     outline: none;
-    border-color: var(--prompt-accent);
-    background: var(--prompt-accent-soft);
-    color: var(--prompt-accent);
+    border-color: var(--prompt-border-strong);
+    background: rgba(255, 255, 255, 0.7);
+    color: var(--prompt-text);
 }
 
 .prompt-inspector-tabs {
@@ -449,8 +434,9 @@
         font-size: 20px;
     }
 
-    .prompt-inspector-head p:last-child {
-        font-size: 12px;
+    .prompt-inspector-close {
+        top: 12px;
+        right: 16px;
     }
 
     .prompt-inspector-tabs {

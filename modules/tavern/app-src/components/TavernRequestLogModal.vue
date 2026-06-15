@@ -41,19 +41,16 @@ function handleInput(event: Event) {
       tabindex="-1"
     >
       <header class="prompt-inspector-head">
-        <div>
-          <p class="eyebrow">
-            请求日志
-          </p>
+        <div class="prompt-inspector-heading">
           <h2>请求日志</h2>
-          <p>{{ props.lastRequestRawJson ? '上一次真实调用' : '暂无真实调用' }}</p>
         </div>
         <button
           type="button"
-          aria-label="关闭"
+          class="prompt-inspector-close"
+          aria-label="关闭日志"
           @click="$emit('close')"
         >
-          ×
+          关闭
         </button>
       </header>
 

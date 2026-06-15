@@ -61,7 +61,9 @@
     background: transparent;
     color: var(--xb-ink);
     padding: 8px 10px 8px 16px;
-    font: 17px/1.48 var(--xb-font-serif);
+    font-family: var(--xb-font-serif);
+    font-size: var(--xb-host-main-font-size, 15px);
+    line-height: var(--xb-host-prose-line-height, 23px);
 }
 
 .chat-compose textarea::placeholder {

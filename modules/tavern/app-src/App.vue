@@ -150,6 +150,8 @@ const context = ref<XbTavernContext>({});
 const diagnostics = ref<TavernDiagnostics>({});
 const agentConfig = ref<Record<string, unknown>>({});
 const hostRequestHeaders = ref<Record<string, unknown>>({});
+const hostMainFontSizePx = ref('15px');
+const hostProseLineHeightPx = ref('23px');
 const availableCharacters = ref<TavernCharacterOption[]>([]);
 const selectedCharacterId = ref('');
 const selectedCharacterPreviewId = ref('');
@@ -264,6 +266,20 @@ function normalizedSearchText(value = '') {
     return String(value || '').trim().toLocaleLowerCase();
 }
 
+function normalizeHostPx(value: unknown, fallback: string): string {
+    const parsed = Number.parseFloat(String(value || ''));
+    return Number.isFinite(parsed) && parsed > 0
+        ? `${Math.round(parsed * 100) / 100}px`
+        : fallback;
+}
+
+function deriveHostProseLineHeightPx(fontSizePx = hostMainFontSizePx.value): string {
+    const parsed = Number.parseFloat(String(fontSizePx || ''));
+    return Number.isFinite(parsed) && parsed > 0
+        ? `${Math.round((parsed + 8) * 100) / 100}px`
+        : '23px';
+}
+
 function includesSearch(text: string, query: string) {
     if (!query) {return true;}
     return normalizedSearchText(text).includes(query);
@@ -324,6 +340,10 @@ const messageActionFeedback = ref<Record<string, 'success' | 'error'>>({});
 const activeRunController = ref<AbortController | null>(null);
 const managerAssistantController = ref<AbortController | null>(null);
 const tavernDrawController = ref<AbortController | null>(null);
+const rootTypographyStyle = computed<Record<string, string>>(() => ({
+    '--xb-host-main-font-size': hostMainFontSizePx.value,
+    '--xb-host-prose-line-height': hostProseLineHeightPx.value,
+}));
 const {
     clearMarkdownCache,
     enhanceChatMarkdown,
@@ -1282,6 +1302,13 @@ function applyHostPayload(payload: Record<string, unknown>) {
     installHostRequestHeadersProvider(payload);
     context.value = payload.context as XbTavernContext || {};
     diagnostics.value = payload.diagnostics as TavernDiagnostics || {};
+    const nextHostMainFontSizePx = 'hostMainFontSizePx' in payload
+        ? normalizeHostPx(payload.hostMainFontSizePx, hostMainFontSizePx.value)
+        : hostMainFontSizePx.value;
+    hostMainFontSizePx.value = nextHostMainFontSizePx;
+    hostProseLineHeightPx.value = 'hostProseLineHeightPx' in payload
+        ? normalizeHostPx(payload.hostProseLineHeightPx, deriveHostProseLineHeightPx(nextHostMainFontSizePx))
+        : deriveHostProseLineHeightPx(nextHostMainFontSizePx);
     if ('agentConfig' in payload) {
         agentConfig.value = payload.agentConfig as Record<string, unknown> || agentConfig.value;
         syncApiSettingsConfigFromAgentConfig();
@@ -1365,7 +1392,7 @@ async function selectCharacterForPreview(characterId: string) {
     if (!targetId || pendingCharacterSessionId.value) {return;}
     selectedCharacterPreviewId.value = targetId;
     const current = characterCards.value.find((character) => character.id === targetId);
-    if (current && current.shallow !== true && (current.shallow === false || hasCharacterPreviewDetails(current))) {return;}
+    if (current && current.shallow !== true && hasCharacterPreviewDetails(current)) {return;}
     const sequence = ++characterPreviewRequestSequence;
     pendingCharacterPreviewId.value = targetId;
     pendingCharacterError.value = '';
@@ -3491,6 +3518,7 @@ onUnmounted(() => {
   <main
     class="xb-tavern xb-os-shell"
     :class="{ 'is-home-view': activeView === 'home' || activeView === 'about', 'theme-dark': homeThemeDark, 'theme-light': !homeThemeDark }"
+    :style="rootTypographyStyle"
   >
     <section class="xb-os-stage">
       <TavernHomePage

@@ -4,9 +4,29 @@ import { getTagKeyForEntity, tag_map } from "../../../../../../tags.js";
 import { getCharaFilename } from "../../../../../../utils.js";
 import { getWorldInfoSettings, METADATA_KEY, selected_world_info, world_info, world_info_position } from "../../../../../../world-info.js";
 import { power_user } from "../../../../../../power-user.js";
-import { chat_metadata, characters as sillyTavernCharacters, getRequestHeaders, getThumbnailUrl, unshallowCharacter } from "../../../../../../../script.js";
+import { chat_metadata, characters as sillyTavernCharacters, getOneCharacter, getRequestHeaders, getThumbnailUrl, unshallowCharacter } from "../../../../../../../script.js";
 function normalizeText(value = "") {
   return String(value || "").trim();
+}
+function normalizePositivePx(value, fallback) {
+  const parsed = Number.parseFloat(String(value || ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+function formatPx(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? `${Math.round(value * 100) / 100}px` : fallback;
+}
+function getHostTypographyMetrics() {
+  const root = document.documentElement;
+  const body = document.body || root;
+  const rootStyles = getComputedStyle(root);
+  const bodyStyles = getComputedStyle(body);
+  const mainFontSizePx = normalizePositivePx(bodyStyles.fontSize, 15);
+  const rootFontSizePx = normalizePositivePx(rootStyles.fontSize, 16);
+  const proseLineHeightPx = mainFontSizePx + rootFontSizePx * 0.5;
+  return {
+    hostMainFontSizePx: formatPx(mainFontSizePx, "15px"),
+    hostProseLineHeightPx: formatPx(proseLineHeightPx, "23px")
+  };
 }
 function isSystemCharacterName(value = "") {
   return /^(sillytavern\s+system|system)\b/i.test(normalizeText(value));
@@ -175,11 +195,19 @@ async function hydrateCharacterAt(index) {
     return;
   }
   const character = asRecord(sillyTavernCharacters?.[index]);
-  if (character.shallow !== true) {
+  const avatar = normalizeText(character.avatar);
+  if (!avatar || avatar === "none") {
+    return;
+  }
+  if (character.shallow !== true && normalizeText(character.json_data)) {
     return;
   }
   try {
-    await unshallowCharacter(String(index));
+    if (character.shallow === true) {
+      await unshallowCharacter(String(index));
+      return;
+    }
+    await getOneCharacter(avatar);
   } catch (error) {
     console.warn("[LittleWhiteBox/tavern] Failed to hydrate character card", index, error);
   }
@@ -196,13 +224,13 @@ function resolveCharacterId(ctx = getContext?.() || {}, options = {}) {
 function getCurrentCharacter(ctx = getContext?.() || {}, options = {}) {
   const id = resolveCharacterId(ctx, options);
   const index = Number(id);
-  const fallback = Number.isInteger(index) ? asRecord(sillyTavernCharacters?.[index]) : {};
+  const runtime = Number.isInteger(index) ? asRecord(sillyTavernCharacters?.[index]) : {};
   const getCharacter = typeof ctx.getCharacter === "function" ? ctx.getCharacter : null;
   if (getCharacter && id !== void 0 && id !== null) {
     try {
       const character = getCharacter(id);
       if (character && typeof character === "object") {
-        return mergeCharacterRecord(character, fallback);
+        return mergeCharacterRecord(runtime, character);
       }
     } catch {
     }
@@ -210,11 +238,11 @@ function getCurrentCharacter(ctx = getContext?.() || {}, options = {}) {
   if (Array.isArray(ctx.characters) && id !== void 0 && id !== null) {
     const character = ctx.characters[index];
     if (character && typeof character === "object") {
-      return mergeCharacterRecord(character, fallback);
+      return mergeCharacterRecord(runtime, character);
     }
   }
-  if (Object.keys(fallback).length) {
-    return fallback;
+  if (Object.keys(runtime).length) {
+    return runtime;
   }
   return null;
 }
@@ -399,7 +427,7 @@ function listCharacters(ctx = getContext?.() || {}) {
   const runtimeCharacters = asArray(sillyTavernCharacters);
   const count = Math.max(contextCharacters.length, runtimeCharacters.length);
   return Array.from({ length: count }, (_, index) => {
-    const character = mergeCharacterRecord(asRecord(contextCharacters[index]), asRecord(runtimeCharacters[index]));
+    const character = mergeCharacterRecord(asRecord(runtimeCharacters[index]), asRecord(contextCharacters[index]));
     const data = asRecord(character?.data) || character || {};
     const extensions = asRecord(data.extensions);
     const depthPrompt = asRecord(extensions.depth_prompt);
@@ -496,7 +524,8 @@ async function buildTavernContext(options = {}) {
       }))
     },
     availableCharacters: listCharacters(ctx),
-    selectedCharacterId: normalizeText(resolveCharacterId(ctx, options))
+    selectedCharacterId: normalizeText(resolveCharacterId(ctx, options)),
+    ...getHostTypographyMetrics()
   };
 }
 export {

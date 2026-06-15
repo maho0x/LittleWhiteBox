@@ -47,6 +47,27 @@ test('tavern app requests sanitize payload before postMessage', () => {
     assert.match(appSource, /const safePayload = clonePostMessagePayload\(payload\);/);
 });
 
+test('tavern chat typography follows host SillyTavern font metrics inside the iframe', () => {
+    const hostSource = readRepoFile('modules/tavern/host/sillytavern-context.ts');
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const markdownCss = readRepoFile('modules/tavern/app-src/styles/chat/markdown.css');
+    const composeCss = readRepoFile('modules/tavern/app-src/styles/chat/compose.css');
+    const messagesCss = readRepoFile('modules/tavern/app-src/styles/chat/messages.css');
+    const memoryCss = readRepoFile('modules/tavern/app-src/styles/chat/memory-editor.css');
+
+    assert.match(hostSource, /function getHostTypographyMetrics/);
+    assert.match(hostSource, /hostMainFontSizePx/);
+    assert.match(hostSource, /hostProseLineHeightPx/);
+    assert.match(appSource, /const hostMainFontSizePx = ref\('15px'\);/);
+    assert.match(appSource, /const hostProseLineHeightPx = ref\('23px'\);/);
+    assert.match(appSource, /--xb-host-main-font-size/);
+    assert.match(appSource, /--xb-host-prose-line-height/);
+    assert.match(markdownCss, /font-size: var\(--xb-host-main-font-size, 15px\);/);
+    assert.match(composeCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);
+    assert.match(messagesCss, /font-size: var\(--xb-host-main-font-size, 15px\);/);
+    assert.match(memoryCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);
+});
+
 test('tavern worldbook settings page is a native overview instead of a custom editor', () => {
     const panelSource = readRepoFile('modules/tavern/app-src/components/settings/TavernWorldbooksSettingsPanel.vue');
     assert.match(panelSource, /打开酒馆编辑器/);
@@ -93,17 +114,38 @@ test('tavern character select page keeps a dense index and selected-card preview
 
 test('tavern character list merges native character records when extension context is sparse', () => {
     const hostSource = readRepoFile('modules/tavern/host/sillytavern-context.ts');
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     assert.match(hostSource, /characters as sillyTavernCharacters/);
+    assert.match(hostSource, /getOneCharacter/);
     assert.match(hostSource, /unshallowCharacter/);
     assert.match(hostSource, /shallow: boolean/);
     assert.match(hostSource, /shallow: character\.shallow === true/);
     assert.match(hostSource, /function hydrateCharacterAt/);
+    assert.match(hostSource, /normalizeText\(character\.json_data\)/);
     assert.match(hostSource, /await hydrateSelectedCharacter\(ctx, options\);/);
     assert.doesNotMatch(hostSource, /hydrateAvailableCharacters/);
     assert.match(hostSource, /function mergeCharacterRecord/);
     assert.match(hostSource, /const runtimeCharacters = asArray<Record<string, unknown>>\(sillyTavernCharacters\);/);
     assert.match(hostSource, /Math\.max\(contextCharacters\.length, runtimeCharacters\.length\)/);
-    assert.match(hostSource, /mergeCharacterRecord\(asRecord\(contextCharacters\[index\]\), asRecord\(runtimeCharacters\[index\]\)\)/);
+    assert.match(hostSource, /mergeCharacterRecord\(asRecord\(runtimeCharacters\[index\]\), asRecord\(contextCharacters\[index\]\)\)/);
+    assert.match(appSource, /current && current\.shallow !== true && hasCharacterPreviewDetails\(current\)/);
+});
+
+test('tavern chat creation waits for hydrated character context before adding greetings', () => {
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const assemblerSource = readRepoFile('modules/tavern/shared/message-assembler.ts');
+    assert.match(appSource, /async function selectCharacterAndCreateSession\(characterId: string\)/);
+    assert.match(appSource, /pendingCharacterSessionId\.value = targetId/);
+    assert.match(appSource, /postToHost\('xb-tavern:refresh-context', \{ characterId: targetId, includeHistory: false \}\)/);
+    assert.match(appSource, /function applyHostPayload/);
+    assert.match(appSource, /finishPendingCharacterSession\(\)/);
+    assert.match(appSource, /await createSessionAndOpenChat\(\{ greetingIndex \}\)/);
+    assert.match(appSource, /function getCharacterGreetingOptions/);
+    assert.match(appSource, /character\.firstMessage \|\| character\.first_mes/);
+    assert.match(appSource, /character\.alternateGreetings \|\| character\.alternate_greetings/);
+    assert.match(appSource, /await appendFirstMessageIfPresent\(session\.id, snapshotContext, options\.greetingIndex\)/);
+    assert.match(assemblerSource, /\['Description', character\.description/);
+    assert.match(assemblerSource, /\['Personality', character\.personality/);
 });
 
 test('tavern worldbook sync uses native source overview with current context', () => {

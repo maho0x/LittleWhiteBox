@@ -76,7 +76,9 @@
     overflow: auto;
     padding: 8px 34px 22px;
     color: var(--xb-ink);
-    font: 16px/1.74 var(--xb-font-serif);
+    font-family: var(--xb-font-serif);
+    font-size: var(--xb-host-main-font-size, 15px);
+    line-height: var(--xb-host-prose-line-height, 23px);
 }
 
 .tavern-chat.xb-page .tavern-current-state-empty {
@@ -130,7 +132,9 @@
     border: 0;
     background: transparent;
     color: var(--xb-text-body);
-    font: 17px/1.85 var(--xb-font-serif);
+    font-family: var(--xb-font-serif);
+    font-size: var(--xb-host-main-font-size, 15px);
+    line-height: var(--xb-host-prose-line-height, 23px);
 }
 
 .tavern-chat.xb-page .tavern-editor-preview {
@@ -138,7 +142,9 @@
     height: 100%;
     overflow: auto;
     color: var(--xb-text-body);
-    font: 17px/1.85 var(--xb-font-serif);
+    font-family: var(--xb-font-serif);
+    font-size: var(--xb-host-main-font-size, 15px);
+    line-height: var(--xb-host-prose-line-height, 23px);
     padding-bottom: 32px;
 }
 
@@ -248,7 +254,9 @@
 .tavern-chat.xb-page .tavern-editor-body textarea,
 .tavern-chat.xb-page .tavern-editor-preview {
     color: var(--xb-ink);
-    font: 17px/1.82 var(--xb-font-serif);
+    font-family: var(--xb-font-serif);
+    font-size: var(--xb-host-main-font-size, 15px);
+    line-height: var(--xb-host-prose-line-height, 23px);
 }
 
 .tavern-chat.xb-page .tavern-editor-empty {
@@ -320,8 +328,8 @@
 
     .tavern-chat.xb-page .tavern-editor-body textarea,
     .tavern-chat.xb-page .tavern-editor-preview {
-        font-size: 16px;
-        line-height: 1.72;
+        font-size: var(--xb-host-main-font-size, 15px);
+        line-height: var(--xb-host-prose-line-height, 23px);
     }
 }
 
@@ -380,12 +388,13 @@
     }
 
     .tavern-chat.xb-page .tavern-state-panel .tavern-map-panel {
-        min-height: min(44vh, 360px);
+        flex: 3 1 0;
+        min-height: 0;
     }
 
     .tavern-chat.xb-page .tavern-current-state {
-        min-height: 220px;
-        flex: 1 1 auto;
+        flex: 2 1 0;
+        min-height: 0;
     }
 
     .tavern-chat.xb-page .tavern-editor-head {
