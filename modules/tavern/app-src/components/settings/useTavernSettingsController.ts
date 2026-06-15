@@ -94,7 +94,7 @@ const REGEX_GROUP_BATCH_SIZE = 60;
 const assistantPresetSections: AssistantPresetSectionRow[] = [
     { key: 'storyArcPrompt', label: '剧情脉络', summary: '长期脉络档案' },
     { key: 'statePrompt', label: '状态栏', summary: '当前状态档案' },
-    { key: 'turnPrompt', label: '楼层小记', summary: '每回合轻量记录' },
+    { key: 'turnPrompt', label: '楼层小记', summary: '按楼层轻量记录' },
 ];
 
 const placementLabels: Record<string, string> = {

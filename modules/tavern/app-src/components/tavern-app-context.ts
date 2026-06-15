@@ -234,6 +234,7 @@ export interface TavernChatContext {
     selectedSessionId: Ref<string>;
     selectSession: TavernCommand<[sessionId: string], Promise<void>>;
     sessionDisplayTitle: TavernCommand<[session?: TavernSessionRecord | null], string>;
+    sessionFloorLabel: TavernCommand<[session?: TavernSessionRecord | null], string>;
     sessions: Ref<TavernSessionRecord[]>;
     showChatScrollBottom: Ref<boolean>;
     showChatScrollTop: Ref<boolean>;

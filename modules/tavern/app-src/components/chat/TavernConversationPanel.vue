@@ -285,7 +285,7 @@ watch(
                   :disabled="!isEditingMessageDirty(message)"
                   @click="saveEditMessage(message, { rerun: true })"
                 >
-                  保存并重发
+                  保存并从这里重来
                 </button>
                 <button
                   type="button"
@@ -375,8 +375,8 @@ watch(
                 type="button"
                 :disabled="!canRerunMessage(message)"
                 :class="actionFeedback(message, 'rerun')"
-                :title="message.role === 'user' ? '从这里重发' : '重新生成这条回复'"
-                :aria-label="message.role === 'user' ? '从这里重发' : '重新生成这条回复'"
+                :title="message.role === 'user' ? '发送最后一楼' : '重新生成最后回复'"
+                :aria-label="message.role === 'user' ? '发送最后一楼' : '重新生成最后回复'"
                 @click="rerunFromMessage(message)"
               >
                 ↻
@@ -385,8 +385,8 @@ watch(
                 type="button"
                 :disabled="isRunning"
                 :class="actionFeedback(message, 'delete')"
-                title="删除"
-                aria-label="删除"
+                title="从这里删除后续剧情"
+                aria-label="从这里删除后续剧情"
                 @click="deleteMessageTurn(message)"
               >
                 ⌫

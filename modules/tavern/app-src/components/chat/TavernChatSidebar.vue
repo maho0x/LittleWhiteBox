@@ -19,11 +19,11 @@ const {
     displayCharacterName,
     filteredChatSidebarSessionCount,
     hiddenChatSidebarSessionCount,
-    normalizeTavernSessionState,
     removeSession,
     selectedSessionId,
     selectSession,
     sessionDisplayTitle,
+    sessionFloorLabel,
     sessions,
     visibleCharacterAvatar,
 } = chat;
@@ -163,7 +163,7 @@ const {
             @click="selectSession(session.id)"
           >
             <strong>{{ sessionDisplayTitle(session) || '未选择角色' }}</strong>
-            <small>第 {{ normalizeTavernSessionState(session.state || {}).turn || 0 }} 轮</small>
+            <small>{{ sessionFloorLabel(session) }}</small>
           </button>
           <button
             type="button"

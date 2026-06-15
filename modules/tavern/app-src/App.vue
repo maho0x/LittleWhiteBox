@@ -27,6 +27,7 @@ import {
     createTavernSession,
     appendTavernMessage,
     appendTavernManagerMessage,
+    countTavernMessages,
     deleteTavernSession,
     deleteTavernManagerMessages,
     deleteTavernMessages,
@@ -176,6 +177,7 @@ const drawProgressText = ref('');
 const sessions = ref<TavernSessionRecord[]>([]);
 const selectedSessionId = ref('');
 const sessionMessages = ref<TavernMessageRecord[]>([]);
+const sessionMessageCounts = ref<Record<string, number>>({});
 const managerRuns = ref<TavernManagerRunRecord[]>([]);
 const memoryFiles = ref<TavernMemoryIndexFileEntry[]>([]);
 const memoryIndex = ref<TavernMemoryIndexRecord | null>(null);
@@ -598,6 +600,53 @@ const chatSidebarSessions = computed(() => {
 });
 const filteredChatSidebarSessionCount = computed(() => filteredChatSidebarSessions.value.length);
 const hiddenChatSidebarSessionCount = computed(() => Math.max(0, filteredChatSidebarSessionCount.value - chatSidebarSessions.value.length));
+
+function rememberSessionMessageCount(sessionId = '', count = 0) {
+    const id = String(sessionId || '').trim();
+    if (!id) {return;}
+    const nextCount = Math.max(0, Math.floor(Number(count) || 0));
+    if (sessionMessageCounts.value[id] === nextCount) {return;}
+    sessionMessageCounts.value = {
+        ...sessionMessageCounts.value,
+        [id]: nextCount,
+    };
+}
+
+function forgetSessionMessageCount(sessionId = '') {
+    const id = String(sessionId || '').trim();
+    if (!id || !(id in sessionMessageCounts.value)) {return;}
+    const next = { ...sessionMessageCounts.value };
+    delete next[id];
+    sessionMessageCounts.value = next;
+}
+
+function sessionFloorCount(session?: TavernSessionRecord | null) {
+    const id = String(session?.id || '').trim();
+    if (!id) {return 0;}
+    if (id === selectedSessionId.value) {return chatMessages.value.length;}
+    return Math.max(0, Number(sessionMessageCounts.value[id]) || 0);
+}
+
+function sessionFloorLabel(session?: TavernSessionRecord | null) {
+    return `第 ${sessionFloorCount(session)} 楼`;
+}
+
+async function refreshVisibleSessionMessageCounts() {
+    const visibleIds = chatSidebarSessions.value
+        .map((session) => String(session.id || '').trim())
+        .filter(Boolean);
+    const missingIds = [...new Set(visibleIds)]
+        .filter((id) => id !== selectedSessionId.value && !(id in sessionMessageCounts.value));
+    if (!missingIds.length) {return;}
+    const entries = await Promise.all(missingIds.map(async (id) => [id, await countTavernMessages(id)] as const));
+    const next = { ...sessionMessageCounts.value };
+    entries.forEach(([id, count]) => {
+        if (id === selectedSessionId.value || id in sessionMessageCounts.value) {return;}
+        next[id] = Math.max(0, Math.floor(Number(count) || 0));
+    });
+    sessionMessageCounts.value = next;
+}
+
 const activeMemoryFiles = computed(() => memoryFiles.value.filter((file) => file.status !== 'stale'));
 const selectedMemoryFileEntry = computed(() => (
     memoryFiles.value.find((file) => file.path === selectedMemoryFilePath.value)
@@ -626,7 +675,7 @@ function memoryFileKindLabel(fileOrPath: TavernMemoryFileListEntry | TavernMemor
     const path = typeof fileOrPath === 'string' ? fileOrPath : String(fileOrPath?.path || '');
     if (path === 'memory/session.md') {return '剧情为什么走到现在';}
     if (path === 'memory/state.md') {return '当前事实与状态';}
-    if (path.startsWith('memory/turns/')) {return '每回合小总结';}
+    if (path.startsWith('memory/turns/')) {return '楼层小记';}
     return '记忆档案';
 }
 
@@ -787,8 +836,7 @@ const liveManagerMarkdownSignature = computed(() => liveManagerChatDisplayItems.
     .join('|'));
 const chatSubtitle = computed(() => {
     if (!selectedSessionId.value) {return '写一句话后会自动创建独立会话。';}
-    const turn = Number(sessionRuntimeState.value.turn || 0);
-    return `第 ${turn} 轮`;
+    return sessionFloorLabel(selectedSession.value);
 });
 const canSendMessage = computed(() => !isCancellingRun.value && (isRunning.value || !!currentUserMessage.value.trim()));
 const canSendManagerMessage = computed(() => !isManagerAssistantCancelling.value && (isManagerAssistantRunning.value || (!!selectedSessionId.value && !!managerInputDraft.value.trim())));
@@ -843,6 +891,17 @@ watch(selectedCharacterGreetingOptions, (options) => {
 watch(memoryFileSearchText, () => {
     memoryFileGroupVisibleLimits.value = {};
 });
+
+watch([
+    () => selectedSessionId.value,
+    () => sessionMessages.value.length,
+], ([sessionId, count]) => {
+    rememberSessionMessageCount(String(sessionId || ''), Number(count) || 0);
+});
+
+watch(() => chatSidebarSessions.value.map((session) => session.id).join('|'), () => {
+    void refreshVisibleSessionMessageCounts();
+}, { immediate: true });
 
 function describeError(error: unknown) {
     return error instanceof Error ? error.message : String(error || 'unknown_error');
@@ -1673,6 +1732,7 @@ async function removeSession(sessionId: string, event?: Event) {
     }
     const removed = await deleteTavernSession(id);
     if (!removed) {return;}
+    forgetSessionMessageCount(id);
     if (id === selectedSessionId.value) {
         resetSessionPreviewState();
     }
@@ -1877,11 +1937,12 @@ function canEditManagerMessage(message: TavernManagerMessageRecord) {
 
 function canRerunMessage(message: TavernMessageRecord) {
     if (isRunning.value) {return false;}
-    if (message.role === 'user') {return true;}
     const sorted = [...sessionMessages.value].sort((left, right) => left.order - right.order);
-    const index = sorted.findIndex((item) => item.order === message.order);
-    if (index < 0) {return false;}
-    return sorted.slice(0, index + 1).some((item) => item.role === 'user');
+    const latest = sorted.at(-1);
+    if (!latest || latest.sessionId !== message.sessionId || latest.order !== message.order) {return false;}
+    if (message.role === 'user') {return true;}
+    if (message.role !== 'assistant') {return false;}
+    return sorted.slice(0, -1).some((item) => item.role === 'user');
 }
 
 function canRerunManagerMessage(message: TavernManagerMessageRecord) {
@@ -2287,25 +2348,21 @@ async function saveEditManagerMessage(message: TavernManagerMessageRecord, optio
 }
 
 function findDeleteOrders(message: TavernMessageRecord) {
-    if (message.role !== 'user') {return [message.order];}
     const sorted = [...sessionMessages.value].sort((left, right) => left.order - right.order);
     const startIndex = sorted.findIndex((item) => item.order === message.order);
     if (startIndex < 0) {return [message.order];}
-    const orders: number[] = [];
-    for (let index = startIndex; index < sorted.length; index += 1) {
-        const item = sorted[index];
-        if (index > startIndex && item.role === 'user') {break;}
-        orders.push(item.order);
-    }
-    return orders;
+    return sorted.slice(startIndex).map((item) => item.order);
 }
 
 async function deleteMessageTurn(message: TavernMessageRecord) {
     if (isRunning.value) {return;}
     const ordersToDelete = findDeleteOrders(message);
-    const confirmText = message.role === 'user'
-        ? `删除这一轮对话？将移除 ${ordersToDelete.length} 条记录。`
-        : '删除这条回复？';
+    const sorted = [...sessionMessages.value].sort((left, right) => left.order - right.order);
+    const startIndex = sorted.findIndex((item) => item.order === message.order);
+    const floor = startIndex >= 0 ? startIndex + 1 : Math.max(1, Number(message.order) + 1);
+    const confirmText = ordersToDelete.length > 1
+        ? `从第 ${floor} 楼开始删除后续剧情？将移除 ${ordersToDelete.length} 楼。`
+        : `删除第 ${floor} 楼？`;
     if (!window.confirm(confirmText)) {return;}
     const fromOrder = Math.min(...ordersToDelete);
     const rollback = await cancelAndRollbackXbTavernManagersForMessageRange(message.sessionId, fromOrder);
@@ -2342,14 +2399,6 @@ async function rerunFromMessage(message: TavernMessageRecord) {
     if (!userMessage) {
         flashMessageAction(message, 'rerun', false);
         return;
-    }
-    const ordersToDelete = sorted
-        .filter((item) => item.order > userMessage.order)
-        .map((item) => item.order);
-    const latestOrder = sorted.at(-1)?.order ?? userMessage.order;
-    if (ordersToDelete.length > 1 || latestOrder > Math.max(...ordersToDelete, userMessage.order)) {
-        const ok = window.confirm(`从这里重新生成会移除后面的 ${ordersToDelete.length} 条记录。继续？`);
-        if (!ok) {return;}
     }
     flashMessageAction(message, 'rerun', true);
     await runOnce({
@@ -3254,6 +3303,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
         selectedSessionId,
         selectSession,
         sessionDisplayTitle,
+        sessionFloorLabel,
         sessions,
         showChatScrollBottom,
         showChatScrollTop,

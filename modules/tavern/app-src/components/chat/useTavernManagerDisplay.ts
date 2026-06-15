@@ -146,9 +146,13 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
     }
 
     function formatRunInputLine(run: TavernManagerRunRecord) {
-        const roleTurn = `第 ${Math.max(0, Number(run.turn) || 0)} 轮`;
-        const source = Number.isFinite(Number(run.userOrder)) && Number.isFinite(Number(run.assistantOrder))
-            ? `原文 ${run.userOrder}/${run.assistantOrder}`
+        const assistantOrder = Number(run.assistantOrder);
+        const userOrder = Number(run.userOrder);
+        const roleTurn = Number.isInteger(assistantOrder) && assistantOrder >= 0
+            ? `第 ${assistantOrder + 1} 楼`
+            : `第 ${Math.max(0, Number(run.turn) || 0)} 次维护`;
+        const source = Number.isInteger(userOrder) && userOrder >= 0 && Number.isInteger(assistantOrder) && assistantOrder >= 0
+            ? `原文 ${userOrder + 1}-${assistantOrder + 1} 楼`
             : '';
         const trigger = run.trigger === 'after_turn' ? '自动记忆' : run.trigger === 'manager_chat' ? '助手聊天' : String(run.trigger || '');
         return [roleTurn, source, trigger].filter(Boolean).join(' · ');
