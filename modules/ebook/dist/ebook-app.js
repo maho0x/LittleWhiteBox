@@ -34791,7 +34791,7 @@ function dU(e = "xb-ebook-root") {
                 z-index: 30;
                 height: auto;
                 min-height: 0;
-                align-items: center;
+                align-items: flex-start;
                 justify-content: space-between;
                 flex-direction: row;
                 padding: calc(20px + env(safe-area-inset-top, 0px)) 24px 18px;
