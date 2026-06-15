@@ -417,6 +417,7 @@ export interface TavernSettingsContext {
     regexDirty: TavernReadable<boolean>;
     regexDraft: Ref<TavernRegexScriptDraft>;
     regexDraftTypeLabel: TavernCommand<[], string>;
+    regexGroups: TavernReadable<TavernRegexGroupRow[]>;
     regexGroupsForDisplay: TavernReadable<TavernRegexGroupDisplayRow[]>;
     regexPlacementLabel: TavernCommand<[value: number], string>;
     regexScriptRows: TavernReadable<TavernRegexScriptRow[]>;
@@ -436,6 +437,7 @@ export interface TavernSettingsContext {
     selectedRegexRow: TavernReadable<TavernRegexScriptRow | null>;
     selectedWorldbook: TavernReadable<TavernWorldbookOptionRow | null>;
     selectedWorldbookName: Ref<string>;
+    deleteRegexScript: TavernCommand<[row: TavernRegexScriptRow], Promise<void>>;
     selectRegexScript: TavernCommand<[row: TavernRegexScriptRow]>;
     selectSettingsWorkspace: TavernCommand<[workspace: string]>;
     settingsNavItems: TavernReadable<TavernSettingsNavItem[]>;

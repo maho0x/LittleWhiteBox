@@ -480,7 +480,7 @@
     .settings-layout.is-regex-workspace .regex-studio .native-list-row {
         width: 100%;
         min-height: 48px;
-        grid-template-columns: 24px minmax(0, 1fr) 28px;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
         gap: 8px;
         border: 0;
         border-left: 2px solid transparent;
@@ -498,6 +498,17 @@
 
     .settings-layout.is-regex-workspace .regex-row-copy small {
         display: block;
+    }
+
+    .settings-layout.is-regex-workspace .regex-row-actions {
+        gap: 5px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-row-icon {
+        width: 27px;
+        min-width: 27px;
+        height: 27px;
+        min-height: 27px;
     }
 
     .settings-layout.is-regex-workspace .regex-studio .native-add-row {
@@ -556,15 +567,17 @@
     .settings-layout.is-regex-workspace .regex-detail-panel {
         position: fixed;
         z-index: 70;
-        inset: auto 0 0;
-        height: min(82vh, 660px);
+        inset: 0;
+        height: auto;
+        max-height: none;
         display: flex;
         flex-direction: column;
-        border-top: 1px solid var(--xb-line);
+        border: 0;
         background: var(--xb-settings-sheet-bg);
-        box-shadow: 0 -22px 70px rgba(0, 0, 0, 0.42);
+        box-shadow: none;
         transform: translateY(110%);
         transition: transform 180ms ease;
+        padding-top: env(safe-area-inset-top, 0px);
     }
 
     .xb-os-shell.theme-light .settings-layout.is-regex-workspace .regex-detail-panel {
@@ -576,8 +589,9 @@
     }
 
     .settings-layout.is-regex-workspace .regex-studio .preset-preview-head {
-        min-height: 46px;
+        min-height: 54px;
         padding: 0 12px;
+        border-bottom: 1px solid var(--xb-line);
     }
 
     .settings-layout.is-regex-workspace .regex-studio .preset-preview-head strong {
@@ -588,14 +602,21 @@
         display: none;
     }
 
-    .settings-layout.is-regex-workspace .regex-editor-close {
-        display: inline-grid;
+    .settings-layout.is-regex-workspace .regex-editor-actions {
+        gap: 6px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-editor-secondary,
+    .settings-layout.is-regex-workspace .regex-editor-primary {
+        min-width: 62px;
+        min-height: 32px;
+        padding: 0 10px;
     }
 
     .settings-layout.is-regex-workspace .regex-editor-grid {
         gap: 8px;
         overflow: auto;
-        padding: 12px;
+        padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
     }
 
     .settings-layout.is-regex-workspace .regex-editor-section {

@@ -8,7 +8,7 @@ const {
     activeSettingsWorkspace,
     applyActiveRegexScript,
     createRegexScript,
-    deleteCurrentRegexScript,
+    deleteRegexScript,
     expandRegexGroup,
     linesFromList,
     listFromLines,
@@ -16,6 +16,7 @@ const {
     regexDirty,
     regexDraft,
     regexDraftTypeLabel,
+    regexGroups,
     regexGroupsForDisplay,
     regexPlacementLabel,
     regexScriptRows,
@@ -30,16 +31,18 @@ const {
 } = settings;
 
 type RegexRow = (typeof regexScriptRows)['value'][number];
-type RegexGroup = (typeof regexGroupsForDisplay)['value'][number];
+type RegexCreateGroup = (typeof regexGroups)['value'][number];
 
 const mobileRegexEditorOpen = ref(false);
 const isMobileSettingsViewport = useTavernMediaQuery('(max-width: 560px)');
 const selectedRegexGroupKey = ref('');
+const regexCreateMenuOpen = ref(false);
 const activeRegexGroupsForDisplay = computed(() => {
     const key = selectedRegexGroupKey.value;
     if (!key) {return regexGroupsForDisplay.value;}
     return regexGroupsForDisplay.value.filter((group) => group.key === key);
 });
+const regexCreateGroups = computed(() => regexGroups.value.filter((group) => Number.isFinite(group.scriptType)));
 const shouldMountRegexEditor = computed(() => (
     activeSettingsWorkspace.value === 'regex'
     && (!isMobileSettingsViewport.value || mobileRegexEditorOpen.value)
@@ -50,8 +53,9 @@ function openRegexEditor(row: RegexRow) {
     mobileRegexEditorOpen.value = true;
 }
 
-function createMobileRegexScript(group: RegexGroup) {
+function createMobileRegexScript(group: RegexCreateGroup) {
     createRegexScript(group);
+    regexCreateMenuOpen.value = false;
     mobileRegexEditorOpen.value = true;
 }
 
@@ -59,9 +63,42 @@ function closeRegexEditor() {
     mobileRegexEditorOpen.value = false;
 }
 
+function cancelRegexEdit() {
+    applyActiveRegexScript(selectedRegexRow.value);
+    closeRegexEditor();
+}
+
+async function saveRegexEdit() {
+    await saveCurrentRegexScript();
+    if (!regexDirty.value) {
+        closeRegexEditor();
+    }
+}
+
+function toggleRegexCreateMenu() {
+    regexCreateMenuOpen.value = !regexCreateMenuOpen.value;
+}
+
+function regexCreateOptionTitle(group: RegexCreateGroup) {
+    if (group.key === 'scoped') {
+        return '保存到酒馆本体当前角色';
+    }
+    if (group.key === 'preset') {
+        return '保存到当前酒馆预设';
+    }
+    return '保存到全局正则';
+}
+
+function handleRegexRowKeydown(event: KeyboardEvent, row: RegexRow) {
+    if (event.key !== 'Enter' && event.key !== ' ') {return;}
+    event.preventDefault();
+    openRegexEditor(row);
+}
+
 watch(activeSettingsWorkspace, (workspace) => {
     if (workspace !== 'regex') {
         mobileRegexEditorOpen.value = false;
+        regexCreateMenuOpen.value = false;
     }
 });
 </script>
@@ -108,58 +145,41 @@ watch(activeSettingsWorkspace, (workspace) => {
         >
       </label>
       <div class="settings-toolstrip">
-        <button
-          type="button"
-          class="settings-icon-tool"
-          title="放弃修改"
-          aria-label="放弃修改"
-          :disabled="!regexDirty"
-          @click="applyActiveRegexScript(selectedRegexRow)"
+        <div
+          class="regex-create-menu"
+          :class="{ open: regexCreateMenuOpen }"
         >
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
+          <button
+            type="button"
+            class="settings-icon-tool regex-create-trigger"
+            title="新增正则"
+            aria-label="新增正则"
+            :aria-expanded="regexCreateMenuOpen ? 'true' : 'false'"
+            @click="toggleRegexCreateMenu"
           >
-            <path d="M3 7v6h6" />
-            <path d="M21 17a8 8 0 0 0-13.7-5.7L3 15" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="settings-icon-tool"
-          title="保存"
-          aria-label="保存"
-          :disabled="!regexDraft.scriptName || !regexDirty"
-          @click="saveCurrentRegexScript"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path d="M12 5v14" />
+              <path d="M5 12h14" />
+            </svg>
+          </button>
+          <div
+            v-if="regexCreateMenuOpen"
+            class="regex-create-popover"
           >
-            <path d="M5 21h14a1 1 0 0 0 1-1V7.5L16.5 4H5a1 1 0 0 0-1 1v15a1 1 0 0 0 1 1Z" />
-            <path d="M8 21v-7h8v7" />
-            <path d="M8 4v5h7" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="settings-icon-tool"
-          title="删除"
-          aria-label="删除"
-          :disabled="!selectedRegexRow"
-          @click="deleteCurrentRegexScript"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path d="M3 6h18" />
-            <path d="M8 6V4h8v2" />
-            <path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
-            <path d="M10 11v6" />
-            <path d="M14 11v6" />
-          </svg>
-        </button>
+            <button
+              v-for="group in regexCreateGroups"
+              :key="group.key"
+              type="button"
+              @click="createMobileRegexScript(group)"
+            >
+              <strong>{{ group.label }}</strong>
+              <span>{{ regexCreateOptionTitle(group) }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
     <div
@@ -179,31 +199,57 @@ watch(activeSettingsWorkspace, (workspace) => {
             <strong>{{ group.label }}</strong>
             <span>{{ group.allowed === false ? '未允许' : `${group.visibleRows.length} / ${group.filteredCount} / ${group.totalCount} 条` }}</span>
           </div>
-          <button
+          <div
             v-for="row in group.visibleRows"
             :key="row.key"
-            type="button"
-            class="native-list-row"
+            class="native-list-row regex-list-row"
             :class="{ selected: selectedRegexKey === row.key, disabled: row.script.disabled }"
-            title="编辑"
-            aria-label="编辑"
+            role="button"
+            tabindex="0"
             @click="openRegexEditor(row)"
+            @keydown="handleRegexRowKeydown($event, row)"
           >
             <span class="regex-row-state">{{ row.script.disabled ? '停' : '用' }}</span>
             <span class="regex-row-copy">
               <strong>{{ row.script.scriptName || '未命名正则' }}</strong>
               <small>{{ row.script.findRegex || '空匹配式' }}</small>
             </span>
-            <span class="regex-row-edit-icon">
-              <svg
-                viewBox="0 0 24 24"
-                aria-hidden="true"
+            <span class="regex-row-actions">
+              <button
+                type="button"
+                class="regex-row-icon regex-row-edit-icon"
+                title="编辑"
+                aria-label="编辑"
+                @click.stop="openRegexEditor(row)"
               >
-                <path d="M12 20h9" />
-                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-              </svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="regex-row-icon regex-row-delete-icon"
+                title="删除"
+                aria-label="删除"
+                @click.stop="deleteRegexScript(row)"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                </svg>
+              </button>
             </span>
-          </button>
+          </div>
           <button
             v-if="group.hiddenCount"
             type="button"
@@ -211,15 +257,6 @@ watch(activeSettingsWorkspace, (workspace) => {
             @click="expandRegexGroup(group.key)"
           >
             再显示 {{ Math.min(group.hiddenCount, REGEX_GROUP_BATCH_SIZE) }} 条
-          </button>
-          <button
-            type="button"
-            class="native-add-row"
-            :title="`新增${group.label}`"
-            :aria-label="`新增${group.label}`"
-            @click="createMobileRegexScript(group)"
-          >
-            新增
           </button>
         </div>
         <div
@@ -238,21 +275,23 @@ watch(activeSettingsWorkspace, (workspace) => {
           <div class="preset-preview-head">
             <strong>{{ regexDraft.scriptName || '新正则' }}</strong>
             <span>{{ regexDraftTypeLabel() }}</span>
-            <button
-              type="button"
-              class="regex-editor-close"
-              title="关闭"
-              aria-label="关闭"
-              @click="closeRegexEditor"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                aria-hidden="true"
+            <div class="regex-editor-actions">
+              <button
+                type="button"
+                class="regex-editor-secondary"
+                @click="cancelRegexEdit"
               >
-                <path d="M6 6l12 12" />
-                <path d="M18 6 6 18" />
-              </svg>
-            </button>
+                取消
+              </button>
+              <button
+                type="button"
+                class="regex-editor-primary"
+                :disabled="!regexDraft.scriptName || !regexDirty"
+                @click="saveRegexEdit"
+              >
+                保存
+              </button>
+            </div>
           </div>
           <div class="regex-editor-grid">
             <section class="regex-editor-section regex-pattern-section">

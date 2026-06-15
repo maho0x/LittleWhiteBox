@@ -861,8 +861,27 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     }
     async function deleteCurrentRegexScript() {
         const row = selectedRegexRow.value;
-        const id = String(regexDraft.value.id || row?.script.id || '');
-        const scriptType = row?.scriptType || Number(selectedRegexKey.value.split(':')[0]);
+        if (row) {
+            await deleteRegexScript(row);
+            return;
+        }
+        const id = String(regexDraft.value.id || '');
+        const scriptType = Number(selectedRegexKey.value.split(':')[0]);
+        if (!id || !Number.isFinite(scriptType)) {return;}
+        await deleteRegexScript({
+            key: `${scriptType}:${id}`,
+            groupKey: '',
+            groupLabel: '',
+            scriptType,
+            script: regexDraft.value,
+        });
+    }
+    async function deleteRegexScript(row: TavernRegexScriptRow) {
+        if (regexDirty.value && selectedRegexKey.value !== row.key && !confirmDiscardDraft('正则', '删除')) {
+            return;
+        }
+        const id = String(row?.script.id || '');
+        const scriptType = row?.scriptType;
         if (!id || !Number.isFinite(scriptType)) {return;}
         if (!window.confirm('删除这个正则脚本？')) {return;}
         regexStatus.value = '正在删除';
@@ -1352,6 +1371,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         createRegexScript,
         deleteCurrentAssistantPreset,
         deleteCurrentRegexScript,
+        deleteRegexScript,
         deriveAssistantPreset,
         discardAssistantPresetChanges,
         discardPresetChanges,
@@ -1385,6 +1405,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         regexDirty,
         regexDraft,
         regexDraftTypeLabel,
+        regexGroups,
         regexGroupsForDisplay,
         regexPlacementLabel,
         regexScriptRows,
