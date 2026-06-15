@@ -21,6 +21,7 @@ defineEmits<{
 <template>
   <section class="tavern-home xb-page home-command-center">
     <TavernCornerActions
+      include-exit
       :dark="dark"
       @toggle-theme="$emit('toggle-theme')"
       @exit="$emit('exit')"

@@ -18,7 +18,6 @@ const {
 const {
     activeView,
     homeThemeDark,
-    postToHost,
 } = shell;
 </script>
 
@@ -33,7 +32,6 @@ const {
       :dark="homeThemeDark"
       @home="activeView = 'home'"
       @toggle-theme="homeThemeDark = !homeThemeDark"
-      @exit="postToHost('xb-tavern:close')"
     />
     <TavernSettingsSidebar
       :active="activeSettingsWorkspace"

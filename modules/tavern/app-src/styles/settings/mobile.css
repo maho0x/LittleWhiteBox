@@ -590,11 +590,15 @@
 
     .settings-layout.is-regex-workspace .regex-studio .preset-preview-head {
         min-height: 54px;
-        padding: 0 12px;
+        padding: 0 112px 0 12px;
         border-bottom: 1px solid var(--xb-line);
     }
 
     .settings-layout.is-regex-workspace .regex-studio .preset-preview-head strong {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         font-size: 17px;
     }
 
@@ -603,20 +607,34 @@
     }
 
     .settings-layout.is-regex-workspace .regex-editor-actions {
-        gap: 6px;
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        z-index: 76;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
+        border: 1px solid var(--xb-line);
+        border-radius: 13px;
+        background: var(--xb-settings-sheet-bg);
+        box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.26);
+        padding: 8px;
+        margin-left: 0;
     }
 
     .settings-layout.is-regex-workspace .regex-editor-secondary,
     .settings-layout.is-regex-workspace .regex-editor-primary {
-        min-width: 62px;
-        min-height: 32px;
-        padding: 0 10px;
+        width: 100%;
+        min-width: 0;
+        min-height: 38px;
+        padding: 0 12px;
     }
 
     .settings-layout.is-regex-workspace .regex-editor-grid {
         gap: 8px;
         overflow: auto;
-        padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+        padding: 12px 12px calc(86px + env(safe-area-inset-bottom, 0px));
     }
 
     .settings-layout.is-regex-workspace .regex-editor-section {

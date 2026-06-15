@@ -246,6 +246,21 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(cssSource, /\.xb-os-shell\.theme-dark \.action-check-card-grid>div/);
 });
 
+test('tavern keeps the app exit button on home only', () => {
+    const homeSource = readRepoFile('modules/tavern/app-src/components/TavernHomePage.vue');
+    const aboutSource = readRepoFile('modules/tavern/app-src/components/TavernAboutPage.vue');
+    const characterSource = readRepoFile('modules/tavern/app-src/components/TavernCharacterSelectPage.vue');
+    const chatSource = readRepoFile('modules/tavern/app-src/components/chat/TavernChatPage.vue');
+    const settingsSource = readRepoFile('modules/tavern/app-src/components/settings/TavernSettingsPage.vue');
+
+    assert.match(homeSource, /include-exit/);
+    for (const source of [aboutSource, characterSource, chatSource, settingsSource]) {
+        assert.doesNotMatch(source, /@exit=/);
+        assert.doesNotMatch(source, /xb-tavern:close/);
+        assert.doesNotMatch(source, /aria-label="退出"/);
+    }
+});
+
 test('tavern memory sidebar keeps session-scoped lazy file loading and index-backed search text', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const memoryWorkspaceSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMemoryWorkspace.ts');

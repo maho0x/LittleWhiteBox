@@ -3979,7 +3979,6 @@ onUnmounted(() => {
         v-if="activeView === 'about'"
         :dark="homeThemeDark"
         @toggle-theme="homeThemeDark = !homeThemeDark"
-        @exit="postToHost('xb-tavern:close')"
         @back="activeView = 'home'"
       />
 
@@ -4002,7 +4001,6 @@ onUnmounted(() => {
         :avatar-available="avatarAvailable"
         :short-text="shortText"
         @toggle-theme="homeThemeDark = !homeThemeDark"
-        @exit="postToHost('xb-tavern:close')"
         @back="activeView = 'home'"
         @refresh="refreshCharacterList"
         @select="selectCharacterForPreview"

@@ -38,7 +38,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (event: 'toggle-theme'): void;
-    (event: 'exit'): void;
     (event: 'back'): void;
     (event: 'refresh'): void;
     (event: 'update:searchText', value: string): void;
@@ -114,7 +113,6 @@ defineExpose({ scrollSelectedIntoView });
       compact
       :dark="dark"
       @toggle-theme="$emit('toggle-theme')"
-      @exit="$emit('exit')"
     />
     <div class="character-desk">
       <header class="character-select-head">

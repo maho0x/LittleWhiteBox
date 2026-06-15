@@ -28,7 +28,6 @@ const {
     chatFocus,
     homeThemeDark,
     openPromptInspector,
-    postToHost,
 } = shell;
 const {
     chatAutoScroll,
@@ -200,7 +199,6 @@ onUpdated(() => {
       :dark="homeThemeDark"
       @home="activeView = 'home'"
       @toggle-theme="homeThemeDark = !homeThemeDark"
-      @exit="postToHost('xb-tavern:close')"
     />
     <header class="chat-mobile-topbar">
       <div class="chat-mobile-primary-row">
@@ -296,28 +294,6 @@ onUpdated(() => {
               aria-hidden="true"
             >
               <path d="M20.2 14.5A7.3 7.3 0 0 1 9.5 3.8 8.7 8.7 0 1 0 20.2 14.5Z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            class="chat-mobile-icon-button chat-mobile-utility-button"
-            title="退出"
-            aria-label="退出"
-            @click="postToHost('xb-tavern:close')"
-          >
-            <svg
-              class="chat-mobile-svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.9"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <path d="M16 17l5-5-5-5" />
-              <path d="M21 12H9" />
             </svg>
           </button>
         </div>

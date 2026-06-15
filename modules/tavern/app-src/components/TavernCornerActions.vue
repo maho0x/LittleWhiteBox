@@ -2,6 +2,7 @@
 defineProps<{
   dark: boolean;
   includeHome?: boolean;
+  includeExit?: boolean;
   compact?: boolean;
 }>();
 
@@ -79,6 +80,7 @@ const emit = defineEmits<{
       >☾</span>
     </button>
     <button
+      v-if="includeExit"
       type="button"
       class="home-icon-button home-exit-button"
       title="退出"

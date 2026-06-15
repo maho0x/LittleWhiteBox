@@ -7,7 +7,6 @@ defineProps<{
 
 defineEmits<{
     (event: 'toggle-theme'): void;
-    (event: 'exit'): void;
     (event: 'back'): void;
 }>();
 </script>
@@ -18,7 +17,6 @@ defineEmits<{
       compact
       :dark="dark"
       @toggle-theme="$emit('toggle-theme')"
-      @exit="$emit('exit')"
     />
     <button
       type="button"
