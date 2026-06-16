@@ -429,7 +429,6 @@ export interface TavernSettingsContext {
     isEditingWorldbookEntry: TavernCommand<[entry: TavernWorldbookPreviewEntryRow], boolean>;
     linesFromList: TavernCommand<[value: unknown], string>;
     listFromLines: TavernCommand<[value?: string], string[]>;
-    loadTavernUsers: TavernCommand<[], Promise<void>>;
     movePromptRow: TavernCommand<[identifier: string, direction: -1 | 1]>;
     postToHost: TavernCommand<[type: string, payload?: object]>;
     preset: Ref<TavernChatPromptPresetBundle>;
@@ -514,7 +513,6 @@ export interface TavernSettingsContext {
     worldbookSearchText: Ref<string>;
     worldbookStatus: Ref<string>;
     worldbookVisibleLimit: Ref<number>;
-    resetDisplaySettings: TavernCommand;
 }
 
 export interface TavernAppUiContext {

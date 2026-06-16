@@ -1219,16 +1219,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         if (next === current) {return;}
         updateDisplaySettingsPatch({ loadBatchSize: next });
     }
-    function resetDisplaySettings() {
-        const next = normalizeTavernDisplaySettings({ hiddenOutsideCount: 5, loadBatchSize: 20 }) as TavernDisplaySettings;
-        if (
-            next.hiddenOutsideCount === displaySettings.value.hiddenOutsideCount
-            && next.loadBatchSize === displaySettings.value.loadBatchSize
-        ) {
-            return;
-        }
-        void saveDisplaySettingsToHost(next);
-    }
     function applyTavernUsersPayload(payload: unknown) {
         const normalized = normalizeTavernUsersPayload(payload);
         tavernUsers.value = normalized.users;
@@ -1804,7 +1794,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         currentTavernUser,
         currentTavernUserId,
         displaySettings,
-        loadTavernUsers,
         REGEX_GROUP_BATCH_SIZE,
         regexDirty,
         regexDraft,
@@ -1874,7 +1863,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         worldbookSearchText,
         worldbookStatus,
         worldbookVisibleLimit,
-        resetDisplaySettings,
     };
 
     return {
