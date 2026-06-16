@@ -1,25 +1,25 @@
-/* Tavern settings: user workspace */
+/* Tavern settings: base workspace */
 
-.user-settings-workspace {
+.base-settings-workspace {
     overflow: hidden;
 }
 
-.user-settings-stack {
+.base-settings-stack {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
 }
 
-.user-settings-section {
+.base-settings-section {
     padding: clamp(22px, 3vw, 34px);
     border-bottom: 1px solid var(--xb-line);
 }
 
-.user-settings-section:last-child {
+.base-settings-section:last-child {
     border-bottom: 0;
 }
 
-.user-settings-section-head {
+.base-settings-section-head {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
@@ -27,11 +27,11 @@
     margin-bottom: 18px;
 }
 
-.user-settings-section-head > div {
+.base-settings-section-head > div {
     min-width: 0;
 }
 
-.user-settings-kicker {
+.base-settings-kicker {
     display: inline-block;
     margin-bottom: 8px;
     color: var(--xb-text-muted);
@@ -41,7 +41,7 @@
     text-transform: uppercase;
 }
 
-.user-settings-section-head h3 {
+.base-settings-section-head h3 {
     margin: 0;
     color: var(--xb-text-main);
     font-family: var(--xb-font-serif);
@@ -50,49 +50,49 @@
     line-height: 1.08;
 }
 
-.user-settings-section-head p {
+.base-settings-section-head p {
     margin: 10px 0 0;
     color: var(--xb-text-muted);
     font-size: 14px;
     line-height: 1.65;
 }
 
-.user-settings-inline-button,
-.user-settings-stepper-button {
+.base-settings-inline-button,
+.base-settings-stepper-button {
     border: 1px solid var(--xb-line);
     background: var(--xb-settings-control-bg);
     color: var(--xb-text-main);
 }
 
-.user-settings-inline-button {
+.base-settings-inline-button {
     min-height: 36px;
     border-radius: 999px;
     font-size: 13px;
     padding: 0 14px;
 }
 
-.user-settings-inline-button:hover:not(:disabled),
-.user-settings-inline-button:focus-visible,
-.user-settings-stepper-button:hover:not(:disabled),
-.user-settings-stepper-button:focus-visible {
+.base-settings-inline-button:hover:not(:disabled),
+.base-settings-inline-button:focus-visible,
+.base-settings-stepper-button:hover:not(:disabled),
+.base-settings-stepper-button:focus-visible {
     outline: none;
     border-color: rgba(var(--xb-accent-rgb), 0.34);
     background: rgba(var(--xb-accent-rgb), 0.08);
 }
 
-.user-settings-inline-button:disabled,
-.user-settings-stepper-button:disabled,
-.user-settings-user-card:disabled {
+.base-settings-inline-button:disabled,
+.base-settings-stepper-button:disabled,
+.base-settings-user-card:disabled {
     opacity: 0.5;
 }
 
-.user-settings-user-grid {
+.base-settings-user-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(228px, 1fr));
     gap: 12px;
 }
 
-.user-settings-user-card {
+.base-settings-user-card {
     min-height: 104px;
     display: grid;
     grid-template-columns: 58px minmax(0, 1fr);
@@ -106,23 +106,23 @@
     padding: 14px;
 }
 
-.user-settings-user-card:hover:not(:disabled),
-.user-settings-user-card:focus-visible {
+.base-settings-user-card:hover:not(:disabled),
+.base-settings-user-card:focus-visible {
     outline: none;
     border-color: var(--xb-line-strong);
     background: var(--xb-settings-soft-bg);
 }
 
-.user-settings-user-card.active {
+.base-settings-user-card.active {
     border-color: rgba(var(--xb-accent-rgb), 0.3);
     background: rgba(var(--xb-accent-rgb), 0.08);
 }
 
-.user-settings-user-card.switching {
+.base-settings-user-card.switching {
     opacity: 0.72;
 }
 
-.user-settings-user-avatar {
+.base-settings-user-avatar {
     width: 58px;
     height: 58px;
     display: grid;
@@ -137,25 +137,25 @@
     font-weight: 600;
 }
 
-.user-settings-user-avatar img {
+.base-settings-user-avatar img {
     width: 100%;
     height: 100%;
     display: block;
     object-fit: cover;
 }
 
-.user-settings-user-copy {
+.base-settings-user-copy {
     min-width: 0;
 }
 
-.user-settings-user-line {
+.base-settings-user-line {
     display: flex;
     align-items: center;
     gap: 8px;
     min-width: 0;
 }
 
-.user-settings-user-line strong {
+.base-settings-user-line strong {
     min-width: 0;
     overflow: hidden;
     color: var(--xb-text-main);
@@ -166,7 +166,7 @@
     white-space: nowrap;
 }
 
-.user-settings-user-badge {
+.base-settings-user-badge {
     flex: 0 0 auto;
     border: 1px solid rgba(var(--xb-accent-rgb), 0.32);
     border-radius: 999px;
@@ -176,19 +176,19 @@
     padding: 2px 8px;
 }
 
-.user-settings-user-copy p {
+.base-settings-user-copy p {
     margin: 8px 0 0;
     color: var(--xb-text-muted);
     font-size: 13px;
     line-height: 1.55;
 }
 
-.user-settings-display-list {
+.base-settings-display-list {
     display: grid;
     gap: 12px;
 }
 
-.user-settings-display-row {
+.base-settings-display-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -199,28 +199,28 @@
     padding: 16px 18px;
 }
 
-.user-settings-display-copy strong {
+.base-settings-display-copy strong {
     display: block;
     color: var(--xb-text-main);
     font-size: 16px;
     font-weight: 560;
 }
 
-.user-settings-display-copy p {
+.base-settings-display-copy p {
     margin: 8px 0 0;
     color: var(--xb-text-muted);
     font-size: 13px;
     line-height: 1.55;
 }
 
-.user-settings-stepper {
+.base-settings-stepper {
     display: inline-grid;
     grid-template-columns: auto auto auto;
     align-items: center;
     gap: 8px;
 }
 
-.user-settings-stepper-button {
+.base-settings-stepper-button {
     width: 34px;
     min-width: 34px;
     height: 34px;
@@ -228,7 +228,7 @@
     padding: 0;
 }
 
-.user-settings-stepper-button svg {
+.base-settings-stepper-button svg {
     width: 16px;
     height: 16px;
     stroke: currentColor;
@@ -239,14 +239,14 @@
     vector-effect: non-scaling-stroke;
 }
 
-.user-settings-stepper-value {
+.base-settings-stepper-value {
     min-width: 76px;
     display: grid;
     justify-items: center;
     gap: 2px;
 }
 
-.user-settings-stepper-value strong {
+.base-settings-stepper-value strong {
     color: var(--xb-text-main);
     font-family: var(--xb-font-serif);
     font-size: 24px;
@@ -254,14 +254,14 @@
     line-height: 1;
 }
 
-.user-settings-stepper-value span {
+.base-settings-stepper-value span {
     color: var(--xb-text-muted);
     font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
 
-.user-settings-note-list {
+.base-settings-note-list {
     display: grid;
     gap: 10px;
     margin: 0;
@@ -269,64 +269,64 @@
     color: var(--xb-text-body);
 }
 
-.user-settings-note-list li {
+.base-settings-note-list li {
     line-height: 1.6;
 }
 
 @media (max-width: 860px) {
-    .user-settings-section-head,
-    .user-settings-display-row {
+    .base-settings-section-head,
+    .base-settings-display-row {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .user-settings-section-head {
+    .base-settings-section-head {
         gap: 12px;
     }
 
-    .user-settings-inline-button {
+    .base-settings-inline-button {
         justify-self: start;
     }
 
-    .user-settings-stepper {
+    .base-settings-stepper {
         justify-self: start;
     }
 }
 
 @media (max-width: 560px) {
-    .user-settings-section {
+    .base-settings-section {
         padding: 14px;
     }
 
-    .user-settings-section-head h3 {
+    .base-settings-section-head h3 {
         font-size: 22px;
     }
 
-    .user-settings-user-grid {
+    .base-settings-user-grid {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .user-settings-user-card {
+    .base-settings-user-card {
         min-height: 92px;
         grid-template-columns: 50px minmax(0, 1fr);
         gap: 12px;
         padding: 12px;
     }
 
-    .user-settings-user-avatar {
+    .base-settings-user-avatar {
         width: 50px;
         height: 50px;
         font-size: 21px;
     }
 
-    .user-settings-display-row {
+    .base-settings-display-row {
         padding: 14px;
     }
 
-    .user-settings-stepper-value {
+    .base-settings-stepper-value {
         min-width: 64px;
     }
 
-    .user-settings-stepper-value strong {
+    .base-settings-stepper-value strong {
         font-size: 22px;
     }
 }

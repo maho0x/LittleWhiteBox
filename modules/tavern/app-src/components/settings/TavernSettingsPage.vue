@@ -2,11 +2,11 @@
 import TavernCornerActions from '../TavernCornerActions.vue';
 import TavernSettingsSidebar from '../TavernSettingsSidebar.vue';
 import TavernApiSettingsPanel from './TavernApiSettingsPanel.vue';
+import TavernBaseSettingsPanel from './TavernBaseSettingsPanel.vue';
 import TavernChatPresetSettingsPanel from './TavernChatPresetSettingsPanel.vue';
 import TavernWorldbooksSettingsPanel from './TavernWorldbooksSettingsPanel.vue';
 import TavernRegexSettingsPanel from './TavernRegexSettingsPanel.vue';
 import TavernAssistantPresetSettingsPanel from './TavernAssistantPresetSettingsPanel.vue';
-import TavernUserSettingsPanel from './TavernUserSettingsPanel.vue';
 import { useTavernSettingsContext, useTavernShellContext } from '../tavern-app-context';
 
 const settings = useTavernSettingsContext();
@@ -51,7 +51,7 @@ const {
 
       <TavernAssistantPresetSettingsPanel />
 
-      <TavernUserSettingsPanel />
+      <TavernBaseSettingsPanel />
     </section>
   </section>
 </template>

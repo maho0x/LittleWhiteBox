@@ -121,16 +121,6 @@ declare module '*.js' {
     export const AGENT_SETTINGS_CONFIG_VERSION: number;
     export function normalizeAgentSettings(settings: Record<string, unknown>): Record<string, unknown>;
     export function normalizeAgentConfig(settings: Record<string, unknown>): Record<string, unknown>;
-    export function normalizeTavernUserSettings(settings?: unknown): {
-        hiddenOutsideCount: number;
-        loadBatchSize: number;
-    };
-    export function normalizeTavernSettings(settings?: unknown): {
-        userSettings: {
-            hiddenOutsideCount: number;
-            loadBatchSize: number;
-        };
-    };
     export function normalizeJsApiPermission(value: unknown): string;
     export function normalizePresetName(value: unknown): string;
     export function createFirstPartyIframeOverlay(options: {

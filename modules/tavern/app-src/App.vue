@@ -5,7 +5,7 @@ import {
     normalizeHiddenOutsideCount,
     normalizeMessageLoadBatchSize,
 } from './message-window';
-import { normalizeTavernUserSettings } from '../../agent-core/config.js';
+import { normalizeTavernDisplaySettings, type TavernDisplaySettings } from '../shared/settings';
 import { useTavernMarkdownTools } from './components/chat/useTavernMarkdownTools';
 import { useTavernScrollPane } from './components/chat/useTavernScrollPane';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
@@ -179,9 +179,9 @@ const RUNTIME_DISPLAY_REGEX_THROTTLE_MS = 200;
 const context = ref<XbTavernContext>({});
 const diagnostics = ref<TavernDiagnostics>({});
 const agentConfig = ref<Record<string, unknown>>({});
-const tavernUserSettings = computed(() => normalizeTavernUserSettings((agentConfig.value?.tavern as Record<string, unknown> | undefined)?.userSettings));
-const hiddenOutsideCount = computed(() => normalizeHiddenOutsideCount(tavernUserSettings.value.hiddenOutsideCount));
-const loadBatchSize = computed(() => normalizeMessageLoadBatchSize(tavernUserSettings.value.loadBatchSize));
+const tavernDisplaySettings = ref<TavernDisplaySettings>(normalizeTavernDisplaySettings({}));
+const hiddenOutsideCount = computed(() => normalizeHiddenOutsideCount(tavernDisplaySettings.value.hiddenOutsideCount));
+const loadBatchSize = computed(() => normalizeMessageLoadBatchSize(tavernDisplaySettings.value.loadBatchSize));
 const hostRequestHeaders = ref<Record<string, unknown>>({});
 const hostMainFontSizePx = ref('15px');
 const hostProseLineHeightPx = ref('23px');
@@ -463,6 +463,7 @@ const {
     activeView,
     activeSettingsWorkspace,
     agentConfig,
+    tavernDisplaySettings,
     effectiveContext,
     homeThemeDark,
     isRunning,
@@ -1799,6 +1800,9 @@ function applyHostPayload(payload: Record<string, unknown>) {
     if ('agentConfig' in payload) {
         agentConfig.value = payload.agentConfig as Record<string, unknown> || agentConfig.value;
         syncApiSettingsConfigFromAgentConfig();
+    }
+    if ('tavernDisplaySettings' in payload) {
+        tavernDisplaySettings.value = normalizeTavernDisplaySettings(payload.tavernDisplaySettings);
     }
     applyHostChatPreset(payload);
     availableCharacters.value = payload.availableCharacters as TavernCharacterOption[] || availableCharacters.value;
@@ -4062,7 +4066,7 @@ onMounted(async () => {
     if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'regex') {
         void refreshRegexFromHost();
     }
-    if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'user') {
+    if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'base') {
         void loadTavernUsers();
     }
     postToHost('xb-tavern:frame-ready');

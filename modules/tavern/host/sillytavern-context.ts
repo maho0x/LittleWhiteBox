@@ -2,7 +2,6 @@ import { getContext } from '../../../../../../extensions.js';
 import { getTagKeyForEntity, tag_map } from '../../../../../../tags.js';
 import { getCharaFilename } from '../../../../../../utils.js';
 import { getWorldInfoSettings, METADATA_KEY, selected_world_info, world_info, world_info_position } from '../../../../../../world-info.js';
-import { getUserAvatars, setUserAvatar, user_avatar } from '../../../../../../personas.js';
 import { power_user } from '../../../../../../power-user.js';
 import { chat_metadata, characters as sillyTavernCharacters, getOneCharacter, getRequestHeaders, getThumbnailUrl, unshallowCharacter } from '../../../../../../../script.js';
 
@@ -46,14 +45,6 @@ interface TavernWorldbookSource {
     name: string;
     sourceType: 'chat' | 'persona' | 'character' | 'global';
     sourceIndex: number;
-}
-
-interface TavernHostUserOption {
-    id: string;
-    name: string;
-    avatarUrl: string;
-    description?: string;
-    active: boolean;
 }
 
 function normalizeText(value: unknown = ''): string {
@@ -113,16 +104,6 @@ function normalizeCharacterAvatar(value: unknown = ''): string {
         return getThumbnailUrl('avatar', text);
     } catch {
         return `/thumbnail?type=avatar&file=${encodeURIComponent(text)}`;
-    }
-}
-
-function normalizePersonaAvatar(value: unknown = ''): string {
-    const avatarId = normalizeText(value);
-    if (!avatarId) {return '';}
-    try {
-        return getThumbnailUrl('persona', avatarId);
-    } catch {
-        return `/thumbnail?type=persona&file=${encodeURIComponent(avatarId)}`;
     }
 }
 
@@ -515,40 +496,6 @@ function listCharacters(ctx: Record<string, unknown> = getContext?.() || {}): Ta
     }).filter((character) => character.name && !isSystemCharacterName(character.name));
 }
 
-function normalizeTavernUserOption(value: unknown, activeId = ''): TavernHostUserOption | null {
-    const avatarId = normalizeText(value);
-    if (!avatarId) {return null;}
-    const personaNames = asRecord(power_user?.personas);
-    const personaDescriptions = asRecord(power_user?.persona_descriptions);
-    const details = asRecord(personaDescriptions[avatarId]);
-    const name = normalizeText(personaNames[avatarId]) || avatarId;
-    return {
-        id: avatarId,
-        name,
-        avatarUrl: normalizePersonaAvatar(avatarId),
-        description: normalizeText(details.description || details.title),
-        active: avatarId === activeId,
-    };
-}
-
-async function buildTavernUserList(): Promise<{ users: TavernHostUserOption[]; currentUserId: string | null }> {
-    const avatars = await getUserAvatars(false);
-    const currentUserId = normalizeText(user_avatar) || null;
-    const users = (Array.isArray(avatars) ? avatars : [])
-        .map((avatarId) => normalizeTavernUserOption(avatarId, currentUserId || ''))
-        .filter((option): option is TavernHostUserOption => Boolean(option));
-    if (currentUserId && !users.some((item) => item.id === currentUserId)) {
-        const current = normalizeTavernUserOption(currentUserId, currentUserId);
-        if (current) {
-            users.unshift(current);
-        }
-    }
-    return {
-        users,
-        currentUserId,
-    };
-}
-
 async function fetchWorldbook(source: TavernWorldbookSource): Promise<Record<string, unknown>> {
     const response = await fetch('/api/worldinfo/get', {
         method: 'POST',
@@ -635,20 +582,4 @@ export async function buildTavernContext(options: TavernHostOptions = {}): Promi
         selectedCharacterId: normalizeText(resolveCharacterId(ctx, options)),
         ...getHostTypographyMetrics(),
     };
-}
-
-export async function listTavernUsers(): Promise<{ users: TavernHostUserOption[]; currentUserId: string | null }> {
-    return await buildTavernUserList();
-}
-
-export async function switchTavernUser(payload: Record<string, unknown> = {}): Promise<{ users: TavernHostUserOption[]; currentUserId: string | null }> {
-    const userId = normalizeText(payload.userId);
-    if (!userId) {
-        throw new Error('user_id_required');
-    }
-    await setUserAvatar(userId, {
-        toastPersonaNameChange: false,
-        navigateToCurrent: false,
-    });
-    return await buildTavernUserList();
 }

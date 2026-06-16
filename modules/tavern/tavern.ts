@@ -17,7 +17,9 @@ import {
 } from './host/regex.js';
 import { applyTavernSubstituteParams } from './host/substitute-params.js';
 import { runTavernSlashCommand } from './host/slash-commands.js';
-import { buildTavernContext, listTavernUsers, switchTavernUser } from './host/sillytavern-context.js';
+import { buildTavernContext } from './host/sillytavern-context.js';
+import { saveTavernDisplaySettings } from './host/display-settings.js';
+import { listTavernUsers, switchTavernUser } from './host/users.js';
 import {
     activateTavernCharacterWorldbook,
     bindTavernCharacterWorldbook,
@@ -487,20 +489,16 @@ async function handleUserRequest(type: string, payload: Record<string, unknown> 
             result = await listTavernUsers();
         } else if (type === 'xb-tavern:switch-user') {
             result = await switchTavernUser(payload.payload as Record<string, unknown> || {});
-        } else if (type === 'xb-tavern:save-user-settings') {
+        } else if (type === 'xb-tavern:save-display-settings') {
             const patch = payload.payload && typeof payload.payload === 'object'
                 ? payload.payload as Record<string, unknown>
                 : {};
-            const saveResult = await saveTavernAgentConfig({
-                tavern: {
-                    userSettings: patch,
-                },
-            }, { silent: false });
+            const saveResult = await saveTavernDisplaySettings(patch, { silent: false });
             if (!saveResult.ok) {
-                throw new Error(saveResult.error || 'user_settings_save_failed');
+                throw new Error(saveResult.error || 'display_settings_save_failed');
             }
             result = {
-                userSettings: ((saveResult.config as Record<string, unknown>)?.tavern as Record<string, unknown> | undefined)?.userSettings || {},
+                displaySettings: saveResult.displaySettings,
             };
             await sendConfigToFrame();
         }
@@ -641,7 +639,7 @@ function handleFrameMessage(event: MessageEvent): void {
             break;
         case 'xb-tavern:list-users':
         case 'xb-tavern:switch-user':
-        case 'xb-tavern:save-user-settings':
+        case 'xb-tavern:save-display-settings':
             void handleUserRequest(data.type, data.payload || {});
             break;
         default:

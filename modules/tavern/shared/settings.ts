@@ -1,0 +1,35 @@
+export interface TavernUserOption {
+    id: string;
+    name: string;
+    avatarUrl: string;
+    description?: string;
+    active: boolean;
+}
+
+export interface TavernDisplaySettings {
+    hiddenOutsideCount: number;
+    loadBatchSize: number;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function clampInteger(value: unknown, fallback: number, min: number, max: number) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {return fallback;}
+    return Math.min(max, Math.max(min, Math.floor(number)));
+}
+
+function normalizeLoadBatchSize(value: unknown, fallback = 20) {
+    const clamped = clampInteger(value, fallback, 5, 50);
+    return Math.min(50, Math.max(5, Math.round(clamped / 5) * 5));
+}
+
+export function normalizeTavernDisplaySettings(value: unknown = {}): TavernDisplaySettings {
+    const settings = asRecord(value);
+    return {
+        hiddenOutsideCount: clampInteger(settings.hiddenOutsideCount, 5, 1, 20),
+        loadBatchSize: normalizeLoadBatchSize(settings.loadBatchSize, 20),
+    };
+}

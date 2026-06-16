@@ -1,7 +1,7 @@
 import { computed, nextTick, ref, watch, type ComputedRef, type Ref } from 'vue';
 import { createAgentSettingsPanel } from '../../../../agent-core/ui/settings-panel.js';
 import { buildAgentSettingsPanelMarkup } from '../../../../agent-core/ui/settings-markup.js';
-import { normalizeAgentConfig, normalizeTavernUserSettings } from '../../../../agent-core/config.js';
+import { normalizeAgentConfig } from '../../../../agent-core/config.js';
 import {
     createDefaultTavernAssistantPreset,
     DEFAULT_TAVERN_ASSISTANT_PRESET_ID,
@@ -23,6 +23,11 @@ import {
     type TavernAssistantPresetRecord,
 } from '../../../shared/session-db';
 import { resolveXbTavernProviderConfig } from '../../runtime/provider';
+import {
+    normalizeTavernDisplaySettings,
+    type TavernDisplaySettings,
+    type TavernUserOption,
+} from '../../../shared/settings';
 import type { TavernSettingsNavItem } from '../TavernSettingsSidebar.vue';
 import type {
     TavernAssistantPresetItemRow,
@@ -37,25 +42,13 @@ import type {
     TavernWorldbookPreviewRow,
 } from '../tavern-app-context';
 
-export type TavernSettingsWorkspaceKey = 'api' | 'chatPreset' | 'worldbooks' | 'regex' | 'assistantPreset' | 'user';
-
-export interface TavernUserOption {
-    id: string;
-    name: string;
-    avatarUrl: string;
-    description?: string;
-    active: boolean;
-}
-
-export interface TavernDisplaySettings {
-    hiddenOutsideCount: number;
-    loadBatchSize: number;
-}
+export type TavernSettingsWorkspaceKey = 'api' | 'chatPreset' | 'worldbooks' | 'regex' | 'assistantPreset' | 'base';
 
 interface TavernSettingsControllerOptions {
     activeView: Ref<string>;
     activeSettingsWorkspace: Ref<TavernSettingsWorkspaceKey>;
     agentConfig: Ref<Record<string, unknown>>;
+    tavernDisplaySettings: Ref<TavernDisplaySettings>;
     effectiveContext: ComputedRef<XbTavernContext>;
     homeThemeDark: Ref<boolean>;
     isRunning: Ref<boolean>;
@@ -301,7 +294,7 @@ function normalizeTavernUsersPayload(value: unknown): { users: TavernUserOption[
 export function readInitialSettingsWorkspace(): TavernSettingsWorkspaceKey {
     const hash = String(window.location.hash || '').replace(/^#\/?/, '');
     const key = hash.split('/')[1];
-    if (key === 'api' || key === 'chatPreset' || key === 'worldbooks' || key === 'regex' || key === 'assistantPreset' || key === 'user') {return key;}
+    if (key === 'api' || key === 'chatPreset' || key === 'worldbooks' || key === 'regex' || key === 'assistantPreset' || key === 'base') {return key;}
     return 'api';
 }
 
@@ -356,13 +349,13 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     const regexStatus = ref('');
     const tavernUsers = ref<TavernUserOption[]>([]);
     const currentTavernUserId = ref<string | null>(null);
-    const userSettingsStatus = ref('');
-    const userSettingsSaving = ref(false);
-    const userSettingsLoading = ref(false);
+    const baseSettingsStatus = ref('');
+    const baseSettingsSaving = ref(false);
+    const baseSettingsLoading = ref(false);
     const switchingTavernUserId = ref('');
-    const displaySettings = ref(normalizeTavernUserSettings((options.agentConfig.value?.tavern as Record<string, unknown> | undefined)?.userSettings));
+    const displaySettings = ref(normalizeTavernDisplaySettings(options.tavernDisplaySettings.value));
     const committedDisplaySettings = ref(clonePromptJson(displaySettings.value) as TavernDisplaySettings);
-    let userSettingsSaveSerial = 0;
+    let baseSettingsSaveSerial = 0;
     let worldbookEntryLoadRequestSerial = 0;
     let worldbookEntryLoadRequestKey = '';
     let globalWorldbookRequestSerial = 0;
@@ -566,9 +559,9 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             mobileLabel: 'API',
         },
         {
-            key: 'user',
-            label: '用户设置',
-            mobileLabel: '用户',
+            key: 'base',
+            label: '基础设定',
+            mobileLabel: '基础',
         },
     ]);
     const currentTavernUser = computed(() => tavernUsers.value.find((item) => item.id === currentTavernUserId.value) || null);
@@ -1171,11 +1164,11 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             regexStatus.value = error instanceof Error ? error.message : String(error || '删除失败');
         }
     }
-    function readDisplaySettingsFromConfig(configSource: Record<string, unknown> = options.agentConfig.value || {}): TavernDisplaySettings {
-        return normalizeTavernUserSettings((configSource.tavern as Record<string, unknown> | undefined)?.userSettings) as TavernDisplaySettings;
+    function readDisplaySettingsFromHost(): TavernDisplaySettings {
+        return normalizeTavernDisplaySettings(options.tavernDisplaySettings.value) as TavernDisplaySettings;
     }
-    function syncDisplaySettingsFromConfig(options: { updateCommitted?: boolean } = {}) {
-        const normalized = readDisplaySettingsFromConfig();
+    function syncDisplaySettingsFromHost(options: { updateCommitted?: boolean } = {}) {
+        const normalized = readDisplaySettingsFromHost();
         displaySettings.value = normalized;
         if (options.updateCommitted !== false) {
             committedDisplaySettings.value = clonePromptJson(normalized) as TavernDisplaySettings;
@@ -1183,40 +1176,32 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     }
     function applyDisplaySettingsLocally(next: TavernDisplaySettings) {
         displaySettings.value = next;
-        const config = promptRecord(options.agentConfig.value);
-        const tavern = promptRecord(config.tavern);
-        options.agentConfig.value = normalizeAgentConfig({
-            ...config,
-            tavern: {
-                ...tavern,
-                userSettings: next,
-            },
-        });
+        options.tavernDisplaySettings.value = normalizeTavernDisplaySettings(next);
     }
     async function saveDisplaySettingsToHost(next: TavernDisplaySettings) {
-        const requestSerial = ++userSettingsSaveSerial;
-        userSettingsSaving.value = true;
-        userSettingsStatus.value = '正在保存显示设置';
+        const requestSerial = ++baseSettingsSaveSerial;
+        baseSettingsSaving.value = true;
+        baseSettingsStatus.value = '正在保存显示设置';
         applyDisplaySettingsLocally(next);
         try {
-            await options.requestHost('xb-tavern:save-user-settings', {
+            await options.requestHost('xb-tavern:save-display-settings', {
                 payload: next,
             });
-            if (requestSerial !== userSettingsSaveSerial) {return;}
-            committedDisplaySettings.value = clonePromptJson(readDisplaySettingsFromConfig(options.agentConfig.value || {})) as TavernDisplaySettings;
-            userSettingsStatus.value = '显示设置已保存';
+            if (requestSerial !== baseSettingsSaveSerial) {return;}
+            committedDisplaySettings.value = clonePromptJson(readDisplaySettingsFromHost()) as TavernDisplaySettings;
+            baseSettingsStatus.value = '显示设置已保存';
         } catch (error) {
-            if (requestSerial !== userSettingsSaveSerial) {return;}
+            if (requestSerial !== baseSettingsSaveSerial) {return;}
             applyDisplaySettingsLocally(clonePromptJson(committedDisplaySettings.value) as TavernDisplaySettings);
-            userSettingsStatus.value = error instanceof Error ? error.message : String(error || '保存失败');
+            baseSettingsStatus.value = error instanceof Error ? error.message : String(error || '保存失败');
         } finally {
-            if (requestSerial === userSettingsSaveSerial) {
-                userSettingsSaving.value = false;
+            if (requestSerial === baseSettingsSaveSerial) {
+                baseSettingsSaving.value = false;
             }
         }
     }
     function updateDisplaySettingsPatch(patch: Partial<TavernDisplaySettings>) {
-        const next = normalizeTavernUserSettings({
+        const next = normalizeTavernDisplaySettings({
             ...displaySettings.value,
             ...patch,
         }) as TavernDisplaySettings;
@@ -1235,7 +1220,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         updateDisplaySettingsPatch({ loadBatchSize: next });
     }
     function resetDisplaySettings() {
-        const next = normalizeTavernUserSettings({ hiddenOutsideCount: 5, loadBatchSize: 20 }) as TavernDisplaySettings;
+        const next = normalizeTavernDisplaySettings({ hiddenOutsideCount: 5, loadBatchSize: 20 }) as TavernDisplaySettings;
         if (
             next.hiddenOutsideCount === displaySettings.value.hiddenOutsideCount
             && next.loadBatchSize === displaySettings.value.loadBatchSize
@@ -1250,38 +1235,38 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         currentTavernUserId.value = normalized.currentUserId;
     }
     async function loadTavernUsers() {
-        userSettingsLoading.value = true;
+        baseSettingsLoading.value = true;
         if (!switchingTavernUserId.value) {
-            userSettingsStatus.value = '正在读取 USER 列表';
+            baseSettingsStatus.value = '正在读取 USER 列表';
         }
         try {
             const result = await options.requestHost('xb-tavern:list-users');
             applyTavernUsersPayload(result.result || result);
             if (!switchingTavernUserId.value) {
-                userSettingsStatus.value = '';
+                baseSettingsStatus.value = '';
             }
         } catch (error) {
-            userSettingsStatus.value = error instanceof Error ? error.message : String(error || 'USER 列表读取失败');
+            baseSettingsStatus.value = error instanceof Error ? error.message : String(error || 'USER 列表读取失败');
         } finally {
-            userSettingsLoading.value = false;
+            baseSettingsLoading.value = false;
         }
     }
     async function switchTavernUser(userId: string) {
         const targetId = String(userId || '').trim();
         if (!targetId || targetId === currentTavernUserId.value || switchingTavernUserId.value) {return;}
         switchingTavernUserId.value = targetId;
-        userSettingsStatus.value = '正在切换 USER';
+        baseSettingsStatus.value = '正在切换 USER';
         try {
             const result = await options.requestHost('xb-tavern:switch-user', {
                 payload: { userId: targetId },
             });
             applyTavernUsersPayload(result.result || result);
-            userSettingsStatus.value = currentTavernUser.value
+            baseSettingsStatus.value = currentTavernUser.value
                 ? `已切换到 ${currentTavernUser.value.name}`
                 : 'USER 已切换';
             options.postToHost('xb-tavern:refresh-context', {});
         } catch (error) {
-            userSettingsStatus.value = error instanceof Error ? error.message : String(error || '切换失败');
+            baseSettingsStatus.value = error instanceof Error ? error.message : String(error || '切换失败');
         } finally {
             switchingTavernUserId.value = '';
         }
@@ -1669,7 +1654,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             || normalized === 'worldbooks'
             || normalized === 'regex'
             || normalized === 'assistantPreset'
-            || normalized === 'user') {
+            || normalized === 'base') {
             openSettingsWorkspace(normalized);
         }
     }
@@ -1698,8 +1683,8 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     watch(regexSearchText, () => {
         regexGroupVisibleLimits.value = {};
     });
-    watch(() => options.agentConfig.value, () => {
-        syncDisplaySettingsFromConfig({ updateCommitted: !userSettingsSaving.value });
+    watch(() => options.tavernDisplaySettings.value, () => {
+        syncDisplaySettingsFromHost({ updateCommitted: !baseSettingsSaving.value });
     }, { immediate: true });
     watch(assistantPresetItems, (items) => {
         if (!items.length) {
@@ -1741,7 +1726,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         }
         if (
             view === 'settings'
-            && workspace === 'user'
+            && workspace === 'base'
             && (previousView !== view || previousWorkspace !== workspace)
         ) {
             void loadTavernUsers();
@@ -1868,9 +1853,9 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         updateRegexPatch,
         updateSelectedAssistantPresetItem,
         updateWorldbookEntryDraftPatch,
-        userSettingsLoading,
-        userSettingsSaving,
-        userSettingsStatus,
+        baseSettingsLoading,
+        baseSettingsSaving,
+        baseSettingsStatus,
         visibleAssistantPresetRecords,
         visibleChatPresetOptions,
         visiblePromptEditorRows,

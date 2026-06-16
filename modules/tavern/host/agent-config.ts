@@ -5,9 +5,9 @@ import {
     normalizeAgentSettings,
     normalizeJsApiPermission,
     normalizePresetName,
-    normalizeTavernSettings,
 } from '../../agent-core/config.js';
 import { getTavernChatPresetBundle, listTavernChatPresetBundles } from './chat-presets.js';
+import { loadTavernDisplaySettings } from './display-settings.js';
 
 const SERVER_FILE_KEY = 'settings';
 
@@ -36,7 +36,6 @@ export async function saveTavernAgentConfig(patch: Record<string, unknown> = {},
         jsApiPermission: normalizeJsApiPermission(patch.jsApiPermission ?? normalizedCurrent.jsApiPermission),
         tavilyApiKey: patch.tavilyApiKey ?? normalizedCurrent.tavilyApiKey,
         tavilyBaseUrl: patch.tavilyBaseUrl ?? normalizedCurrent.tavilyBaseUrl,
-        tavern: normalizeTavernSettings(patch.tavern ?? normalizedCurrent.tavern),
         currentPresetName: normalizePresetName(String(patch.currentPresetName || normalizedCurrent.currentPresetName || '')),
         delegatePresetName: normalizePresetName(String(
             patch.delegatePresetName
@@ -73,6 +72,7 @@ export async function saveTavernAgentConfig(patch: Record<string, unknown> = {},
 export async function buildTavernFrameConfig(contextPayload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
     return {
         agentConfig: await loadTavernAgentConfig(),
+        tavernDisplaySettings: await loadTavernDisplaySettings(),
         chatPreset: getTavernChatPresetBundle(),
         chatPresetList: listTavernChatPresetBundles(),
         hostRequestHeaders: getRequestHeaders?.() || {},

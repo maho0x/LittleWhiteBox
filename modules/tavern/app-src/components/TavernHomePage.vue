@@ -13,7 +13,7 @@ defineEmits<{
     (event: 'exit'): void;
     (event: 'enter'): void;
     (event: 'open-characters'): void;
-    (event: 'open-settings', workspace: 'api' | 'chatPreset' | 'assistantPreset' | 'worldbooks' | 'regex' | 'user'): void;
+    (event: 'open-settings', workspace: 'api' | 'chatPreset' | 'assistantPreset' | 'worldbooks' | 'regex' | 'base'): void;
     (event: 'open-about'): void;
 }>();
 </script>
@@ -178,7 +178,7 @@ defineEmits<{
         <button
           type="button"
           class="home-menu-item desktop-only"
-          @click="$emit('open-settings', 'user')"
+          @click="$emit('open-settings', 'base')"
         >
           <svg
             class="home-menu-icon"
@@ -192,8 +192,8 @@ defineEmits<{
               d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm-7 8a7 7 0 0 1 14 0"
             />
           </svg>
-          <strong>用户设置</strong>
-          <span>User Settings</span>
+          <strong>基础设定</strong>
+          <span>Base Setup</span>
         </button>
         <button
           type="button"
@@ -207,9 +207,9 @@ defineEmits<{
           <button
             type="button"
             class="home-menu-item mobile-footer-item"
-            @click="$emit('open-settings', 'user')"
+            @click="$emit('open-settings', 'base')"
           >
-            <strong>用户设置</strong>
+            <strong>基础设定</strong>
           </button>
           <button
             type="button"

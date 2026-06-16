@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { TavernUserOption } from '../tavern-app-context';
-import { useTavernSettingsContext } from '../tavern-app-context';
+import { useTavernSettingsContext, type TavernUserOption } from '../tavern-app-context';
 
 const settings = useTavernSettingsContext();
 const {
     activeSettingsWorkspace,
+    baseSettingsLoading,
+    baseSettingsSaving,
+    baseSettingsStatus,
     currentTavernUser,
     displaySettings,
     loadTavernUsers,
@@ -16,9 +18,6 @@ const {
     switchingTavernUserId,
     switchTavernUser,
     tavernUsers,
-    userSettingsLoading,
-    userSettingsSaving,
-    userSettingsStatus,
 } = settings;
 
 const currentUserLabel = computed(() => currentTavernUser.value?.name || '未选择 USER');
@@ -44,35 +43,35 @@ function userCardInitial(user: TavernUserOption) {
 
 <template>
   <div
-    v-show="activeSettingsWorkspace === 'user'"
-    class="panel step-panel user-settings-workspace"
+    v-show="activeSettingsWorkspace === 'base'"
+    class="panel step-panel base-settings-workspace"
   >
     <div class="panel-head preset-page-head">
       <div>
-        <h2>用户设置</h2>
+        <h2>基础设定</h2>
       </div>
       <div class="panel-pills">
         <span class="pill">{{ tavernUsers.length }} 个 USER</span>
       </div>
     </div>
     <div
-      v-if="userSettingsStatus"
+      v-if="baseSettingsStatus"
       class="preset-status-line"
     >
-      <span>{{ userSettingsStatus }}</span>
+      <span>{{ baseSettingsStatus }}</span>
     </div>
-    <div class="user-settings-stack">
-      <section class="user-settings-section">
-        <div class="user-settings-section-head">
+    <div class="base-settings-stack">
+      <section class="base-settings-section">
+        <div class="base-settings-section-head">
           <div>
-            <span class="user-settings-kicker">USER</span>
+            <span class="base-settings-kicker">USER</span>
             <h3>切换当前 USER</h3>
             <p>{{ currentUserLabel }} · {{ currentUserDescription }}</p>
           </div>
           <button
             type="button"
-            class="user-settings-inline-button"
-            :disabled="userSettingsLoading || !!switchingTavernUserId"
+            class="base-settings-inline-button"
+            :disabled="baseSettingsLoading || !!switchingTavernUserId"
             @click="loadTavernUsers"
           >
             刷新列表
@@ -80,18 +79,18 @@ function userCardInitial(user: TavernUserOption) {
         </div>
         <div
           v-if="tavernUsers.length"
-          class="user-settings-user-grid"
+          class="base-settings-user-grid"
         >
           <button
             v-for="user in tavernUsers"
             :key="user.id"
             type="button"
-            class="user-settings-user-card"
+            class="base-settings-user-card"
             :class="{ active: user.active, switching: switchingTavernUserId === user.id }"
             :disabled="!!switchingTavernUserId && switchingTavernUserId !== user.id"
             @click="switchTavernUser(user.id)"
           >
-            <div class="user-settings-user-avatar">
+            <div class="base-settings-user-avatar">
               <img
                 v-if="user.avatarUrl"
                 :src="user.avatarUrl"
@@ -99,12 +98,12 @@ function userCardInitial(user: TavernUserOption) {
               >
               <span v-else>{{ userCardInitial(user) }}</span>
             </div>
-            <div class="user-settings-user-copy">
-              <div class="user-settings-user-line">
+            <div class="base-settings-user-copy">
+              <div class="base-settings-user-line">
                 <strong>{{ user.name }}</strong>
                 <span
                   v-if="user.active"
-                  class="user-settings-user-badge"
+                  class="base-settings-user-badge"
                 >当前</span>
               </div>
               <p>{{ shortText(userCardDescription(user), 80) }}</p>
@@ -115,105 +114,117 @@ function userCardInitial(user: TavernUserOption) {
           v-else
           class="empty-note"
         >
-          {{ userSettingsLoading ? '正在读取 USER 列表…' : '当前没有可切换的 USER。' }}
+          {{ baseSettingsLoading ? '正在读取 USER 列表…' : '当前没有可切换的 USER。' }}
         </div>
       </section>
 
-      <section class="user-settings-section">
-        <div class="user-settings-section-head">
+      <section class="base-settings-section">
+        <div class="base-settings-section-head">
           <div>
-            <span class="user-settings-kicker">显示</span>
+            <span class="base-settings-kicker">显示</span>
             <h3>楼层显示</h3>
             <p>这两项会立刻影响当前聊天窗口的显示和向前加载节奏。</p>
           </div>
           <button
             type="button"
-            class="user-settings-inline-button"
-            :disabled="userSettingsSaving"
+            class="base-settings-inline-button"
+            :disabled="baseSettingsSaving"
             @click="resetDisplaySettings"
           >
             恢复默认
           </button>
         </div>
-        <div class="user-settings-display-list">
-          <div class="user-settings-display-row">
-            <div class="user-settings-display-copy">
+        <div class="base-settings-display-list">
+          <div class="base-settings-display-row">
+            <div class="base-settings-display-copy">
               <strong>窗口外隐藏数</strong>
               <p>默认 5 楼，可调整范围 1-20。</p>
             </div>
-            <div class="user-settings-stepper">
+            <div class="base-settings-stepper">
               <button
                 type="button"
-                class="user-settings-stepper-button"
-                :disabled="userSettingsSaving || displaySettings.hiddenOutsideCount <= 1"
+                class="base-settings-stepper-button"
+                :disabled="baseSettingsSaving || displaySettings.hiddenOutsideCount <= 1"
                 title="减少隐藏数"
                 aria-label="减少隐藏数"
                 @click="stepHiddenOutsideCount(-1)"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                ><path d="M5 12h14" /></svg>
               </button>
-              <div class="user-settings-stepper-value">
+              <div class="base-settings-stepper-value">
                 <strong>{{ displaySettings.hiddenOutsideCount }}</strong>
                 <span>楼</span>
               </div>
               <button
                 type="button"
-                class="user-settings-stepper-button"
-                :disabled="userSettingsSaving || displaySettings.hiddenOutsideCount >= 20"
+                class="base-settings-stepper-button"
+                :disabled="baseSettingsSaving || displaySettings.hiddenOutsideCount >= 20"
                 title="增加隐藏数"
                 aria-label="增加隐藏数"
                 @click="stepHiddenOutsideCount(1)"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                ><path d="M12 5v14" /><path d="M5 12h14" /></svg>
               </button>
             </div>
           </div>
 
-          <div class="user-settings-display-row">
-            <div class="user-settings-display-copy">
+          <div class="base-settings-display-row">
+            <div class="base-settings-display-copy">
               <strong>滚动加载批次</strong>
               <p>默认 20 楼，按 5 楼步进，可调整范围 5-50。</p>
             </div>
-            <div class="user-settings-stepper">
+            <div class="base-settings-stepper">
               <button
                 type="button"
-                class="user-settings-stepper-button"
-                :disabled="userSettingsSaving || displaySettings.loadBatchSize <= 5"
+                class="base-settings-stepper-button"
+                :disabled="baseSettingsSaving || displaySettings.loadBatchSize <= 5"
                 title="减少加载批次"
                 aria-label="减少加载批次"
                 @click="stepLoadBatchSize(-1)"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                ><path d="M5 12h14" /></svg>
               </button>
-              <div class="user-settings-stepper-value">
+              <div class="base-settings-stepper-value">
                 <strong>{{ displaySettings.loadBatchSize }}</strong>
                 <span>楼</span>
               </div>
               <button
                 type="button"
-                class="user-settings-stepper-button"
-                :disabled="userSettingsSaving || displaySettings.loadBatchSize >= 50"
+                class="base-settings-stepper-button"
+                :disabled="baseSettingsSaving || displaySettings.loadBatchSize >= 50"
                 title="增加加载批次"
                 aria-label="增加加载批次"
                 @click="stepLoadBatchSize(1)"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                ><path d="M12 5v14" /><path d="M5 12h14" /></svg>
               </button>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="user-settings-section">
-        <div class="user-settings-section-head">
+      <section class="base-settings-section">
+        <div class="base-settings-section-head">
           <div>
-            <span class="user-settings-kicker">上下文说明</span>
+            <span class="base-settings-kicker">上下文说明</span>
             <h3>总结阈值</h3>
             <p>暂未开放。这里仅展示当前上下文窗口的运行逻辑。</p>
           </div>
           <span class="pill">暂未开放</span>
         </div>
-        <ul class="user-settings-note-list">
+        <ul class="base-settings-note-list">
           <li
             v-for="line in contextSummaryLines"
             :key="line"

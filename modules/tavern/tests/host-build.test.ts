@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '../../..');
@@ -21,6 +21,24 @@ test('tavern host build script compiles every host module imported by tavern.ts'
 
     assert.deepEqual(
         hostImports.filter((path) => !entryPoints.includes(path)),
+        [],
+    );
+});
+
+test('tavern host build script compiles shared runtime modules imported by host modules', () => {
+    const buildSource = readRepoFile('scripts/build-tavern-host.mjs');
+    const hostSources = readdirSync(resolve(root, 'modules/tavern/host'))
+        .filter((name) => name.endsWith('.ts'))
+        .map((name) => readRepoFile(`modules/tavern/host/${name}`));
+    const sharedImports = hostSources.flatMap((source) => [...source.matchAll(/^\s*import\s+(?!type)[^;]*?from ['"]\.\.\/shared\/([^'"]+)\.js['"];?/gm)]
+        .map((match) => `modules/tavern/shared/${match[1]}.ts`))
+        .sort();
+    const entryPoints = [...buildSource.matchAll(/['"](modules\/tavern\/(?:host|shared)\/[^'"]+\.ts)['"]/g)]
+        .map((match) => match[1])
+        .sort();
+
+    assert.deepEqual(
+        sharedImports.filter((path) => !entryPoints.includes(path)),
         [],
     );
 });

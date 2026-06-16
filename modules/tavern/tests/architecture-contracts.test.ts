@@ -267,6 +267,36 @@ test('tavern settings controller owns settings page state and host sync', () => 
     assert.doesNotMatch(appSource, /apiSettingsPanelState/);
 });
 
+test('tavern-only settings normalization stays out of agent core', () => {
+    const agentCoreConfigSource = readRepoFile('modules/agent-core/config.js');
+    const tavernSettingsSource = readRepoFile('modules/tavern/shared/settings.ts');
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const settingsControllerSource = readRepoFile('modules/tavern/app-src/components/settings/useTavernSettingsController.ts');
+    const hostAgentConfigSource = readRepoFile('modules/tavern/host/agent-config.ts');
+    const hostDisplaySettingsSource = readRepoFile('modules/tavern/host/display-settings.ts');
+
+    assert.doesNotMatch(agentCoreConfigSource, /normalizeTavernDisplaySettings|normalizeTavernUserSettings|normalizeTavernSettings/);
+    assert.match(tavernSettingsSource, /export function normalizeTavernDisplaySettings/);
+    assert.doesNotMatch(tavernSettingsSource, /normalizeTavernAgentConfig|normalizeTavernAgentSettings|mergeTavernSettings/);
+    assert.match(appSource, /from '\.\.\/shared\/settings'/);
+    assert.match(settingsControllerSource, /from '\.\.\/\.\.\/\.\.\/shared\/settings'/);
+    assert.doesNotMatch(hostAgentConfigSource, /from '\.\.\/shared\/settings\.js'/);
+    assert.match(hostDisplaySettingsSource, /tavern-display-settings/);
+});
+
+test('tavern user host bridge stays separate from context assembly', () => {
+    const contextSource = readRepoFile('modules/tavern/host/sillytavern-context.ts');
+    const usersSource = readRepoFile('modules/tavern/host/users.ts');
+    const tavernSource = readRepoFile('modules/tavern/tavern.ts');
+
+    assert.doesNotMatch(contextSource, /getUserAvatars|setUserAvatar|listTavernUsers|switchTavernUser/);
+    assert.match(usersSource, /getUserAvatars/);
+    assert.match(usersSource, /setUserAvatar/);
+    assert.match(usersSource, /export async function listTavernUsers/);
+    assert.match(usersSource, /export async function switchTavernUser/);
+    assert.match(tavernSource, /from '\.\/host\/users\.js'/);
+});
+
 test('tavern manager display projection stays out of the app controller', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const managerDisplaySource = readRepoFile('modules/tavern/app-src/components/chat/useTavernManagerDisplay.ts');

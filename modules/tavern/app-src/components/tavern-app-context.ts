@@ -25,6 +25,8 @@ import type {
     TavernStructuredStateDocumentRecord,
     TavernStructuredStatePatchRecord,
 } from '../../shared/session-db';
+import type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
+export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
 export type TavernCommand<TArgs extends unknown[] = [], TResult = void> = (...args: TArgs) => TResult;
@@ -112,19 +114,6 @@ export interface TavernRegexScriptDraft {
     disabled?: boolean;
     placement?: number[];
     [key: string]: unknown;
-}
-
-export interface TavernUserOption {
-    id: string;
-    name: string;
-    avatarUrl: string;
-    description?: string;
-    active: boolean;
-}
-
-export interface TavernDisplaySettings {
-    hiddenOutsideCount: number;
-    loadBatchSize: number;
 }
 
 export interface TavernRegexGroupRow {
@@ -504,9 +493,9 @@ export interface TavernSettingsContext {
     updateRegexPatch: TavernCommand<[patch: Partial<TavernRegexScriptDraft>]>;
     updateSelectedAssistantPresetItem: TavernCommand<[value?: string]>;
     updateWorldbookEntryDraftPatch: TavernCommand<[patch: Partial<TavernWorldbookEntryDraft>]>;
-    userSettingsLoading: Ref<boolean>;
-    userSettingsSaving: Ref<boolean>;
-    userSettingsStatus: Ref<string>;
+    baseSettingsLoading: Ref<boolean>;
+    baseSettingsSaving: Ref<boolean>;
+    baseSettingsStatus: Ref<string>;
     visibleAssistantPresetRecords: TavernReadable<TavernAssistantPresetRecord[]>;
     visibleChatPresetOptions: TavernReadable<TavernChatPresetOptionRow[]>;
     visiblePromptEditorRows: TavernReadable<TavernPromptEditorRow[]>;
