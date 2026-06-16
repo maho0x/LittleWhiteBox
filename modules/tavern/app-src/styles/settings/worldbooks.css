@@ -812,7 +812,7 @@
     .worldbook-entry-editor {
         --worldbook-entry-control-height: 34px;
         gap: 8px;
-        padding: 2px 0 calc(82px + env(safe-area-inset-bottom, 0px));
+        padding: 2px 0 0;
     }
 
     .worldbook-entry-editor-head {
@@ -824,11 +824,10 @@
     }
 
     .worldbook-entry-editor-actions {
-        position: fixed;
-        left: 12px;
-        right: 12px;
-        bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-        z-index: 76;
+        position: sticky;
+        bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+        z-index: 3;
+        order: 100;
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         gap: 8px;
@@ -836,6 +835,7 @@
         border-radius: 13px;
         background: var(--xb-settings-sheet-bg);
         box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.26);
+        margin-top: 2px;
         padding: 8px;
     }
 

@@ -95,9 +95,10 @@ test('tavern mobile worldbook entry rows stay compact', () => {
     assert.match(worldbookSource, /class="worldbook-entry-title-row"[\s\S]*>条目名<[\s\S]*class="worldbook-entry-active-toggle"[\s\S]*>启用</);
     assert.doesNotMatch(worldbookCss, /\.worldbook-entry-position\s*\{[^}]*grid-row:\s*2;/);
     assert.doesNotMatch(mobileCss, /\.worldbook-entry-position\s*\{[^}]*grid-row:\s*2;/);
+    assert.doesNotMatch(worldbookCss, /padding: 2px 0 calc\(82px \+ env\(safe-area-inset-bottom, 0px\)\);/);
     assert.match(worldbookCss, /@media \(max-width: 560px\) \{[\s\S]*\.worldbook-entry-preview summary \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto auto 12px;/);
     assert.match(worldbookCss, /@media \(max-width: 560px\) \{[\s\S]*\.worldbook-entry-editor-head \{[\s\S]*display: contents;/);
-    assert.match(worldbookCss, /@media \(max-width: 560px\) \{[\s\S]*\.worldbook-entry-editor-actions \{[\s\S]*position: fixed;[\s\S]*bottom: calc\(10px \+ env\(safe-area-inset-bottom, 0px\)\);[\s\S]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/);
+    assert.match(worldbookCss, /@media \(max-width: 560px\) \{[\s\S]*\.worldbook-entry-editor-actions \{[\s\S]*position: sticky;[\s\S]*bottom: calc\(8px \+ env\(safe-area-inset-bottom, 0px\)\);[\s\S]*order: 100;[\s\S]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/);
     assert.match(worldbookCss, /@media \(max-width: 560px\) \{[\s\S]*\.worldbook-entry-core-grid \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) minmax\(72px, 0\.75fr\) minmax\(60px, 0\.55fr\);[\s\S]*align-items: stretch;/);
     assert.match(worldbookCss, /@media \(max-width: 560px\) \{[\s\S]*\.worldbook-entry-title-row \{[\s\S]*order: 1;[\s\S]*grid-column: 1 \/ -1;/);
     assert.match(worldbookCss, /@media \(max-width: 560px\) \{[\s\S]*\.worldbook-entry-position-field \{[\s\S]*order: 2;[\s\S]*\.worldbook-entry-state-field \{[\s\S]*order: 3;[\s\S]*\.worldbook-entry-depth-field \{[\s\S]*order: 4;/);
