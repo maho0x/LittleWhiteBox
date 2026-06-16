@@ -51,25 +51,21 @@ textarea:disabled {
     max-width: 100%;
 }
 
-.xb-tavern-codeblock pre {
-    padding-top: 34px;
-}
-
 .xb-tavern-code-copy {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 4px;
+    right: 4px;
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
-    min-width: 24px;
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
     border: 0;
-    border-radius: 8px;
+    border-radius: 4px;
     background: rgba(255, 255, 255, 0.10);
     color: var(--xb-text-main);
     cursor: pointer;
-    font: 600 12px/1 "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+    font: 600 11px/1 "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
     opacity: 0.82;
     padding: 0;
 }
@@ -77,6 +73,15 @@ textarea:disabled {
 .xb-tavern-code-copy:hover {
     background: rgba(255, 255, 255, 0.16);
     opacity: 1;
+}
+
+.xb-os-shell.theme-light .xb-tavern-code-copy {
+    background: rgba(26, 26, 26, 0.055);
+    color: var(--xb-ink-soft);
+}
+
+.xb-os-shell.theme-light .xb-tavern-code-copy:hover {
+    background: rgba(26, 26, 26, 0.095);
 }
 
 .xb-markdown-html-block {

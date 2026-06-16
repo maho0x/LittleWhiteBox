@@ -68,6 +68,7 @@ test('tavern app requests sanitize payload before postMessage', () => {
 test('tavern chat typography follows host SillyTavern font metrics inside the iframe', () => {
     const hostSource = readRepoFile('modules/tavern/host/sillytavern-context.ts');
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const baseCss = readRepoFile('modules/tavern/app-src/styles/base.css');
     const markdownCss = readRepoFile('modules/tavern/app-src/styles/chat/markdown.css');
     const composeCss = readRepoFile('modules/tavern/app-src/styles/chat/compose.css');
     const messagesCss = readRepoFile('modules/tavern/app-src/styles/chat/messages.css');
@@ -81,6 +82,13 @@ test('tavern chat typography follows host SillyTavern font metrics inside the if
     assert.match(appSource, /--xb-host-main-font-size/);
     assert.match(appSource, /--xb-host-prose-line-height/);
     assert.match(markdownCss, /font-size: var\(--xb-host-main-font-size, 15px\);/);
+    assert.match(markdownCss, /\.xb-tavern-markdown pre \{[\s\S]*background: rgba\(26, 26, 26, 0\.035\);/);
+    assert.match(markdownCss, /\.xb-tavern-markdown pre \{[\s\S]*padding: 7px 8px;/);
+    assert.doesNotMatch(markdownCss, /\.xb-tavern-markdown pre \{[\s\S]*background: rgba\(10, 12, 18, 0\.28\);/);
+    assert.doesNotMatch(baseCss, /\.xb-tavern-codeblock pre \{[\s\S]*padding-top: 34px;/);
+    assert.match(baseCss, /\.xb-tavern-code-copy \{[\s\S]*width: 20px;[\s\S]*height: 20px;[\s\S]*border-radius: 4px;/);
+    assert.match(messagesCss, /\.message-actions \{[\s\S]*border-top: 1px solid rgba\(120, 112, 98, 0\.16\);[\s\S]*padding-top: 10px;/);
+    assert.match(messagesCss, /\.xb-os-shell\.theme-dark \.message-actions \{[\s\S]*border-top-color: rgba\(238, 244, 241, 0\.14\);/);
     assert.match(composeCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);
     assert.match(messagesCss, /font-size: var\(--xb-host-main-font-size, 15px\);/);
     assert.match(memoryCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);

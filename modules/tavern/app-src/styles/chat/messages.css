@@ -540,6 +540,8 @@
     justify-content: flex-end;
     gap: 6px;
     margin-top: 16px;
+    border-top: 1px solid rgba(120, 112, 98, 0.16);
+    padding-top: 10px;
     opacity: 0.28;
     transition: opacity 0.18s ease;
 }
@@ -621,6 +623,7 @@
 }
 
 .xb-os-shell.theme-dark .message-actions {
+    border-top-color: rgba(238, 244, 241, 0.14);
     opacity: 0.64;
 }
 
