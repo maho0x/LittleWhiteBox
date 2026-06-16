@@ -512,6 +512,7 @@ export interface TavernSettingsContext {
     stepLoadBatchSize: TavernCommand<[direction: -1 | 1]>;
     startWorldbookEntryEdit: TavernCommand<[entry: TavernWorldbookPreviewEntryRow], Promise<void>>;
     switchingTavernUserId: Ref<string>;
+    syncChatPresetFromHost: TavernCommand<[], Promise<void>>;
     syncGlobalWorldbooksFromHost: TavernCommand<[], Promise<void>>;
     syncWorldbooksFromHost: TavernCommand<[options?: { keepSelection?: boolean }], Promise<void>>;
     switchTavernUser: TavernCommand<[userId: string], Promise<void>>;

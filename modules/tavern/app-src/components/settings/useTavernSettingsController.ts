@@ -1898,6 +1898,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         stepLoadBatchSize,
         startWorldbookEntryEdit,
         switchingTavernUserId,
+        syncChatPresetFromHost,
         syncGlobalWorldbooksFromHost,
         syncWorldbooksFromHost,
         switchTavernUser,

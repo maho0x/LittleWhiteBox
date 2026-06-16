@@ -186,7 +186,7 @@
     display: none;
 }
 
-.chat-api-config-overlay {
+.chat-quick-settings-overlay {
     position: absolute;
     inset: 0;
     z-index: 96;
@@ -197,8 +197,8 @@
     backdrop-filter: blur(16px);
 }
 
-.chat-api-config-dialog {
-    width: min(860px, 100%);
+.chat-quick-settings-dialog {
+    width: min(960px, 100%);
     max-height: min(88vh, 900px);
     min-height: 0;
     display: grid;
@@ -210,7 +210,7 @@
     box-shadow: var(--xb-shadow);
 }
 
-.chat-api-config-head {
+.chat-quick-settings-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -220,13 +220,13 @@
     padding: 0 18px 0 22px;
 }
 
-.chat-api-config-head h2 {
+.chat-quick-settings-head h2 {
     margin: 0;
     color: var(--xb-text-main);
     font: 650 20px/1.2 var(--xb-font-serif);
 }
 
-.chat-api-config-close {
+.chat-quick-settings-close {
     width: 34px;
     min-width: 34px;
     height: 34px;
@@ -240,14 +240,50 @@
     line-height: 1;
 }
 
-.chat-api-config-body {
+.chat-quick-settings-body {
     min-height: 0;
     overflow: auto;
+    padding: 0;
+}
+
+.chat-quick-api-root {
+    width: 100%;
     padding: 20px clamp(18px, 3vw, 34px) 26px;
 }
 
-.chat-api-settings-root {
+.chat-quick-settings-layout {
     width: 100%;
+    min-height: 0;
+}
+
+.chat-quick-settings-layout .xb-main {
+    width: 100%;
+    min-height: 0;
+    display: block;
+    overflow: visible;
+    background: transparent;
+    padding: 0;
+}
+
+.chat-quick-settings-layout .step-panel {
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.chat-quick-settings-layout .preset-page-head,
+.chat-quick-settings-layout .panel-head {
+    min-height: 50px;
+    padding: 0 18px;
+}
+
+.chat-quick-settings-layout .preset-page-head h2,
+.chat-quick-settings-layout .panel-head h2 {
+    display: none;
 }
 
 @media (max-width: 980px) {
@@ -545,7 +581,7 @@
             linear-gradient(90deg, transparent, rgba(120, 112, 98, 0.42), transparent);
     }
 
-    .tavern-chat.xb-page .chat-api-config-overlay {
+    .tavern-chat.xb-page .chat-quick-settings-overlay {
         z-index: 92;
         align-items: end;
         padding: 10px;
@@ -553,31 +589,36 @@
         padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     }
 
-    .tavern-chat.xb-page .chat-api-config-dialog {
+    .tavern-chat.xb-page .chat-quick-settings-dialog {
         width: 100%;
         max-height: calc(100vh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
         max-height: calc(100dvh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
         border-radius: 16px;
     }
 
-    .tavern-chat.xb-page .chat-api-config-head {
+    .tavern-chat.xb-page .chat-quick-settings-head {
         min-height: 48px;
         padding: 0 10px 0 14px;
     }
 
-    .tavern-chat.xb-page .chat-api-config-head h2 {
+    .tavern-chat.xb-page .chat-quick-settings-head h2 {
         font-size: 18px;
     }
 
-    .tavern-chat.xb-page .chat-api-config-close {
+    .tavern-chat.xb-page .chat-quick-settings-close {
         width: 32px;
         min-width: 32px;
         height: 32px;
         min-height: 32px;
     }
 
-    .tavern-chat.xb-page .chat-api-config-body {
+    .tavern-chat.xb-page .chat-quick-api-root {
         padding: 12px 12px 18px;
+    }
+
+    .tavern-chat.xb-page .chat-quick-settings-layout .preset-page-head,
+    .tavern-chat.xb-page .chat-quick-settings-layout .panel-head {
+        min-height: 0;
     }
 
     .tavern-chat.xb-page .chat-mobile-sheet-handle.is-dragging {

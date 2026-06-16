@@ -11,9 +11,11 @@ import {
     useTavernWorkspaceContext,
 } from '../tavern-app-context';
 import TavernChatSidebar from './TavernChatSidebar.vue';
+import TavernChatPresetSettingsPanel from '../settings/TavernChatPresetSettingsPanel.vue';
 import TavernConversationPanel from './TavernConversationPanel.vue';
 import TavernManagerPanel from './TavernManagerPanel.vue';
 import TavernWorkspacePanel from './TavernWorkspacePanel.vue';
+import TavernWorldbooksSettingsPanel from '../settings/TavernWorldbooksSettingsPanel.vue';
 import {
     normalizeTavernSessionContract,
     type TavernContractPermissionKey,
@@ -50,13 +52,17 @@ const {
     sessionContract,
 } = workspace;
 const {
+    activeSettingsWorkspace,
     apiSettingsRootRef,
+    syncChatPresetFromHost,
+    syncGlobalWorldbooksFromHost,
+    syncWorldbooksFromHost,
 } = settings;
 
 let pendingChatScrollSnapshot: ElementScrollSnapshot | null = null;
 let pendingManagerScrollSnapshot: ElementScrollSnapshot | null = null;
 const contractModalOpen = ref(false);
-const apiConfigOpen = ref(false);
+const quickSettingsOpen = ref<'api' | 'chatPreset' | 'worldbooks' | null>(null);
 const contractSaving = ref(false);
 const contractError = ref('');
 const contractDraft = ref<TavernSessionContract>(normalizeTavernSessionContract(sessionContract.value));
@@ -111,13 +117,31 @@ function closeContractModal() {
     contractModalOpen.value = false;
 }
 
-function openApiConfigModal() {
+const quickSettingsTitle = computed(() => {
+    if (quickSettingsOpen.value === 'worldbooks') {return '世界书';}
+    if (quickSettingsOpen.value === 'chatPreset') {return '聊天预设';}
+    return 'API 配置';
+});
+
+const quickSettingsLayoutClass = computed(() => (
+    quickSettingsOpen.value ? `is-${quickSettingsOpen.value}-workspace` : ''
+));
+
+function openQuickSettingsModal(workspace: 'api' | 'chatPreset' | 'worldbooks') {
     closeMobileChatPanel();
-    apiConfigOpen.value = true;
+    activeSettingsWorkspace.value = workspace;
+    quickSettingsOpen.value = workspace;
+    if (workspace === 'chatPreset') {
+        void syncChatPresetFromHost();
+    }
+    if (workspace === 'worldbooks') {
+        void syncWorldbooksFromHost({ keepSelection: true });
+        void syncGlobalWorldbooksFromHost();
+    }
 }
 
-function closeApiConfigModal() {
-    apiConfigOpen.value = false;
+function closeQuickSettingsModal() {
+    quickSettingsOpen.value = null;
 }
 
 function setChatApiSettingsRootRef(element: Element | null) {
@@ -165,7 +189,7 @@ watch(() => selectedSessionId.value, () => {
 
 watch(() => activeView.value, (view) => {
     if (view !== 'chat') {
-        apiConfigOpen.value = false;
+        quickSettingsOpen.value = null;
     }
 });
 
@@ -221,12 +245,16 @@ onUpdated(() => {
   >
     <TavernCornerActions
       include-api
+      include-chat-preset
       include-home
+      include-worldbooks
       home-last
       :dark="homeThemeDark"
-      @api="openApiConfigModal"
+      @api="openQuickSettingsModal('api')"
+      @chat-preset="openQuickSettingsModal('chatPreset')"
       @home="activeView = 'home'"
       @toggle-theme="homeThemeDark = !homeThemeDark"
+      @worldbooks="openQuickSettingsModal('worldbooks')"
     />
     <header class="chat-mobile-topbar">
       <div class="chat-mobile-primary-row">
@@ -259,9 +287,53 @@ onUpdated(() => {
           <button
             type="button"
             class="chat-mobile-icon-button chat-mobile-utility-button"
+            title="世界书"
+            aria-label="世界书"
+            @click="openQuickSettingsModal('worldbooks')"
+          >
+            <svg
+              class="chat-mobile-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                stroke-width="1.6"
+                d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18ZM3.8 9h16.4M3.8 15h16.4M12 3c2 2.2 3 5.2 3 9s-1 6.8-3 9M12 3c-2 2.2-3 5.2-3 9s1 6.8 3 9"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-mobile-icon-button chat-mobile-utility-button"
+            title="聊天预设"
+            aria-label="聊天预设"
+            @click="openQuickSettingsModal('chatPreset')"
+          >
+            <svg
+              class="chat-mobile-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                stroke-width="1.6"
+                d="M5 5h14v10H9l-4 4V5ZM8 9h8M8 12h5"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-mobile-icon-button chat-mobile-utility-button"
             title="API 配置"
             aria-label="API 配置"
-            @click="openApiConfigModal"
+            @click="openQuickSettingsModal('api')"
           >
             <svg
               class="chat-mobile-svg"
@@ -429,36 +501,47 @@ onUpdated(() => {
       @save="sealContract"
     />
     <div
-      v-if="apiConfigOpen"
-      class="chat-api-config-overlay"
+      v-if="quickSettingsOpen"
+      class="chat-quick-settings-overlay"
       role="presentation"
-      @click.self="closeApiConfigModal"
+      @click.self="closeQuickSettingsModal"
     >
       <section
-        class="chat-api-config-dialog"
+        class="chat-quick-settings-dialog"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="chat-api-config-title"
+        aria-labelledby="chat-quick-settings-title"
       >
-        <header class="chat-api-config-head">
-          <h2 id="chat-api-config-title">
-            API 配置
+        <header class="chat-quick-settings-head">
+          <h2 id="chat-quick-settings-title">
+            {{ quickSettingsTitle }}
           </h2>
           <button
             type="button"
-            class="chat-api-config-close"
+            class="chat-quick-settings-close"
             title="关闭"
             aria-label="关闭"
-            @click="closeApiConfigModal"
+            @click="closeQuickSettingsModal"
           >
             ×
           </button>
         </header>
-        <div class="chat-api-config-body">
+        <div class="chat-quick-settings-body">
           <div
+            v-if="quickSettingsOpen === 'api'"
             :ref="setChatApiSettingsRootRef"
-            class="tavern-api-settings chat-api-settings-root"
+            class="tavern-api-settings chat-quick-api-root"
           />
+          <div
+            v-else
+            class="settings-layout chat-quick-settings-layout"
+            :class="quickSettingsLayoutClass"
+          >
+            <section class="xb-main">
+              <TavernChatPresetSettingsPanel />
+              <TavernWorldbooksSettingsPanel />
+            </section>
+          </div>
         </div>
       </section>
     </div>

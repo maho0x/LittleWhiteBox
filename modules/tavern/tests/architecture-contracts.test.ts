@@ -280,24 +280,28 @@ test('tavern split UI keeps App-owned DOM refs explicitly wired', () => {
     assert.doesNotMatch(`${chatPageSource}\n${conversationPanelSource}\n${managerPanelSource}\n${apiPanelSource}`, /ref="(?:apiSettingsRootRef|chatScrollRef|chatComposeTextareaRef|managerScrollRef|managerComposeTextareaRef)"/);
 });
 
-test('tavern chat exposes local API config without leaving the session', () => {
+test('tavern chat exposes local settings modals without leaving the session', () => {
     const cornerSource = readRepoFile('modules/tavern/app-src/components/TavernCornerActions.vue');
     const chatPageSource = readRepoFile('modules/tavern/app-src/components/chat/TavernChatPage.vue');
     const chatLayoutCss = readRepoFile('modules/tavern/app-src/styles/chat/layout.css');
     const settingsControllerSource = readRepoFile('modules/tavern/app-src/components/settings/useTavernSettingsController.ts');
 
     assert.match(cornerSource, /includeApi\?: boolean/);
+    assert.match(cornerSource, /includeChatPreset\?: boolean/);
+    assert.match(cornerSource, /includeWorldbooks\?: boolean/);
     assert.match(cornerSource, /homeLast\?: boolean/);
-    assert.match(cornerSource, /v-if="includeApi"[\s\S]*class="home-icon-button page-api-button"[\s\S]*d="M9 7V3M15 7V3M7 11h10M8 7h8v5a4 4 0 0 1-8 0V7ZM12 16v5"[\s\S]*class="home-icon-button home-theme-button"[\s\S]*v-if="includeHome && homeLast"[\s\S]*class="home-icon-button page-home-button"/);
-    assert.match(chatPageSource, /<TavernCornerActions[\s\S]*include-api[\s\S]*include-home[\s\S]*home-last[\s\S]*@api="openApiConfigModal"/);
-    assert.match(chatPageSource, /class="chat-mobile-action-group"[\s\S]*title="API 配置"[\s\S]*title="首页"/);
-    assert.match(chatPageSource, /const apiConfigOpen = ref\(false\)/);
-    assert.match(chatPageSource, /class="chat-api-config-overlay"[\s\S]*@click\.self="closeApiConfigModal"[\s\S]*class="tavern-api-settings chat-api-settings-root"/);
+    assert.match(cornerSource, /v-if="includeWorldbooks"[\s\S]*class="home-icon-button page-worldbooks-button"[\s\S]*v-if="includeChatPreset"[\s\S]*class="home-icon-button page-chat-preset-button"[\s\S]*v-if="includeApi"[\s\S]*class="home-icon-button page-api-button"[\s\S]*class="home-icon-button home-theme-button"[\s\S]*v-if="includeHome && homeLast"[\s\S]*class="home-icon-button page-home-button"/);
+    assert.match(chatPageSource, /<TavernCornerActions[\s\S]*include-api[\s\S]*include-chat-preset[\s\S]*include-home[\s\S]*include-worldbooks[\s\S]*home-last[\s\S]*@api="openQuickSettingsModal\('api'\)"[\s\S]*@chat-preset="openQuickSettingsModal\('chatPreset'\)"[\s\S]*@worldbooks="openQuickSettingsModal\('worldbooks'\)"/);
+    assert.match(chatPageSource, /class="chat-mobile-action-group"[\s\S]*title="世界书"[\s\S]*title="聊天预设"[\s\S]*title="API 配置"[\s\S]*title="首页"/);
+    assert.match(chatPageSource, /const quickSettingsOpen = ref<'api' \| 'chatPreset' \| 'worldbooks' \| null>\(null\)/);
+    assert.match(chatPageSource, /function openQuickSettingsModal\(workspace: 'api' \| 'chatPreset' \| 'worldbooks'\)[\s\S]*activeSettingsWorkspace\.value = workspace;[\s\S]*syncChatPresetFromHost\(\)[\s\S]*syncWorldbooksFromHost\(\{ keepSelection: true \}\)[\s\S]*syncGlobalWorldbooksFromHost\(\)/);
+    assert.match(chatPageSource, /class="chat-quick-settings-overlay"[\s\S]*@click\.self="closeQuickSettingsModal"[\s\S]*class="tavern-api-settings chat-quick-api-root"[\s\S]*class="settings-layout chat-quick-settings-layout"[\s\S]*<TavernChatPresetSettingsPanel \/>[\s\S]*<TavernWorldbooksSettingsPanel \/>/);
     assert.match(chatPageSource, /function setChatApiSettingsRootRef[\s\S]*apiSettingsRootRef\.value = element instanceof HTMLElement \? element : null;/);
     assert.match(settingsControllerSource, /\(\) => apiSettingsRootRef\.value,[\s\S]*if \(apiSettingsRootRef\.value\) \{[\s\S]*nextTick\(renderApiSettingsPanel\)/);
-    assert.match(chatLayoutCss, /\.chat-api-config-overlay \{[\s\S]*position: absolute;[\s\S]*backdrop-filter: blur\(16px\);/);
-    assert.match(chatLayoutCss, /\.chat-api-config-dialog \{[\s\S]*max-height: min\(88vh, 900px\);/);
-    assert.match(chatLayoutCss, /\.chat-api-config-dialog \{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\);/);
+    assert.match(chatLayoutCss, /\.chat-quick-settings-overlay \{[\s\S]*position: absolute;[\s\S]*backdrop-filter: blur\(16px\);/);
+    assert.match(chatLayoutCss, /\.chat-quick-settings-dialog \{[\s\S]*max-height: min\(88vh, 900px\);/);
+    assert.match(chatLayoutCss, /\.chat-quick-settings-dialog \{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\);/);
+    assert.match(chatLayoutCss, /\.chat-quick-settings-layout \.xb-main \{[\s\S]*background: transparent;[\s\S]*padding: 0;/);
 });
 
 test('tavern UI context is grouped by page responsibility instead of one flat bag', () => {
