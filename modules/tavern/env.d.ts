@@ -60,6 +60,7 @@ declare module '*.js' {
     export const chat_metadata: Record<string, unknown>;
     export const characters: Array<Record<string, unknown>>;
     export const this_chid: string | number | undefined;
+    export function select_selected_character(chid: string | number, options?: { switchMenu?: boolean }): void;
     export function unshallowCharacter(characterId?: string | number): Promise<void>;
     export function getOneCharacter(avatarUrl: string): Promise<void>;
     export const name2: string;
@@ -87,12 +88,15 @@ declare module '*.js' {
     export function openWorldInfoEditor(worldName: string): void;
     export function loadWorldInfo(name: string): Promise<Record<string, unknown> | null>;
     export function saveWorldInfo(name: string, data: Record<string, unknown>, immediately?: boolean): Promise<void>;
+    export function convertCharacterBook(characterBook: Record<string, unknown>): Record<string, unknown>;
+    export function charUpdatePrimaryWorld(name: string): Promise<void>;
     export function createWorldInfoEntry(name: string, data: Record<string, unknown>): Record<string, unknown> | undefined;
     export function splitKeywordsAndRegexes(input: string): string[];
     export function getCharaFilename(chid?: string | number | null, options?: Record<string, unknown>): string;
     export const SCRIPT_TYPES: { GLOBAL: number; SCOPED: number; PRESET: number };
     export const regex_placement: Record<string, number>;
     export const substitute_find_regex: { NONE: number; RAW: number; ESCAPED: number };
+    export const RegexProvider: { instance: { clear(): void } };
     export function getRegexedString(rawString: string, placement: number, options?: Record<string, unknown>): string;
     export function getScriptsByType(scriptType: number, options?: { allowedOnly?: boolean }): Array<Record<string, unknown>>;
     export function saveScriptsByType(scripts: Array<Record<string, unknown>>, scriptType: number): Promise<void>;

@@ -140,6 +140,25 @@ interface TavernCharacterOption {
     searchCorpus?: string;
 }
 
+interface TavernCharacterWorldbookState {
+    characterId: string;
+    currentCharacterId: string;
+    isCurrentCharacter: boolean;
+    characterName: string;
+    boundWorldbookName: string;
+    boundExists: boolean;
+    hasEmbeddedBook: boolean;
+    embeddedBookName: string;
+    worldbookOptions: string[];
+}
+
+interface TavernCharacterWorldbookActionResult {
+    action?: string;
+    name?: string;
+    worldbookOptions?: unknown;
+    state?: TavernCharacterWorldbookState;
+}
+
 const SOURCE_APP = 'xb-tavern-app';
 const SOURCE_HOST = 'xb-tavern-host';
 const HOST_REQUEST_TIMEOUT_MS = 5000;
@@ -166,6 +185,11 @@ const selectedCharacterPreviewId = ref('');
 const selectedCharacterGreetingIndex = ref(0);
 const pendingCharacterPreviewId = ref('');
 const pendingCharacterSessionId = ref('');
+const characterWorldbookState = ref<TavernCharacterWorldbookState | null>(null);
+const characterWorldbookBusy = ref(false);
+const characterWorldbookStatus = ref('');
+const characterWorldbookSelectionOpen = ref(false);
+const characterWorldbookSelectionOptions = ref<string[]>([]);
 const pendingCharacterGreetingIndex = ref(0);
 const pendingCharacterError = ref('');
 const statusText = ref('等待读取角色与会话');
@@ -387,6 +411,7 @@ const characterOptionCache = new Map<string, { signature: string; option: Tavern
 const memoryFileSearchCorpusCache = new WeakMap<TavernMemoryIndexFileEntry, string>();
 let pendingCharacterSessionTimer: number | null = null;
 let characterPreviewRequestSequence = 0;
+let characterWorldbookRequestSequence = 0;
 let simulateRequestSequence = 0;
 let managerCompactionOverlayHideTimer: number | null = null;
 let composeErrorHideTimer: number | null = null;
@@ -410,6 +435,7 @@ const {
     applyHostChatPreset,
     handleApiConfigSaved,
     openSettingsWorkspace,
+    openWorldbookWorkspace,
     refreshPresets,
     refreshRegexFromHost,
     renderApiSettingsPanel,
@@ -932,9 +958,20 @@ watch(filteredCharacterCards, (cards) => {
 
 watch(selectedCharacterPreviewId, () => {
     selectedCharacterGreetingIndex.value = 0;
+    characterWorldbookState.value = null;
+    characterWorldbookStatus.value = '';
+    characterWorldbookSelectionOpen.value = false;
+    characterWorldbookSelectionOptions.value = [];
     if (activeView.value === 'characters') {
         scrollSelectedCharacterPreviewIntoView();
     }
+});
+
+watch([activeView, selectedCharacterPreviewId, liveCharacterId], ([view, previewId]) => {
+    if (view !== 'characters') {return;}
+    const targetId = String(previewId || '').trim();
+    if (!targetId) {return;}
+    void syncCharacterWorldbookState(targetId);
 });
 
 watch(selectedCharacterGreetingOptions, (options) => {
@@ -1826,6 +1863,7 @@ async function selectCharacterForPreview(characterId: string) {
     const targetId = String(characterId || '').trim();
     if (!targetId || pendingCharacterSessionId.value) {return;}
     selectedCharacterPreviewId.value = targetId;
+    void syncCharacterWorldbookState(targetId);
     const current = characterCards.value.find((character) => character.id === targetId);
     if (current && current.shallow !== true && hasCharacterPreviewDetails(current)) {return;}
     const sequence = ++characterPreviewRequestSequence;
@@ -1845,6 +1883,100 @@ async function selectCharacterForPreview(characterId: string) {
         if (sequence === characterPreviewRequestSequence && pendingCharacterPreviewId.value === targetId) {
             pendingCharacterPreviewId.value = '';
         }
+    }
+}
+
+async function syncCharacterWorldbookState(characterId = selectedCharacterPreviewId.value) {
+    const targetId = String(characterId || '').trim();
+    if (!targetId) {
+        characterWorldbookState.value = null;
+        characterWorldbookSelectionOpen.value = false;
+        characterWorldbookSelectionOptions.value = [];
+        return;
+    }
+    const sequence = ++characterWorldbookRequestSequence;
+    try {
+        const result = await requestHost('xb-tavern:get-character-worldbook-state', {
+            payload: { characterId: targetId },
+        });
+        if (sequence !== characterWorldbookRequestSequence || String(selectedCharacterPreviewId.value || '').trim() !== targetId) {return;}
+        characterWorldbookState.value = (result.result || result) as unknown as TavernCharacterWorldbookState;
+        characterWorldbookStatus.value = '';
+    } catch (error) {
+        if (sequence !== characterWorldbookRequestSequence || String(selectedCharacterPreviewId.value || '').trim() !== targetId) {return;}
+        characterWorldbookStatus.value = describeError(error);
+    }
+}
+
+async function openSelectedCharacterWorldbook() {
+    const targetId = String(selectedCharacterPreviewId.value || '').trim();
+    if (!targetId || characterWorldbookBusy.value) {return;}
+    characterWorldbookBusy.value = true;
+    characterWorldbookStatus.value = '';
+    try {
+        let result = await requestHost('xb-tavern:activate-character-worldbook', {
+            payload: { characterId: targetId },
+        });
+        let payload = (result.result || result) as TavernCharacterWorldbookActionResult;
+        if (payload.action === 'needs_import_confirmation') {
+            const name = String(payload.name || '').trim();
+            const state = payload.state as TavernCharacterWorldbookState | undefined;
+            if (state) {characterWorldbookState.value = state;}
+            if (!name || !window.confirm(`世界书「${name}」已存在，导入角色内嵌世界书会覆盖它。继续？`)) {
+                return;
+            }
+            result = await requestHost('xb-tavern:activate-character-worldbook', {
+                payload: { characterId: targetId, confirmed: true },
+            });
+            payload = (result.result || result) as TavernCharacterWorldbookActionResult;
+        }
+        const action = String(payload.action || '');
+        if (action === 'selected' || action === 'imported') {
+            const state = payload.state as TavernCharacterWorldbookState | undefined;
+            if (state) {characterWorldbookState.value = state;}
+            if (action === 'imported') {
+                postToHost('xb-tavern:refresh-context', {});
+            }
+            openWorldbookWorkspace(String(payload.name || ''));
+            return;
+        }
+        if (action === 'needs_selection') {
+            characterWorldbookSelectionOptions.value = normalizeTextList(payload.worldbookOptions);
+            characterWorldbookSelectionOpen.value = true;
+            const state = payload.state as TavernCharacterWorldbookState | undefined;
+            if (state) {characterWorldbookState.value = state;}
+            return;
+        }
+        await syncCharacterWorldbookState(targetId);
+    } catch (error) {
+        characterWorldbookStatus.value = describeError(error);
+    } finally {
+        characterWorldbookBusy.value = false;
+    }
+}
+
+function closeCharacterWorldbookSelection() {
+    characterWorldbookSelectionOpen.value = false;
+}
+
+async function bindSelectedCharacterWorldbook(name: string) {
+    const targetId = String(selectedCharacterPreviewId.value || '').trim();
+    const targetName = String(name || '').trim();
+    if (!targetId || !targetName || characterWorldbookBusy.value) {return;}
+    characterWorldbookBusy.value = true;
+    characterWorldbookStatus.value = '';
+    try {
+        const result = await requestHost('xb-tavern:bind-character-worldbook', {
+            payload: { characterId: targetId, name: targetName },
+        });
+        characterWorldbookState.value = (result.result || result) as unknown as TavernCharacterWorldbookState;
+        characterWorldbookSelectionOpen.value = false;
+        postToHost('xb-tavern:refresh-context', {});
+        openWorldbookWorkspace(targetName);
+    } catch (error) {
+        characterWorldbookStatus.value = describeError(error);
+    } finally {
+        characterWorldbookBusy.value = false;
     }
 }
 
@@ -3996,6 +4128,8 @@ onUnmounted(() => {
         :selected-greeting-index="selectedCharacterGreetingIndex"
         :pending-preview-character-id="pendingCharacterPreviewId"
         :pending-character-session-id="pendingCharacterSessionId"
+        :character-worldbook-state="characterWorldbookState"
+        :character-worldbook-busy="characterWorldbookBusy"
         :hidden-count="hiddenCharacterCount"
         :batch-size="CHARACTER_ARCHIVE_BATCH_SIZE"
         :avatar-available="avatarAvailable"
@@ -4006,6 +4140,7 @@ onUnmounted(() => {
         @select="selectCharacterForPreview"
         @select-greeting="selectCharacterGreeting"
         @enter-selected="enterSelectedCharacter"
+        @open-character-worldbook="openSelectedCharacterWorldbook"
         @enter-character="selectCharacterAndCreateSession"
         @load-more="characterVisibleLimit += CHARACTER_ARCHIVE_BATCH_SIZE"
         @keydown="handleCharacterArchiveKeydown"
@@ -4033,5 +4168,42 @@ onUnmounted(() => {
       @close="closePromptInspector"
       @simulate="simulateApiRequest"
     />
+
+    <div
+      v-if="characterWorldbookSelectionOpen"
+      class="character-worldbook-picker-overlay"
+      @click.self="closeCharacterWorldbookSelection"
+    >
+      <section class="character-worldbook-picker">
+        <header>
+          <strong>选择角色世界书</strong>
+          <button
+            type="button"
+            class="worldbook-picker-close"
+            aria-label="关闭"
+            @click="closeCharacterWorldbookSelection"
+          >
+            ×
+          </button>
+        </header>
+        <div
+          v-if="characterWorldbookStatus"
+          class="worldbook-picker-status"
+        >
+          {{ characterWorldbookStatus }}
+        </div>
+        <div class="worldbook-picker-list">
+          <button
+            v-for="name in characterWorldbookSelectionOptions"
+            :key="name"
+            type="button"
+            :disabled="characterWorldbookBusy"
+            @click="bindSelectedCharacterWorldbook(name)"
+          >
+            {{ name }}
+          </button>
+        </div>
+      </section>
+    </div>
   </main>
 </template>

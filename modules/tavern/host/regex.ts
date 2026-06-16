@@ -1,4 +1,11 @@
-import { characters, this_chid } from '../../../../../../../script.js';
+import {
+    characters,
+    eventSource,
+    event_types,
+    getCurrentChatId,
+    saveSettingsDebounced,
+    this_chid,
+} from '../../../../../../../script.js';
 import {
     allowPresetScripts,
     allowScopedScripts,
@@ -9,6 +16,7 @@ import {
     isPresetScriptsAllowed,
     isScopedScriptsAllowed,
     regex_placement,
+    RegexProvider,
     saveScriptsByType,
     SCRIPT_TYPES,
     substitute_find_regex,
@@ -175,6 +183,20 @@ function buildGroup(scriptType: number, key: string, label: string): Record<stri
     };
 }
 
+async function syncNativeRegexUiAfterWrite(): Promise<void> {
+    try {
+        RegexProvider.instance.clear();
+        saveSettingsDebounced?.();
+        const chatId = getCurrentChatId?.();
+        const chatChangedEvent = event_types?.CHAT_CHANGED;
+        if (chatChangedEvent && typeof eventSource?.emit === 'function') {
+            await eventSource.emit(chatChangedEvent, chatId);
+        }
+    } catch (error) {
+        console.warn('[LittleWhiteBox] Failed to refresh native regex UI after write.', error);
+    }
+}
+
 export function listTavernRegexScripts(): Record<string, unknown> {
     return {
         groups: [
@@ -212,6 +234,7 @@ export async function saveTavernRegexScript(input: unknown): Promise<Record<stri
     } else if (scriptType === SCRIPT_TYPES.PRESET) {
         allowPresetScripts(getCurrentPresetAPI(), getCurrentPresetName());
     }
+    await syncNativeRegexUiAfterWrite();
     return {
         ...listTavernRegexScripts(),
         savedScriptId: script.id,
@@ -230,6 +253,7 @@ export async function deleteTavernRegexScript(input: unknown): Promise<Record<st
         .map((item, index) => normalizeRegexScript(item, scriptType, index))
         .filter((item) => item.id !== id);
     await saveScriptsByType(scripts, scriptType);
+    await syncNativeRegexUiAfterWrite();
     return listTavernRegexScripts();
 }
 

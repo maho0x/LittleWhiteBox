@@ -69,6 +69,15 @@
     gap: 18px;
 }
 
+.dossier-title-actions {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 0;
+}
+
 .dossier-title-row h3 {
     flex: 1;
     min-width: 0;
@@ -346,6 +355,112 @@
     opacity: 0.5;
 }
 
+.character-worldbook-button {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+    display: inline-grid;
+    place-items: center;
+}
+
+.character-worldbook-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
+}
+
+.character-worldbook-button.is-bound {
+    background: #37704b;
+    color: #f6f3ea;
+}
+
+.character-worldbook-button.is-bound:hover:not(:disabled) {
+    background: #f6f3ea;
+    color: #37704b;
+}
+
+.character-worldbook-button.is-bound:hover:not(:disabled)::before {
+    border-color: #37704b;
+}
+
+.character-worldbook-picker-overlay {
+    position: fixed;
+    z-index: 20;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: rgba(18, 17, 15, 0.38);
+}
+
+.character-worldbook-picker {
+    width: min(420px, 100%);
+    max-height: min(520px, 80vh);
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    border: 1px solid var(--xb-rule-strong);
+    border-radius: 6px;
+    background: var(--xb-paper);
+    color: var(--xb-ink);
+    box-shadow: 0 18px 52px rgba(22, 19, 15, 0.24);
+    overflow: hidden;
+}
+
+.character-worldbook-picker header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--xb-rule);
+    padding: 14px 16px;
+}
+
+.character-worldbook-picker strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 15px;
+}
+
+.worldbook-picker-close {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--xb-rule);
+    border-radius: 50%;
+    background: var(--xb-paper-plain);
+    color: var(--xb-ink);
+}
+
+.worldbook-picker-status {
+    border-bottom: 1px solid var(--xb-rule);
+    color: var(--xb-ink-soft);
+    font-size: 13px;
+    padding: 10px 16px;
+}
+
+.worldbook-picker-list {
+    min-height: 0;
+    display: grid;
+    gap: 8px;
+    overflow: auto;
+    padding: 12px;
+}
+
+.worldbook-picker-list button {
+    min-height: 38px;
+    border: 1px solid var(--xb-rule);
+    border-radius: 4px;
+    background: var(--xb-paper-plain);
+    color: var(--xb-ink);
+    font-size: 14px;
+    padding: 8px 12px;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+.worldbook-picker-list button:hover:not(:disabled) {
+    border-color: var(--xb-ink);
+}
+
 @media (max-width: 760px) {
     .character-preview-panel {
         gap: 20px;
@@ -360,6 +475,13 @@
         align-items: stretch;
         flex-direction: column;
         gap: 10px;
+    }
+
+    .dossier-title-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 8px;
     }
 
     .dossier-title-row h3 {
@@ -378,6 +500,12 @@
         min-height: 38px;
         padding-left: 18px;
         padding-right: 18px;
+    }
+
+    .character-worldbook-button {
+        width: 42px;
+        min-width: 42px;
+        padding: 0;
     }
 
     .data-group {

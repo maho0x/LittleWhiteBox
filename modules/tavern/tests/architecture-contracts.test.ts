@@ -72,9 +72,77 @@ test('tavern worldbook bridge edits named entries through native save boundary',
     assert.match(hostSource, /await saveWorldInfo\(name, data, true\)/);
     assert.match(hostSource, /export async function getTavernWorldbookRuntime/);
     assert.match(hostSource, /await checkWorldInfo\(chatLines, maxContext, false, globalScanData\)/);
-    assert.match(hostSource, /openWorldInfoEditor/);
+    assert.doesNotMatch(hostSource, /openWorldInfoEditor/);
     assert.doesNotMatch(hostSource, /createWorldInfoEntry/);
-    assert.doesNotMatch(hostSource, /updateWorldInfoSettings/);
+    assert.match(hostSource, /export async function setTavernGlobalWorldbooks/);
+    assert.match(hostSource, /updateWorldInfoSettings\(settings, selected\)/);
+});
+
+test('tavern character and global worldbook actions stay on native ST boundaries', () => {
+    const hostSource = readRepoFile('modules/tavern/host/worldbooks.ts');
+    const tavernSource = readRepoFile('modules/tavern/tavern.ts');
+    const characterSource = readRepoFile('modules/tavern/app-src/components/TavernCharacterSelectPage.vue');
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const worldbookSource = readRepoFile('modules/tavern/app-src/components/settings/TavernWorldbooksSettingsPanel.vue');
+    const settingsControllerSource = readRepoFile('modules/tavern/app-src/components/settings/useTavernSettingsController.ts');
+
+    assert.match(hostSource, /export async function getTavernCharacterWorldbookState/);
+    assert.match(hostSource, /export async function activateTavernCharacterWorldbook/);
+    assert.match(hostSource, /export async function bindTavernCharacterWorldbook/);
+    assert.match(hostSource, /export async function getTavernGlobalWorldbooks/);
+    assert.match(hostSource, /export async function setTavernGlobalWorldbooks/);
+    assert.doesNotMatch(hostSource, /importEmbeddedWorldInfo/);
+    assert.doesNotMatch(hostSource, /openWorldInfoEditor/);
+    assert.doesNotMatch(`${hostSource}\n${appSource}\n${characterSource}`, /not_current_character|只能给当前酒馆角色|请先切到当前角色/);
+    assert.doesNotMatch(characterSource, /isCurrentCharacter === false/);
+    assert.match(hostSource, /function prepareCharacterEditorForWorldbookBinding/);
+    assert.match(hostSource, /getOneCharacter/);
+    assert.match(hostSource, /unshallowCharacter/);
+    assert.match(hostSource, /await hydrateCharacterRecordById\(requestedId\)/);
+    assert.match(hostSource, /select_selected_character\(numericId, \{ switchMenu: false \}\);/);
+    assert.match(hostSource, /const character = await hydrateCharacterRecordById\(state\.characterId\);[\s\S]*const book = readCharacterBook\(character\);/);
+    assert.match(hostSource, /state\.worldbookOptions\.includes\(name\) && payload\.confirmed !== true[\s\S]*action: 'needs_import_confirmation'/);
+    assert.match(hostSource, /function captureCharacterEditorSnapshot/);
+    assert.match(hostSource, /function captureCharacterEditorJQueryData/);
+    assert.match(hostSource, /function restoreCharacterEditorSnapshot/);
+    assert.match(hostSource, /\.open_alternate_greetings/);
+    assert.match(hostSource, /#set_character_world/);
+    assert.match(hostSource, /function isCharacterEditorFocusedOn/);
+    assert.match(hostSource, /return worldEditorId === targetId && greetingsEditorId === targetId;/);
+    assert.match(hostSource, /async function bindCharacterWorldbookThroughEditor/);
+    assert.match(hostSource, /const shouldPrepareEditor = !isCharacterEditorFocusedOn\(characterId\);[\s\S]*if \(shouldPrepareEditor\) \{[\s\S]*await prepareCharacterEditorForWorldbookBinding\(characterId\);[\s\S]*finally \{[\s\S]*restoreCharacterEditorSnapshot\(snapshot\);/);
+    assert.match(hostSource, /const state = await readCharacterWorldbookState\(characterId\);[\s\S]*state\.boundWorldbookName !== name \|\| state\.boundExists !== true[\s\S]*throw new Error\(`角色世界书绑定未保存成功：\$\{name\}`\);/);
+    assert.match(hostSource, /const convertedBook = convertCharacterBook\(book\);[\s\S]*await saveWorldInfo\(name, convertedBook, true\);[\s\S]*await updateWorldInfoList\(\);[\s\S]*const boundState = await bindCharacterWorldbookThroughEditor\(state\.characterId, name\);/);
+    assert.match(hostSource, /if \(!name\) \{[\s\S]*throw new Error\('缺少要绑定的世界书名称。'\);[\s\S]*if \(!state\.worldbookOptions\.includes\(name\)\)/);
+    assert.match(hostSource, /await prepareCharacterEditorForWorldbookBinding\(characterId\);[\s\S]*await charUpdatePrimaryWorld\(name\);/);
+    assert.match(hostSource, /return bindCharacterWorldbookThroughEditor\(characterId, name\);/);
+    assert.match(hostSource, /updateWorldInfoSettings\(settings, selected\);[\s\S]*await updateWorldInfoList\(\);/);
+    assert.match(tavernSource, /case 'xb-tavern:get-character-worldbook-state':/);
+    assert.match(tavernSource, /case 'xb-tavern:activate-character-worldbook':/);
+    assert.match(tavernSource, /case 'xb-tavern:bind-character-worldbook':/);
+    assert.match(tavernSource, /case 'xb-tavern:get-global-worldbooks':/);
+    assert.match(tavernSource, /case 'xb-tavern:set-global-worldbooks':/);
+    assert.doesNotMatch(tavernSource, /chat-worldbook/);
+    assert.match(characterSource, /const characterWorldbookBound = computed/);
+    assert.match(characterSource, /class="dossier-title-row"[\s\S]*<h3>\{\{ selectedCharacter\.name \}\}<\/h3>[\s\S]*'is-bound': characterWorldbookBound[\s\S]*open-character-worldbook[\s\S]*进入聊天/);
+    assert.match(appSource, /requestHost\('xb-tavern:get-character-worldbook-state'/);
+    assert.match(appSource, /requestHost\('xb-tavern:activate-character-worldbook'/);
+    assert.match(appSource, /requestHost\('xb-tavern:bind-character-worldbook'/);
+    assert.match(appSource, /action === 'needs_import_confirmation'/);
+    assert.match(appSource, /payload: \{ characterId: targetId, confirmed: true \}/);
+    assert.match(settingsControllerSource, /function openWorldbookWorkspace\(name = ''\)/);
+    assert.match(settingsControllerSource, /selectedWorldbookName\.value = targetName/);
+    assert.match(settingsControllerSource, /openSettingsWorkspace\('worldbooks'\)/);
+    assert.match(appSource, /openWorldbookWorkspace\(String\(payload\.name \|\| ''\)\)/);
+    assert.match(appSource, /openWorldbookWorkspace\(targetName\)/);
+    assert.doesNotMatch(appSource, /action === 'opened'/);
+    assert.doesNotMatch(appSource, /postToHost\('xb-tavern:close'\);[\s\S]*return;[\s\S]*action === 'imported'/);
+    assert.match(worldbookSource, /已启用的世界书（全局有效）[\s\S]*class="preset-command-bar worldbook-command-bar"[\s\S]*class="preset-source-select worldbook-source-select"/);
+    assert.match(worldbookSource, /:disabled="globalWorldbookSaving"/);
+    assert.doesNotMatch(worldbookSource, /打开酒馆编辑器/);
+    assert.doesNotMatch(worldbookSource, /worldbookSourceSummary/);
+    assert.doesNotMatch(worldbookSource, /worldbookGlobalCount/);
+    assert.doesNotMatch(worldbookSource, /聊天世界书/);
 });
 
 test('tavern chat preset bridge only writes native prompt fields, never API parameters', () => {
@@ -406,4 +474,17 @@ test('tavern RP display and edit save use native regex phases without slash comm
     assert.match(appSource, /async function applyEditRegexToMessageContent/);
     assert.match(appSource, /options: \{\s*isEdit: true,\s*characterOverride: messageCharacterOverride\(message\),\s*\}/);
     assert.doesNotMatch(sharedRegexSource, /slash/i);
+});
+
+test('tavern native regex writes refresh SillyTavern regex UI and cache', () => {
+    const hostSource = readRepoFile('modules/tavern/host/regex.ts');
+    assert.match(hostSource, /RegexProvider/);
+    assert.match(hostSource, /function syncNativeRegexUiAfterWrite/);
+    assert.match(hostSource, /RegexProvider\.instance\.clear\(\)/);
+    assert.match(hostSource, /saveSettingsDebounced\?\.\(\)/);
+    assert.match(hostSource, /event_types\?\.CHAT_CHANGED/);
+    assert.match(hostSource, /await eventSource\.emit\(chatChangedEvent, chatId\)/);
+    assert.doesNotMatch(hostSource, /reloadCurrentChat/);
+    assert.match(hostSource, /export async function saveTavernRegexScript[\s\S]*await syncNativeRegexUiAfterWrite\(\)/);
+    assert.match(hostSource, /export async function deleteTavernRegexScript[\s\S]*await syncNativeRegexUiAfterWrite\(\)/);
 });

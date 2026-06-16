@@ -1,22 +1,28 @@
 /* eslint-disable -- generated from TypeScript source; run npm run build:tavern */
 import {
   chat_metadata,
+  characters,
   eventSource,
+  getOneCharacter,
   name2,
+  select_selected_character,
   setCharacterId,
   setCharacterName,
-  this_chid
+  this_chid,
+  unshallowCharacter
 } from "../../../../../../../script.js";
 import { getContext } from "../../../../../../extensions.js";
 import { power_user } from "../../../../../../power-user.js";
 import {
+  charUpdatePrimaryWorld,
   checkWorldInfo,
+  convertCharacterBook,
   getWorldInfoSettings,
   loadWorldInfo,
   METADATA_KEY,
-  openWorldInfoEditor,
   saveWorldInfo,
   selected_world_info,
+  updateWorldInfoSettings,
   updateWorldInfoList,
   world_names
 } from "../../../../../../world-info.js";
@@ -465,6 +471,220 @@ function restoreRuntimeState(snapshot) {
     eventSource.emit = snapshot.emit;
   }
 }
+function getCharacterRecordById(characterId) {
+  const normalizedId = normalizeIdText(characterId);
+  const numericId = Number(normalizedId);
+  if (!normalizedId || !Number.isInteger(numericId) || numericId < 0) {
+    return {};
+  }
+  const list = Array.isArray(characters) ? characters : [];
+  return asRecord(list[numericId]);
+}
+async function hydrateCharacterRecordById(characterId) {
+  const normalizedId = normalizeIdText(characterId);
+  const numericId = Number(normalizedId);
+  if (!Number.isInteger(numericId) || numericId < 0) {
+    return {};
+  }
+  const character = getCharacterRecordById(normalizedId);
+  const avatar = normalizeText(character.avatar);
+  if (avatar && avatar !== "none" && (character.shallow === true || !normalizeText(character.json_data))) {
+    if (character.shallow === true) {
+      await unshallowCharacter(String(numericId));
+    } else {
+      await getOneCharacter(avatar);
+    }
+  }
+  return getCharacterRecordById(normalizedId);
+}
+async function prepareCharacterEditorForWorldbookBinding(characterId) {
+  const normalizedId = normalizeIdText(characterId);
+  const numericId = Number(normalizedId);
+  if (!Number.isInteger(numericId) || numericId < 0 || !Object.keys(getCharacterRecordById(normalizedId)).length) {
+    throw new Error("\u5F53\u524D\u89D2\u8272\u672A\u627E\u5230\uFF0C\u65E0\u6CD5\u7ED1\u5B9A\u4E16\u754C\u4E66\u3002");
+  }
+  select_selected_character(numericId, { switchMenu: false });
+  await Promise.resolve();
+}
+function getJQuery() {
+  const candidate = globalThis.$;
+  return typeof candidate === "function" ? candidate : null;
+}
+function readJQueryData(selector, key) {
+  return getJQuery()?.(selector).data(key);
+}
+function captureCharacterEditorJQueryData() {
+  const jq = getJQuery();
+  if (!jq) {
+    return [];
+  }
+  const slots = [
+    { selector: ".open_alternate_greetings", key: "chid" },
+    { selector: "#set_character_world", key: "chid" }
+  ];
+  return slots.flatMap((slot) => {
+    const items = [];
+    jq(slot.selector).each(function captureDataSlot() {
+      const value = jq(this).data(slot.key);
+      items.push({
+        element: this,
+        key: slot.key,
+        value,
+        hadValue: value !== void 0
+      });
+    });
+    return items;
+  });
+}
+function captureCharacterEditorSnapshot() {
+  const form = document.querySelector("#form_create");
+  const controls = Array.from(document.querySelectorAll(
+    "#form_create input, #form_create select, #form_create textarea"
+  )).filter((control) => !(control instanceof HTMLInputElement && control.type === "file")).map((control) => ({
+    control,
+    value: control.value,
+    ...control instanceof HTMLInputElement && ["checkbox", "radio"].includes(control.type) ? { checked: control.checked } : {},
+    ...control instanceof HTMLSelectElement && control.multiple ? { selectedValues: Array.from(control.selectedOptions).map((option) => option.value) } : {}
+  }));
+  return {
+    actionType: form instanceof HTMLFormElement ? form.getAttribute("actiontype") : null,
+    controls,
+    jqueryData: captureCharacterEditorJQueryData()
+  };
+}
+function restoreCharacterEditorSnapshot(snapshot) {
+  if (!snapshot) {
+    return;
+  }
+  const form = document.querySelector("#form_create");
+  if (form instanceof HTMLFormElement) {
+    if (snapshot.actionType === null) {
+      form.removeAttribute("actiontype");
+    } else {
+      form.setAttribute("actiontype", snapshot.actionType);
+    }
+  }
+  snapshot.controls.forEach((item) => {
+    const control = item.control;
+    if (!control.isConnected) {
+      return;
+    }
+    if (control instanceof HTMLSelectElement && control.multiple && item.selectedValues) {
+      Array.from(control.options).forEach((option) => {
+        option.selected = item.selectedValues?.includes(option.value) === true;
+      });
+      return;
+    }
+    control.value = item.value;
+    if (control instanceof HTMLInputElement && item.checked !== void 0) {
+      control.checked = item.checked;
+    }
+  });
+  const jq = getJQuery();
+  if (!jq) {
+    return;
+  }
+  snapshot.jqueryData.forEach((item) => {
+    if (!item.element.isConnected) {
+      return;
+    }
+    if (item.hadValue) {
+      jq(item.element).data(item.key, item.value);
+    } else {
+      jq(item.element).removeData(item.key);
+    }
+  });
+}
+function isCharacterEditorFocusedOn(characterId) {
+  const targetId = normalizeIdText(characterId);
+  if (!targetId) {
+    return false;
+  }
+  const form = document.querySelector("#form_create");
+  if (form instanceof HTMLFormElement && form.getAttribute("actiontype") === "createcharacter") {
+    return false;
+  }
+  const worldEditorId = normalizeIdText(readJQueryData("#set_character_world", "chid"));
+  const greetingsEditorId = normalizeIdText(readJQueryData(".open_alternate_greetings", "chid"));
+  return worldEditorId === targetId && greetingsEditorId === targetId;
+}
+async function bindCharacterWorldbookThroughEditor(characterId, name) {
+  const shouldPrepareEditor = !isCharacterEditorFocusedOn(characterId);
+  const snapshot = shouldPrepareEditor ? captureCharacterEditorSnapshot() : null;
+  try {
+    if (shouldPrepareEditor) {
+      await prepareCharacterEditorForWorldbookBinding(characterId);
+    }
+    await charUpdatePrimaryWorld(name);
+  } finally {
+    restoreCharacterEditorSnapshot(snapshot);
+  }
+  const state = await readCharacterWorldbookState(characterId);
+  if (state.boundWorldbookName !== name || state.boundExists !== true) {
+    throw new Error(`\u89D2\u8272\u4E16\u754C\u4E66\u7ED1\u5B9A\u672A\u4FDD\u5B58\u6210\u529F\uFF1A${name}`);
+  }
+  return state;
+}
+function readWorldbookBindingState(character, names) {
+  const characterData = readCharacterData(character);
+  const extensions = asRecord(characterData.extensions);
+  const boundWorldbookName = normalizeText(extensions.world);
+  return {
+    boundWorldbookName,
+    boundExists: !!boundWorldbookName && names.includes(boundWorldbookName)
+  };
+}
+function readEmbeddedWorldbookState(character) {
+  const book = readCharacterBook(character);
+  return {
+    hasEmbeddedBook: hasCharacterBookEntries(book),
+    embeddedBookName: characterBookName(character, book)
+  };
+}
+function buildCharacterWorldbookState(requestedId, currentCharacterId, character, names, options) {
+  const includeBinding = options?.includeBinding !== false;
+  const includeEmbedded = options?.includeEmbedded !== false;
+  const bindingState = includeBinding ? readWorldbookBindingState(character, names) : { boundWorldbookName: "", boundExists: false };
+  const embeddedState = includeEmbedded ? readEmbeddedWorldbookState(character) : { hasEmbeddedBook: false, embeddedBookName: "" };
+  const characterData = readCharacterData(character);
+  return {
+    characterId: requestedId,
+    currentCharacterId,
+    isCurrentCharacter: !!requestedId && requestedId === currentCharacterId,
+    characterName: normalizeText(character.name) || normalizeText(characterData.name),
+    ...bindingState,
+    ...embeddedState,
+    worldbookOptions: names
+  };
+}
+function readCharacterData(character) {
+  return asRecord(character.data);
+}
+function readCharacterBook(character) {
+  return asRecord(readCharacterData(character).character_book);
+}
+function hasCharacterBookEntries(book) {
+  return Array.isArray(book.entries) && book.entries.length > 0;
+}
+function characterBookName(character, book) {
+  const characterName = normalizeText(character.name) || normalizeText(readCharacterData(character).name) || "Character";
+  return normalizeText(book.name) || `${characterName}'s Lorebook`;
+}
+async function readCharacterWorldbookState(characterId) {
+  const requestedId = normalizeIdText(characterId);
+  const currentCharacterId = normalizeIdText(this_chid);
+  const names = await ensureWorldbookNames();
+  const character = await hydrateCharacterRecordById(requestedId);
+  return buildCharacterWorldbookState(requestedId, currentCharacterId, character, names, {
+    includeBinding: true,
+    includeEmbedded: true
+  });
+}
+async function readGlobalWorldbooksState() {
+  const options = await ensureWorldbookNames();
+  const selected = Array.isArray(selected_world_info) ? selected_world_info.map((name) => normalizeText(name)).filter((name) => options.includes(name)) : [];
+  return { options, selected };
+}
 async function ensureWorldbookNames() {
   if (!Array.isArray(world_names) || !world_names.length) {
     await updateWorldInfoList();
@@ -579,6 +799,64 @@ async function saveTavernWorldbookEntry(input = {}) {
   await updateWorldInfoList();
   return buildWorldbookEntryDraft(name, slot);
 }
+async function getTavernCharacterWorldbookState(input = {}) {
+  const payload = asRecord(input);
+  return readCharacterWorldbookState(normalizeIdText(payload.characterId));
+}
+async function activateTavernCharacterWorldbook(input = {}) {
+  const payload = asRecord(input);
+  const state = await readCharacterWorldbookState(normalizeIdText(payload.characterId));
+  if (state.boundWorldbookName && state.boundExists) {
+    return { action: "selected", name: state.boundWorldbookName, state };
+  }
+  const character = await hydrateCharacterRecordById(state.characterId);
+  const book = readCharacterBook(character);
+  if (hasCharacterBookEntries(book)) {
+    const name = characterBookName(character, book);
+    if (state.worldbookOptions.includes(name) && payload.confirmed !== true) {
+      return { action: "needs_import_confirmation", name, state };
+    }
+    const convertedBook = convertCharacterBook(book);
+    await saveWorldInfo(name, convertedBook, true);
+    await updateWorldInfoList();
+    const boundState = await bindCharacterWorldbookThroughEditor(state.characterId, name);
+    return {
+      action: "imported",
+      name,
+      state: boundState
+    };
+  }
+  return {
+    action: "needs_selection",
+    worldbookOptions: state.worldbookOptions,
+    state
+  };
+}
+async function bindTavernCharacterWorldbook(input = {}) {
+  const payload = asRecord(input);
+  const characterId = normalizeIdText(payload.characterId);
+  const state = await readCharacterWorldbookState(characterId);
+  const name = normalizeText(payload.name);
+  if (!name) {
+    throw new Error("\u7F3A\u5C11\u8981\u7ED1\u5B9A\u7684\u4E16\u754C\u4E66\u540D\u79F0\u3002");
+  }
+  if (!state.worldbookOptions.includes(name)) {
+    throw new Error(`\u627E\u4E0D\u5230\u4E16\u754C\u4E66\uFF1A${name}`);
+  }
+  return bindCharacterWorldbookThroughEditor(characterId, name);
+}
+async function getTavernGlobalWorldbooks() {
+  return readGlobalWorldbooksState();
+}
+async function setTavernGlobalWorldbooks(input = {}) {
+  const payload = asRecord(input);
+  const options = await ensureWorldbookNames();
+  const selected = normalizeStringList(payload.selected).filter((name) => options.includes(name));
+  const settings = getWorldInfoSettings();
+  updateWorldInfoSettings(settings, selected);
+  await updateWorldInfoList();
+  return readGlobalWorldbooksState();
+}
 async function getTavernWorldbookRuntime(input = {}) {
   const payload = asRecord(input);
   const context = payload.context || {};
@@ -625,22 +903,15 @@ async function getTavernWorldbookRuntime(input = {}) {
     restoreRuntimeState(snapshot);
   }
 }
-function openTavernWorldbookEditor(input = {}) {
-  const name = normalizeText(asRecord(input).name);
-  if (!name) {
-    throw new Error("\u7F3A\u5C11\u4E16\u754C\u4E66\u540D\u79F0\u3002");
-  }
-  openWorldInfoEditor(name);
-  return {
-    ok: true,
-    name
-  };
-}
 export {
+  activateTavernCharacterWorldbook,
+  bindTavernCharacterWorldbook,
+  getTavernCharacterWorldbookState,
+  getTavernGlobalWorldbooks,
   getTavernWorldbookEntry,
   getTavernWorldbookPreview,
   getTavernWorldbookRuntime,
   listTavernWorldbookSources,
-  openTavernWorldbookEditor,
-  saveTavernWorldbookEntry
+  saveTavernWorldbookEntry,
+  setTavernGlobalWorldbooks
 };

@@ -20,12 +20,16 @@ import { applyTavernSubstituteParams } from "./host/substitute-params.js";
 import { runTavernSlashCommand } from "./host/slash-commands.js";
 import { buildTavernContext } from "./host/sillytavern-context.js";
 import {
+  activateTavernCharacterWorldbook,
+  bindTavernCharacterWorldbook,
+  getTavernCharacterWorldbookState,
+  getTavernGlobalWorldbooks,
   getTavernWorldbookEntry,
   getTavernWorldbookPreview,
   getTavernWorldbookRuntime,
   listTavernWorldbookSources,
-  openTavernWorldbookEditor,
-  saveTavernWorldbookEntry
+  saveTavernWorldbookEntry,
+  setTavernGlobalWorldbooks
 } from "./host/worldbooks.js";
 const SOURCE_HOST = "xb-tavern-host";
 const SOURCE_APP = "xb-tavern-app";
@@ -365,10 +369,18 @@ async function handleWorldbookRequest(type, payload = {}) {
       result = await getTavernWorldbookEntry(payload.payload);
     } else if (type === "xb-tavern:save-worldbook-entry") {
       result = await saveTavernWorldbookEntry(payload.payload);
+    } else if (type === "xb-tavern:get-character-worldbook-state") {
+      result = await getTavernCharacterWorldbookState(payload.payload);
+    } else if (type === "xb-tavern:activate-character-worldbook") {
+      result = await activateTavernCharacterWorldbook(payload.payload);
+    } else if (type === "xb-tavern:bind-character-worldbook") {
+      result = await bindTavernCharacterWorldbook(payload.payload);
+    } else if (type === "xb-tavern:get-global-worldbooks") {
+      result = await getTavernGlobalWorldbooks();
+    } else if (type === "xb-tavern:set-global-worldbooks") {
+      result = await setTavernGlobalWorldbooks(payload.payload);
     } else if (type === "xb-tavern:get-worldbook-runtime") {
       result = await getTavernWorldbookRuntime(payload.payload);
-    } else if (type === "xb-tavern:open-worldbook-editor") {
-      result = openTavernWorldbookEditor(payload.payload);
     }
     replyHostResult(requestId, {
       ok: true,
@@ -536,8 +548,12 @@ function handleFrameMessage(event) {
     case "xb-tavern:get-worldbook-preview":
     case "xb-tavern:get-worldbook-entry":
     case "xb-tavern:save-worldbook-entry":
+    case "xb-tavern:get-character-worldbook-state":
+    case "xb-tavern:activate-character-worldbook":
+    case "xb-tavern:bind-character-worldbook":
+    case "xb-tavern:get-global-worldbooks":
+    case "xb-tavern:set-global-worldbooks":
     case "xb-tavern:get-worldbook-runtime":
-    case "xb-tavern:open-worldbook-editor":
       void handleWorldbookRequest(data.type, data.payload || {});
       break;
     case "xb-tavern:list-regex-scripts":

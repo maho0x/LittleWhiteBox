@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useTavernSettingsContext } from '../tavern-app-context';
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
 
@@ -7,28 +7,30 @@ const settings = useTavernSettingsContext();
 const {
     activeSettingsWorkspace,
     cancelWorldbookEntryEdit,
+    globalWorldbookOptions,
+    globalWorldbookSelected,
+    globalWorldbookSaving,
+    globalWorldbookStatus,
     hiddenWorldbookPreviewEntryCount,
     isEditingWorldbookEntry,
     linesFromList,
     listFromLines,
-    openSelectedWorldbookEditor,
     saveWorldbookEntryDraft,
     selectedWorldbook,
     selectedWorldbookName,
     showMoreWorldbookPreviewEntries,
     startWorldbookEntryEdit,
+    toggleGlobalWorldbook,
     updateWorldbookEntryDraftPatch,
     WORLDBOOK_PREVIEW_BATCH_SIZE,
     worldbookEntryDirty,
     worldbookEntryDraft,
     worldbookEntrySaving,
     worldbookEntryStatus,
-    worldbookGlobalCount,
     worldbookOptions,
     worldbookPreview,
     worldbookPreviewStatus,
     worldbookSearchText,
-    worldbookSourceSummary,
     worldbookStatus,
 } = settings;
 
@@ -46,6 +48,14 @@ const worldbookSelectOptions = computed(() => {
 });
 
 const worldbookDisclosure = useTavernEphemeralDisclosureScope();
+const globalWorldbookPickerOpen = ref(false);
+
+const globalWorldbookSummary = computed(() => {
+    const count = globalWorldbookSelected.value.length;
+    if (!count) {return '未启用';}
+    if (count === 1) {return globalWorldbookSelected.value[0] || '1 本';}
+    return `${count} 本`;
+});
 
 function worldbookEntryDisclosureId(entry: { uid?: string | number; name: string; order?: number }) {
     const entryId = entry.uid !== undefined && entry.uid !== null && String(entry.uid).trim()
@@ -73,10 +83,6 @@ watch(
       </div>
       <div class="panel-pills panel-head-actions">
         <span class="pill">{{ worldbookOptions.length }} 本</span>
-        <span
-          v-if="worldbookGlobalCount"
-          class="pill"
-        >{{ worldbookGlobalCount }} 本全局</span>
       </div>
     </div>
     <div
@@ -84,6 +90,48 @@ watch(
       class="preset-status-line"
     >
       <span>{{ worldbookStatus }}</span>
+    </div>
+    <div class="worldbook-global-enable">
+      <div class="worldbook-global-enable-head">
+        <span>已启用的世界书（全局有效）</span>
+        <button
+          type="button"
+          class="worldbook-global-toggle"
+          :aria-expanded="globalWorldbookPickerOpen"
+          :disabled="globalWorldbookSaving"
+          @click="globalWorldbookPickerOpen = !globalWorldbookPickerOpen"
+        >
+          {{ globalWorldbookSummary }}
+        </button>
+      </div>
+      <div
+        v-if="globalWorldbookStatus"
+        class="worldbook-global-status"
+      >
+        {{ globalWorldbookStatus }}
+      </div>
+      <div
+        v-if="globalWorldbookPickerOpen"
+        class="worldbook-global-list"
+      >
+        <label
+          v-for="name in globalWorldbookOptions"
+          :key="name"
+          class="worldbook-global-option"
+        >
+          <input
+            type="checkbox"
+            :checked="globalWorldbookSelected.includes(name)"
+            :disabled="globalWorldbookSaving"
+            @change="toggleGlobalWorldbook(name, ($event.target as HTMLInputElement).checked)"
+          >
+          <span>{{ name }}</span>
+        </label>
+        <span
+          v-if="!globalWorldbookOptions.length"
+          class="worldbook-global-empty"
+        >没有世界书</span>
+      </div>
     </div>
     <div class="preset-command-bar worldbook-command-bar">
       <label class="preset-source-select worldbook-source-select">
@@ -124,22 +172,6 @@ watch(
           <div class="preset-preview-head worldbook-selected-head">
             <div>
               <strong>{{ selectedWorldbook.name }}</strong>
-              <span v-if="worldbookSourceSummary(selectedWorldbook)">{{ worldbookSourceSummary(selectedWorldbook) }}</span>
-            </div>
-            <div class="worldbook-selected-actions">
-              <span
-                v-if="selectedWorldbook.globalActive"
-                class="worldbook-link-badge"
-              >全局世界书</span>
-              <button
-                type="button"
-                class="worldbook-row-open"
-                title="打开酒馆编辑器"
-                aria-label="打开酒馆编辑器"
-                @click="openSelectedWorldbookEditor(selectedWorldbook.name)"
-              >
-                打开
-              </button>
             </div>
           </div>
           <div

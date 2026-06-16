@@ -18,6 +18,18 @@ interface TavernCharacterOption {
     characterDepthPrompt?: string;
 }
 
+interface TavernCharacterWorldbookState {
+    characterId: string;
+    currentCharacterId: string;
+    isCurrentCharacter: boolean;
+    characterName: string;
+    boundWorldbookName: string;
+    boundExists: boolean;
+    hasEmbeddedBook: boolean;
+    embeddedBookName: string;
+    worldbookOptions: string[];
+}
+
 const props = defineProps<{
     dark: boolean;
     pendingError: string;
@@ -29,6 +41,8 @@ const props = defineProps<{
     selectedGreetingIndex: number;
     pendingPreviewCharacterId: string;
     pendingCharacterSessionId: string;
+    characterWorldbookState: TavernCharacterWorldbookState | null;
+    characterWorldbookBusy: boolean;
     searchText: string;
     hiddenCount: number;
     batchSize: number;
@@ -43,6 +57,7 @@ const emit = defineEmits<{
     (event: 'update:searchText', value: string): void;
     (event: 'select', id: string): void;
     (event: 'enter-selected'): void;
+    (event: 'open-character-worldbook'): void;
     (event: 'enter-character', id: string): void;
     (event: 'select-greeting', index: number): void;
     (event: 'load-more'): void;
@@ -71,6 +86,17 @@ const hasMultipleGreetings = computed(() => greetingOptions.value.length > 1);
 const selectedCharacterPreviewLoading = computed(() => (
     !!props.selectedCharacter
     && String(props.pendingPreviewCharacterId || '') === String(props.selectedCharacter.id || '')
+));
+
+const characterWorldbookButtonTitle = computed(() => {
+    const state = props.characterWorldbookState;
+    if (!state) {return '读取角色世界书';}
+    if (state.boundWorldbookName && state.boundExists) {return `打开 ${state.boundWorldbookName}`;}
+    if (state.hasEmbeddedBook) {return `导入 ${state.embeddedBookName}`;}
+    return '选择一本世界书绑定';
+});
+const characterWorldbookBound = computed(() => (
+    props.characterWorldbookState?.boundExists === true
 ));
 
 function scrollSelectedIntoView() {
@@ -252,15 +278,39 @@ defineExpose({ scrollSelectedIntoView });
               </p>
               <div class="dossier-title-row">
                 <h3>{{ selectedCharacter.name }}</h3>
-                <button
-                  type="button"
-                  class="os-system-act-btn"
-                  :class="{ 'is-loading': selectedCharacter.id === pendingCharacterSessionId }"
-                  :disabled="!!pendingCharacterSessionId"
-                  @click="$emit('enter-selected')"
-                >
-                  {{ selectedCharacter.id === pendingCharacterSessionId ? '进入中...' : '进入聊天' }}
-                </button>
+                <div class="dossier-title-actions">
+                  <button
+                    type="button"
+                    class="os-system-act-btn character-worldbook-button"
+                    :class="{ 'is-loading': characterWorldbookBusy, 'is-bound': characterWorldbookBound }"
+                    :disabled="!!pendingCharacterSessionId || characterWorldbookBusy"
+                    :title="characterWorldbookButtonTitle"
+                    aria-label="角色世界书"
+                    @click="$emit('open-character-worldbook')"
+                  >
+                    <svg
+                      class="character-worldbook-icon"
+                      aria-hidden="true"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-width="1.6"
+                        d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18ZM3.8 9h16.4M3.8 15h16.4M12 3c2 2.2 3 5.2 3 9s-1 6.8-3 9M12 3c-2 2.2-3 5.2-3 9s1 6.8 3 9"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="os-system-act-btn enter-chat-button"
+                    :class="{ 'is-loading': selectedCharacter.id === pendingCharacterSessionId }"
+                    :disabled="!!pendingCharacterSessionId"
+                    @click="$emit('enter-selected')"
+                  >
+                    {{ selectedCharacter.id === pendingCharacterSessionId ? '进入中...' : '进入聊天' }}
+                  </button>
+                </div>
               </div>
               <div class="dossier-summary">
                 {{ selectedCharacterPreviewLoading ? '正在读取角色卡...' : selectedCharacter.description || selectedCharacter.personality || selectedCharacter.scenario || '暂无角色描述。' }}

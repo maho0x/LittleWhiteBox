@@ -1,5 +1,12 @@
 /* eslint-disable -- generated from TypeScript source; run npm run build:tavern */
-import { characters, this_chid } from "../../../../../../../script.js";
+import {
+  characters,
+  eventSource,
+  event_types,
+  getCurrentChatId,
+  saveSettingsDebounced,
+  this_chid
+} from "../../../../../../../script.js";
 import {
   allowPresetScripts,
   allowScopedScripts,
@@ -10,6 +17,7 @@ import {
   isPresetScriptsAllowed,
   isScopedScriptsAllowed,
   regex_placement,
+  RegexProvider,
   saveScriptsByType,
   SCRIPT_TYPES,
   substitute_find_regex
@@ -153,6 +161,19 @@ function buildGroup(scriptType, key, label) {
     allowed: scriptType === SCRIPT_TYPES.SCOPED ? isScopedScriptsAllowed(currentCharacter()) : scriptType === SCRIPT_TYPES.PRESET ? isPresetScriptsAllowed(presetApi, presetName) : true
   };
 }
+async function syncNativeRegexUiAfterWrite() {
+  try {
+    RegexProvider.instance.clear();
+    saveSettingsDebounced?.();
+    const chatId = getCurrentChatId?.();
+    const chatChangedEvent = event_types?.CHAT_CHANGED;
+    if (chatChangedEvent && typeof eventSource?.emit === "function") {
+      await eventSource.emit(chatChangedEvent, chatId);
+    }
+  } catch (error) {
+    console.warn("[LittleWhiteBox] Failed to refresh native regex UI after write.", error);
+  }
+}
 function listTavernRegexScripts() {
   return {
     groups: [
@@ -189,6 +210,7 @@ async function saveTavernRegexScript(input) {
   } else if (scriptType === SCRIPT_TYPES.PRESET) {
     allowPresetScripts(getCurrentPresetAPI(), getCurrentPresetName());
   }
+  await syncNativeRegexUiAfterWrite();
   return {
     ...listTavernRegexScripts(),
     savedScriptId: script.id,
@@ -204,6 +226,7 @@ async function deleteTavernRegexScript(input) {
   }
   const scripts = getScriptsByType(scriptType).map((item, index) => normalizeRegexScript(item, scriptType, index)).filter((item) => item.id !== id);
   await saveScriptsByType(scripts, scriptType);
+  await syncNativeRegexUiAfterWrite();
   return listTavernRegexScripts();
 }
 function applyTavernRegex(input) {

@@ -215,6 +215,17 @@ function normalizeWorldbookEntryDraft(value: unknown): TavernWorldbookEntryDraft
     } as WorldbookEntryDraftRow;
 }
 
+function normalizeGlobalWorldbookPayload(value: unknown): { options: string[]; selected: string[] } {
+    const record = promptRecord(value);
+    const options = Array.isArray(record.options)
+        ? record.options.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+    const selected = Array.isArray(record.selected)
+        ? record.selected.map((item) => String(item || '').trim()).filter((name) => options.includes(name))
+        : [];
+    return { options, selected };
+}
+
 function normalizeRegexDraft(input: unknown = {}): TavernRegexScriptDraft {
     const source = promptRecord(input);
     return {
@@ -265,6 +276,10 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     const worldbookList = ref<Record<string, unknown>>({});
     const selectedWorldbookName = ref('');
     const worldbookStatus = ref('');
+    const globalWorldbookOptions = ref<string[]>([]);
+    const globalWorldbookSelected = ref<string[]>([]);
+    const globalWorldbookStatus = ref('');
+    const globalWorldbookSaving = ref(false);
     const worldbookPreview = ref<TavernWorldbookPreviewRow | null>(null);
     const worldbookPreviewStatus = ref('');
     const worldbookEntryDraft = ref<TavernWorldbookEntryDraft | null>(null);
@@ -289,6 +304,8 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     const regexStatus = ref('');
     let worldbookEntryLoadRequestSerial = 0;
     let worldbookEntryLoadRequestKey = '';
+    let globalWorldbookRequestSerial = 0;
+    let globalWorldbookSavingRequestSerial = 0;
 
     const apiSettingsPanelState: Record<string, unknown> = {
         config: {},
@@ -376,7 +393,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     const selectedWorldbook = computed<TavernWorldbookOptionRow | null>(() => (
         worldbookOptions.value.find((item) => item.name === selectedWorldbookName.value) || null
     ));
-    const worldbookGlobalCount = computed(() => worldbookOptions.value.filter((item) => item.globalActive).length);
     const hiddenWorldbookPreviewEntryCount = computed(() => {
         const preview = worldbookPreview.value;
         if (!preview || preview.name !== selectedWorldbookName.value) {return 0;}
@@ -465,7 +481,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             key: 'worldbooks',
             label: '世界书',
             mobileLabel: '世界',
-            badge: worldbookGlobalCount.value ? `${worldbookGlobalCount.value} 本全局` : '',
         },
         {
             key: 'chatPreset',
@@ -605,9 +620,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         .filter((row) => (row.content || row.marker) && row.enabled !== false));
     const presetTotalChars = computed(() => presetRows.value.reduce((sum, row) => sum + row.chars, 0));
 
-    function worldbookSourceSummary(item: TavernWorldbookOptionRow): string {
-        return item.globalActive ? '全局世界书' : '';
-    }
     function worldbookEntryEditKey(entry: Pick<TavernWorldbookPreviewEntryRow, 'uid' | 'name' | 'order'> | TavernWorldbookEntryDraft | null): string {
         if (!entry) {return '';}
         const entryId = entry.uid !== undefined && entry.uid !== null && String(entry.uid).trim()
@@ -805,6 +817,72 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             worldbookStatus.value = error instanceof Error ? error.message : String(error || '读取失败');
         }
     }
+    async function syncGlobalWorldbooksFromHost() {
+        const requestSerial = ++globalWorldbookRequestSerial;
+        globalWorldbookStatus.value = '正在同步';
+        try {
+            const result = await options.requestHost('xb-tavern:get-global-worldbooks');
+            if (requestSerial !== globalWorldbookRequestSerial) {return;}
+            const payload = normalizeGlobalWorldbookPayload(result.result || result);
+            if (globalWorldbookSavingRequestSerial && globalWorldbookSavingRequestSerial <= requestSerial) {
+                globalWorldbookSavingRequestSerial = 0;
+                globalWorldbookSaving.value = false;
+            }
+            globalWorldbookOptions.value = payload.options;
+            globalWorldbookSelected.value = payload.selected;
+            globalWorldbookStatus.value = '';
+        } catch (error) {
+            if (requestSerial !== globalWorldbookRequestSerial) {return;}
+            if (globalWorldbookSavingRequestSerial && globalWorldbookSavingRequestSerial <= requestSerial) {
+                globalWorldbookSavingRequestSerial = 0;
+                globalWorldbookSaving.value = false;
+            }
+            globalWorldbookStatus.value = error instanceof Error ? error.message : String(error || '读取失败');
+        }
+    }
+    async function saveGlobalWorldbooksToHost(selected: string[] = globalWorldbookSelected.value) {
+        const nextSelected = Array.from(new Set(selected.map((name) => String(name || '').trim()).filter(Boolean)));
+        const requestSerial = ++globalWorldbookRequestSerial;
+        globalWorldbookSavingRequestSerial = requestSerial;
+        globalWorldbookSelected.value = nextSelected;
+        globalWorldbookSaving.value = true;
+        globalWorldbookStatus.value = '正在保存';
+        try {
+            const result = await options.requestHost('xb-tavern:set-global-worldbooks', {
+                payload: { selected: nextSelected },
+            });
+            if (requestSerial !== globalWorldbookRequestSerial) {return;}
+            const payload = normalizeGlobalWorldbookPayload(result.result || result);
+            if (globalWorldbookSavingRequestSerial === requestSerial) {
+                globalWorldbookSavingRequestSerial = 0;
+                globalWorldbookSaving.value = false;
+            }
+            globalWorldbookOptions.value = payload.options;
+            globalWorldbookSelected.value = payload.selected;
+            globalWorldbookStatus.value = '';
+            options.postToHost('xb-tavern:refresh-context', {});
+            void syncWorldbooksFromHost({ keepSelection: true });
+        } catch (error) {
+            if (requestSerial !== globalWorldbookRequestSerial) {return;}
+            if (globalWorldbookSavingRequestSerial === requestSerial) {
+                globalWorldbookSavingRequestSerial = 0;
+                globalWorldbookSaving.value = false;
+            }
+            globalWorldbookStatus.value = error instanceof Error ? error.message : String(error || '保存失败');
+            void syncGlobalWorldbooksFromHost();
+        }
+    }
+    function toggleGlobalWorldbook(name: string, selected: boolean) {
+        const targetName = String(name || '').trim();
+        if (!targetName || globalWorldbookSaving.value) {return;}
+        const current = new Set(globalWorldbookSelected.value);
+        if (selected) {
+            current.add(targetName);
+        } else {
+            current.delete(targetName);
+        }
+        void saveGlobalWorldbooksToHost([...current]);
+    }
     async function loadSelectedWorldbookPreview(name = selectedWorldbookName.value) {
         const targetName = String(name || '').trim();
         if (!targetName) {
@@ -900,20 +978,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             options.postToHost('xb-tavern:refresh-context', {});
         } catch (error) {
             worldbookEntryStatus.value = error instanceof Error ? error.message : String(error || '保存失败');
-        }
-    }
-    async function openSelectedWorldbookEditor(name = selectedWorldbookName.value) {
-        const targetName = String(name || '').trim();
-        if (!targetName) {return;}
-        worldbookStatus.value = '正在打开酒馆编辑器';
-        try {
-            await options.requestHost('xb-tavern:open-worldbook-editor', {
-                payload: { name: targetName },
-            });
-            worldbookStatus.value = '';
-            options.postToHost('xb-tavern:close');
-        } catch (error) {
-            worldbookStatus.value = error instanceof Error ? error.message : String(error || '打开失败');
         }
     }
     async function refreshRegexFromHost() {
@@ -1409,6 +1473,13 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         options.activeSettingsWorkspace.value = workspace;
         options.activeView.value = 'settings';
     }
+    function openWorldbookWorkspace(name = '') {
+        const targetName = String(name || '').trim();
+        if (targetName) {
+            selectedWorldbookName.value = targetName;
+        }
+        openSettingsWorkspace('worldbooks');
+    }
     function selectSettingsWorkspace(workspace: string) {
         const normalized = workspace as TavernSettingsWorkspaceKey;
         if (normalized === 'api'
@@ -1480,6 +1551,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             && (previousView !== view || previousWorkspace !== workspace)
         ) {
             void syncWorldbooksFromHost({ keepSelection: true });
+            void syncGlobalWorldbooksFromHost();
         }
     });
     watch(selectedWorldbookName, (name) => {
@@ -1523,6 +1595,10 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         discardPresetChanges,
         expandRegexGroup,
         filteredPromptEditorRows,
+        globalWorldbookOptions,
+        globalWorldbookSelected,
+        globalWorldbookSaving,
+        globalWorldbookStatus,
         hiddenAssistantPresetCount,
         hiddenChatPresetOptionCount,
         hiddenPromptCount,
@@ -1534,7 +1610,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         linesFromList,
         listFromLines,
         movePromptRow,
-        openSelectedWorldbookEditor,
         postToHost: options.postToHost,
         preset,
         presetDirty,
@@ -1561,6 +1636,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         saveCurrentAssistantPreset,
         saveCurrentPreset,
         saveCurrentRegexScript,
+        saveGlobalWorldbooksToHost,
         saveWorldbookEntryDraft,
         selectAssistantPreset,
         selectAssistantPresetItem,
@@ -1579,8 +1655,10 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         shortText: options.shortText,
         showMoreWorldbookPreviewEntries,
         startWorldbookEntryEdit,
+        syncGlobalWorldbooksFromHost,
         syncWorldbooksFromHost,
         togglePromptRow,
+        toggleGlobalWorldbook,
         toggleRegexPlacement,
         updateAssistantPresetPatch,
         updatePromptByIdentifier,
@@ -1593,7 +1671,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         visibleWorldbookOptions,
         WORLDBOOK_BATCH_SIZE,
         WORLDBOOK_PREVIEW_BATCH_SIZE,
-        worldbookGlobalCount,
         worldbookEntryDirty,
         worldbookEntryDraft,
         worldbookEntryEditingKey,
@@ -1604,7 +1681,6 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         worldbookPreviewStatus,
         worldbookPreviewVisibleLimit,
         worldbookSearchText,
-        worldbookSourceSummary,
         worldbookStatus,
         worldbookVisibleLimit,
     };
@@ -1619,6 +1695,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         applyHostChatPreset,
         handleApiConfigSaved,
         openSettingsWorkspace,
+        openWorldbookWorkspace,
         refreshPresets,
         refreshRegexFromHost,
         renderApiSettingsPanel,

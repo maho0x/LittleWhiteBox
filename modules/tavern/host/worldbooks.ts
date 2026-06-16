@@ -1,21 +1,27 @@
 import {
     chat_metadata,
+    characters,
     eventSource,
+    getOneCharacter,
     name2,
+    select_selected_character,
     setCharacterId,
     setCharacterName,
     this_chid,
+    unshallowCharacter,
 } from '../../../../../../../script.js';
 import { getContext } from '../../../../../../extensions.js';
 import { power_user } from '../../../../../../power-user.js';
 import {
+    charUpdatePrimaryWorld,
     checkWorldInfo,
+    convertCharacterBook,
     getWorldInfoSettings,
     loadWorldInfo,
     METADATA_KEY,
-    openWorldInfoEditor,
     saveWorldInfo,
     selected_world_info,
+    updateWorldInfoSettings,
     updateWorldInfoList,
     world_names,
 } from '../../../../../../world-info.js';
@@ -84,6 +90,61 @@ interface TavernWorldbookEntryDraft {
     order: number;
     entryHash: string;
     revision: string;
+}
+
+interface TavernCharacterWorldbookState {
+    characterId: string;
+    currentCharacterId: string;
+    isCurrentCharacter: boolean;
+    characterName: string;
+    boundWorldbookName: string;
+    boundExists: boolean;
+    hasEmbeddedBook: boolean;
+    embeddedBookName: string;
+    worldbookOptions: string[];
+}
+
+interface TavernCharacterWorldbookActionResult {
+    action: 'selected' | 'imported' | 'needs_selection' | 'needs_import_confirmation';
+    name?: string;
+    worldbookOptions?: string[];
+    state: TavernCharacterWorldbookState;
+}
+
+interface TavernGlobalWorldbooksState {
+    options: string[];
+    selected: string[];
+}
+
+type TavernCharacterEditorControl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
+interface TavernJQueryCollection {
+    data(key: string): unknown;
+    data(key: string, value: unknown): TavernJQueryCollection;
+    removeData(key: string): TavernJQueryCollection;
+    each(callback: (this: Element, index: number, element: Element) => void): TavernJQueryCollection;
+}
+
+type TavernJQuery = (target: string | Element) => TavernJQueryCollection;
+
+interface TavernCharacterEditorControlSnapshot {
+    control: TavernCharacterEditorControl;
+    value: string;
+    checked?: boolean;
+    selectedValues?: string[];
+}
+
+interface TavernCharacterEditorDataSnapshot {
+    element: Element;
+    key: string;
+    value: unknown;
+    hadValue: boolean;
+}
+
+interface TavernCharacterEditorSnapshot {
+    actionType: string | null;
+    controls: TavernCharacterEditorControlSnapshot[];
+    jqueryData: TavernCharacterEditorDataSnapshot[];
 }
 
 interface TavernWorldbookRuntimeInput {
@@ -572,6 +633,247 @@ function restoreRuntimeState(snapshot: ReturnType<typeof captureRuntimeState>): 
     }
 }
 
+function getCharacterRecordById(characterId: string): Record<string, unknown> {
+    const normalizedId = normalizeIdText(characterId);
+    const numericId = Number(normalizedId);
+    if (!normalizedId || !Number.isInteger(numericId) || numericId < 0) {return {};}
+    const list = Array.isArray(characters) ? characters : [];
+    return asRecord(list[numericId]);
+}
+
+async function hydrateCharacterRecordById(characterId: string): Promise<Record<string, unknown>> {
+    const normalizedId = normalizeIdText(characterId);
+    const numericId = Number(normalizedId);
+    if (!Number.isInteger(numericId) || numericId < 0) {return {};}
+    const character = getCharacterRecordById(normalizedId);
+    const avatar = normalizeText(character.avatar);
+    if (avatar && avatar !== 'none' && (character.shallow === true || !normalizeText(character.json_data))) {
+        if (character.shallow === true) {
+            await unshallowCharacter(String(numericId));
+        } else {
+            await getOneCharacter(avatar);
+        }
+    }
+    return getCharacterRecordById(normalizedId);
+}
+
+async function prepareCharacterEditorForWorldbookBinding(characterId: string): Promise<void> {
+    const normalizedId = normalizeIdText(characterId);
+    const numericId = Number(normalizedId);
+    if (!Number.isInteger(numericId) || numericId < 0 || !Object.keys(getCharacterRecordById(normalizedId)).length) {
+        throw new Error('当前角色未找到，无法绑定世界书。');
+    }
+    select_selected_character(numericId, { switchMenu: false });
+    await Promise.resolve();
+}
+
+function getJQuery(): TavernJQuery | null {
+    const candidate = (globalThis as typeof globalThis & { $?: unknown }).$;
+    return typeof candidate === 'function' ? candidate as TavernJQuery : null;
+}
+
+function readJQueryData(selector: string, key: string): unknown {
+    return getJQuery()?.(selector).data(key);
+}
+
+function captureCharacterEditorJQueryData(): TavernCharacterEditorDataSnapshot[] {
+    const jq = getJQuery();
+    if (!jq) {return [];}
+    const slots = [
+        { selector: '.open_alternate_greetings', key: 'chid' },
+        { selector: '#set_character_world', key: 'chid' },
+    ];
+    return slots.flatMap((slot) => {
+        const items: TavernCharacterEditorDataSnapshot[] = [];
+        jq(slot.selector).each(function captureDataSlot() {
+            const value = jq(this).data(slot.key);
+            items.push({
+                element: this,
+                key: slot.key,
+                value,
+                hadValue: value !== undefined,
+            });
+        });
+        return items;
+    });
+}
+
+function captureCharacterEditorSnapshot(): TavernCharacterEditorSnapshot {
+    const form = document.querySelector('#form_create');
+    const controls = Array.from(document.querySelectorAll<TavernCharacterEditorControl>(
+        '#form_create input, #form_create select, #form_create textarea',
+    ))
+        .filter((control) => !(control instanceof HTMLInputElement && control.type === 'file'))
+        .map((control) => ({
+            control,
+            value: control.value,
+            ...(control instanceof HTMLInputElement && ['checkbox', 'radio'].includes(control.type)
+                ? { checked: control.checked }
+                : {}),
+            ...(control instanceof HTMLSelectElement && control.multiple
+                ? { selectedValues: Array.from(control.selectedOptions).map((option) => option.value) }
+                : {}),
+        }));
+    return {
+        actionType: form instanceof HTMLFormElement ? form.getAttribute('actiontype') : null,
+        controls,
+        jqueryData: captureCharacterEditorJQueryData(),
+    };
+}
+
+function restoreCharacterEditorSnapshot(snapshot: TavernCharacterEditorSnapshot | null): void {
+    if (!snapshot) {return;}
+    const form = document.querySelector('#form_create');
+    if (form instanceof HTMLFormElement) {
+        if (snapshot.actionType === null) {
+            form.removeAttribute('actiontype');
+        } else {
+            form.setAttribute('actiontype', snapshot.actionType);
+        }
+    }
+    snapshot.controls.forEach((item) => {
+        const control = item.control;
+        if (!control.isConnected) {return;}
+        if (control instanceof HTMLSelectElement && control.multiple && item.selectedValues) {
+            Array.from(control.options).forEach((option) => {
+                option.selected = item.selectedValues?.includes(option.value) === true;
+            });
+            return;
+        }
+        control.value = item.value;
+        if (control instanceof HTMLInputElement && item.checked !== undefined) {
+            control.checked = item.checked;
+        }
+    });
+    const jq = getJQuery();
+    if (!jq) {return;}
+    snapshot.jqueryData.forEach((item) => {
+        if (!item.element.isConnected) {return;}
+        if (item.hadValue) {
+            jq(item.element).data(item.key, item.value);
+        } else {
+            jq(item.element).removeData(item.key);
+        }
+    });
+}
+
+function isCharacterEditorFocusedOn(characterId: string): boolean {
+    const targetId = normalizeIdText(characterId);
+    if (!targetId) {return false;}
+    const form = document.querySelector('#form_create');
+    if (form instanceof HTMLFormElement && form.getAttribute('actiontype') === 'createcharacter') {return false;}
+    const worldEditorId = normalizeIdText(readJQueryData('#set_character_world', 'chid'));
+    const greetingsEditorId = normalizeIdText(readJQueryData('.open_alternate_greetings', 'chid'));
+    return worldEditorId === targetId && greetingsEditorId === targetId;
+}
+
+async function bindCharacterWorldbookThroughEditor(characterId: string, name: string): Promise<TavernCharacterWorldbookState> {
+    const shouldPrepareEditor = !isCharacterEditorFocusedOn(characterId);
+    const snapshot = shouldPrepareEditor ? captureCharacterEditorSnapshot() : null;
+    try {
+        if (shouldPrepareEditor) {
+            await prepareCharacterEditorForWorldbookBinding(characterId);
+        }
+        await charUpdatePrimaryWorld(name);
+    } finally {
+        restoreCharacterEditorSnapshot(snapshot);
+    }
+    const state = await readCharacterWorldbookState(characterId);
+    if (state.boundWorldbookName !== name || state.boundExists !== true) {
+        throw new Error(`角色世界书绑定未保存成功：${name}`);
+    }
+    return state;
+}
+
+function readWorldbookBindingState(
+    character: Record<string, unknown>,
+    names: string[],
+): Pick<TavernCharacterWorldbookState, 'boundWorldbookName' | 'boundExists'> {
+    const characterData = readCharacterData(character);
+    const extensions = asRecord(characterData.extensions);
+    const boundWorldbookName = normalizeText(extensions.world);
+    return {
+        boundWorldbookName,
+        boundExists: !!boundWorldbookName && names.includes(boundWorldbookName),
+    };
+}
+
+function readEmbeddedWorldbookState(
+    character: Record<string, unknown>,
+): Pick<TavernCharacterWorldbookState, 'hasEmbeddedBook' | 'embeddedBookName'> {
+    const book = readCharacterBook(character);
+    return {
+        hasEmbeddedBook: hasCharacterBookEntries(book),
+        embeddedBookName: characterBookName(character, book),
+    };
+}
+
+function buildCharacterWorldbookState(
+    requestedId: string,
+    currentCharacterId: string,
+    character: Record<string, unknown>,
+    names: string[],
+    options?: {
+        includeBinding?: boolean;
+        includeEmbedded?: boolean;
+    },
+): TavernCharacterWorldbookState {
+    const includeBinding = options?.includeBinding !== false;
+    const includeEmbedded = options?.includeEmbedded !== false;
+    const bindingState = includeBinding
+        ? readWorldbookBindingState(character, names)
+        : { boundWorldbookName: '', boundExists: false };
+    const embeddedState = includeEmbedded
+        ? readEmbeddedWorldbookState(character)
+        : { hasEmbeddedBook: false, embeddedBookName: '' };
+    const characterData = readCharacterData(character);
+    return {
+        characterId: requestedId,
+        currentCharacterId,
+        isCurrentCharacter: !!requestedId && requestedId === currentCharacterId,
+        characterName: normalizeText(character.name) || normalizeText(characterData.name),
+        ...bindingState,
+        ...embeddedState,
+        worldbookOptions: names,
+    };
+}
+
+function readCharacterData(character: Record<string, unknown>): Record<string, unknown> {
+    return asRecord(character.data);
+}
+
+function readCharacterBook(character: Record<string, unknown>): Record<string, unknown> {
+    return asRecord(readCharacterData(character).character_book);
+}
+
+function hasCharacterBookEntries(book: Record<string, unknown>): boolean {
+    return Array.isArray(book.entries) && book.entries.length > 0;
+}
+
+function characterBookName(character: Record<string, unknown>, book: Record<string, unknown>): string {
+    const characterName = normalizeText(character.name) || normalizeText(readCharacterData(character).name) || 'Character';
+    return normalizeText(book.name) || `${characterName}'s Lorebook`;
+}
+
+async function readCharacterWorldbookState(characterId: string): Promise<TavernCharacterWorldbookState> {
+    const requestedId = normalizeIdText(characterId);
+    const currentCharacterId = normalizeIdText(this_chid);
+    const names = await ensureWorldbookNames();
+    const character = await hydrateCharacterRecordById(requestedId);
+    return buildCharacterWorldbookState(requestedId, currentCharacterId, character, names, {
+        includeBinding: true,
+        includeEmbedded: true,
+    });
+}
+
+async function readGlobalWorldbooksState(): Promise<TavernGlobalWorldbooksState> {
+    const options = await ensureWorldbookNames();
+    const selected = Array.isArray(selected_world_info)
+        ? selected_world_info.map((name) => normalizeText(name)).filter((name) => options.includes(name))
+        : [];
+    return { options, selected };
+}
+
 async function ensureWorldbookNames(): Promise<string[]> {
     if (!Array.isArray(world_names) || !world_names.length) {
         await updateWorldInfoList();
@@ -698,6 +1000,69 @@ export async function saveTavernWorldbookEntry(input: unknown = {}): Promise<Tav
     return buildWorldbookEntryDraft(name, slot);
 }
 
+export async function getTavernCharacterWorldbookState(input: unknown = {}): Promise<TavernCharacterWorldbookState> {
+    const payload = asRecord(input);
+    return readCharacterWorldbookState(normalizeIdText(payload.characterId));
+}
+
+export async function activateTavernCharacterWorldbook(input: unknown = {}): Promise<TavernCharacterWorldbookActionResult> {
+    const payload = asRecord(input);
+    const state = await readCharacterWorldbookState(normalizeIdText(payload.characterId));
+    if (state.boundWorldbookName && state.boundExists) {
+        return { action: 'selected', name: state.boundWorldbookName, state };
+    }
+    const character = await hydrateCharacterRecordById(state.characterId);
+    const book = readCharacterBook(character);
+    if (hasCharacterBookEntries(book)) {
+        const name = characterBookName(character, book);
+        if (state.worldbookOptions.includes(name) && payload.confirmed !== true) {
+            return { action: 'needs_import_confirmation', name, state };
+        }
+        const convertedBook = convertCharacterBook(book);
+        await saveWorldInfo(name, convertedBook, true);
+        await updateWorldInfoList();
+        const boundState = await bindCharacterWorldbookThroughEditor(state.characterId, name);
+        return {
+            action: 'imported',
+            name,
+            state: boundState,
+        };
+    }
+    return {
+        action: 'needs_selection',
+        worldbookOptions: state.worldbookOptions,
+        state,
+    };
+}
+
+export async function bindTavernCharacterWorldbook(input: unknown = {}): Promise<TavernCharacterWorldbookState> {
+    const payload = asRecord(input);
+    const characterId = normalizeIdText(payload.characterId);
+    const state = await readCharacterWorldbookState(characterId);
+    const name = normalizeText(payload.name);
+    if (!name) {
+        throw new Error('缺少要绑定的世界书名称。');
+    }
+    if (!state.worldbookOptions.includes(name)) {
+        throw new Error(`找不到世界书：${name}`);
+    }
+    return bindCharacterWorldbookThroughEditor(characterId, name);
+}
+
+export async function getTavernGlobalWorldbooks(): Promise<TavernGlobalWorldbooksState> {
+    return readGlobalWorldbooksState();
+}
+
+export async function setTavernGlobalWorldbooks(input: unknown = {}): Promise<TavernGlobalWorldbooksState> {
+    const payload = asRecord(input);
+    const options = await ensureWorldbookNames();
+    const selected = normalizeStringList(payload.selected).filter((name) => options.includes(name));
+    const settings = getWorldInfoSettings();
+    updateWorldInfoSettings(settings, selected);
+    await updateWorldInfoList();
+    return readGlobalWorldbooksState();
+}
+
 export async function getTavernWorldbookRuntime(input: unknown = {}): Promise<XbTavernNativeWorldInfoRuntime> {
     const payload = asRecord(input) as TavernWorldbookRuntimeInput;
     const context = payload.context || {};
@@ -749,16 +1114,4 @@ export async function getTavernWorldbookRuntime(input: unknown = {}): Promise<Xb
     } finally {
         restoreRuntimeState(snapshot);
     }
-}
-
-export function openTavernWorldbookEditor(input: unknown = {}): Record<string, unknown> {
-    const name = normalizeText(asRecord(input).name);
-    if (!name) {
-        throw new Error('缺少世界书名称。');
-    }
-    openWorldInfoEditor(name);
-    return {
-        ok: true,
-        name,
-    };
 }

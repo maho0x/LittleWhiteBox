@@ -78,7 +78,8 @@ test('tavern markdown blockquotes do not render showdown formatting whitespace a
 
 test('tavern worldbook settings page edits existing named entries without whole-book endpoints', () => {
     const panelSource = readRepoFile('modules/tavern/app-src/components/settings/TavernWorldbooksSettingsPanel.vue');
-    assert.match(panelSource, /打开酒馆编辑器/);
+    assert.doesNotMatch(panelSource, /打开酒馆编辑器/);
+    assert.doesNotMatch(panelSource, /openSelectedWorldbookEditor/);
     assert.match(panelSource, /worldbook-entry-preview-list/);
     assert.match(panelSource, /showMoreWorldbookPreviewEntries/);
     assert.match(panelSource, /startWorldbookEntryEdit/);
@@ -174,9 +175,8 @@ test('tavern worldbook sync uses native source overview with current context', (
     assert.match(settingsControllerSource, /worldbookEntryLoadRequestKey !== requestToken/);
     assert.match(settingsControllerSource, /limit: worldbookPreviewVisibleLimit\.value/);
     assert.match(settingsControllerSource, /function showMoreWorldbookPreviewEntries/);
-    assert.match(settingsControllerSource, /async function openSelectedWorldbookEditor/);
-    assert.match(settingsControllerSource, /requestHost\('xb-tavern:open-worldbook-editor'/);
-    assert.match(settingsControllerSource, /postToHost\('xb-tavern:close'\)/);
+    assert.doesNotMatch(settingsControllerSource, /async function openSelectedWorldbookEditor/);
+    assert.doesNotMatch(settingsControllerSource, /requestHost\('xb-tavern:open-worldbook-editor'/);
     assert.match(contextSource, /const worldbookSources = collectWorldbookSources\(ctx, options\);/);
     assert.match(contextSource, /worldbookSources,/);
     assert.match(contextSource, /worldbookSourcesSynced: true/);
@@ -186,20 +186,50 @@ test('tavern worldbook sync uses native source overview with current context', (
 test('tavern worldbook host bridge exposes named entry edit endpoints and native runtime result', () => {
     const hostSource = readRepoFile('modules/tavern/host/worldbooks.ts');
     const tavernSource = readRepoFile('modules/tavern/tavern.ts');
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     assert.match(hostSource, /export async function listTavernWorldbookSources/);
     assert.match(hostSource, /export async function getTavernWorldbookPreview/);
     assert.match(hostSource, /await loadWorldInfo\(name\)/);
     assert.match(hostSource, /Number\(payload\.limit\)/);
     assert.match(hostSource, /export async function getTavernWorldbookEntry/);
     assert.match(hostSource, /export async function saveTavernWorldbookEntry/);
+    assert.match(hostSource, /export async function getTavernCharacterWorldbookState/);
+    assert.match(hostSource, /export async function activateTavernCharacterWorldbook/);
+    assert.match(hostSource, /export async function bindTavernCharacterWorldbook/);
+    assert.match(hostSource, /export async function getTavernGlobalWorldbooks/);
+    assert.match(hostSource, /export async function setTavernGlobalWorldbooks/);
     assert.match(hostSource, /function normalizeIdText/);
     assert.match(hostSource, /function syncWorldbookOriginalDataEntry/);
     assert.match(hostSource, /'secondary_keys' in entry && \('secondary_keys' in draft \|\| 'secondaryKeys' in draft\)/);
     assert.match(hostSource, /entry\.secondary_keys = normalizeStringList\(draft\.keysecondary \?\? draft\.secondary_keys \?\? draft\.secondaryKeys\)/);
     assert.match(hostSource, /await saveWorldInfo\(name, data, true\)/);
+    assert.doesNotMatch(hostSource, /not_current_character|只能给当前酒馆角色/);
+    assert.match(hostSource, /function prepareCharacterEditorForWorldbookBinding/);
+    assert.match(hostSource, /getOneCharacter/);
+    assert.match(hostSource, /unshallowCharacter/);
+    assert.match(hostSource, /await hydrateCharacterRecordById\(requestedId\)/);
+    assert.match(hostSource, /select_selected_character\(numericId, \{ switchMenu: false \}\);/);
+    assert.match(hostSource, /const character = await hydrateCharacterRecordById\(state\.characterId\);[\s\S]*const book = readCharacterBook\(character\);/);
+    assert.match(hostSource, /state\.worldbookOptions\.includes\(name\) && payload\.confirmed !== true[\s\S]*action: 'needs_import_confirmation'/);
+    assert.match(hostSource, /function captureCharacterEditorSnapshot/);
+    assert.match(hostSource, /function captureCharacterEditorJQueryData/);
+    assert.match(hostSource, /function restoreCharacterEditorSnapshot/);
+    assert.match(hostSource, /\.open_alternate_greetings/);
+    assert.match(hostSource, /#set_character_world/);
+    assert.match(hostSource, /function isCharacterEditorFocusedOn/);
+    assert.match(hostSource, /return worldEditorId === targetId && greetingsEditorId === targetId;/);
+    assert.match(hostSource, /async function bindCharacterWorldbookThroughEditor/);
+    assert.match(hostSource, /const shouldPrepareEditor = !isCharacterEditorFocusedOn\(characterId\);[\s\S]*if \(shouldPrepareEditor\) \{[\s\S]*await prepareCharacterEditorForWorldbookBinding\(characterId\);[\s\S]*finally \{[\s\S]*restoreCharacterEditorSnapshot\(snapshot\);/);
+    assert.match(hostSource, /const state = await readCharacterWorldbookState\(characterId\);[\s\S]*state\.boundWorldbookName !== name \|\| state\.boundExists !== true[\s\S]*throw new Error\(`角色世界书绑定未保存成功：\$\{name\}`\);/);
+    assert.match(hostSource, /const convertedBook = convertCharacterBook\(book\);[\s\S]*await saveWorldInfo\(name, convertedBook, true\);[\s\S]*await updateWorldInfoList\(\);[\s\S]*const boundState = await bindCharacterWorldbookThroughEditor\(state\.characterId, name\);/);
+    assert.match(hostSource, /if \(!name\) \{[\s\S]*throw new Error\('缺少要绑定的世界书名称。'\);[\s\S]*if \(!state\.worldbookOptions\.includes\(name\)\)/);
+    assert.match(hostSource, /await prepareCharacterEditorForWorldbookBinding\(characterId\);[\s\S]*await charUpdatePrimaryWorld\(name\);/);
+    assert.match(hostSource, /return bindCharacterWorldbookThroughEditor\(characterId, name\);/);
+    assert.match(hostSource, /updateWorldInfoSettings\(settings, selected\);[\s\S]*await updateWorldInfoList\(\);/);
+    assert.doesNotMatch(hostSource, /importEmbeddedWorldInfo/);
     assert.doesNotMatch(hostSource, /createWorldInfoEntry/);
     assert.match(hostSource, /export async function getTavernWorldbookRuntime/);
-    assert.match(hostSource, /export function openTavernWorldbookEditor/);
+    assert.doesNotMatch(hostSource, /export function openTavernWorldbookEditor/);
     assert.match(hostSource, /sessionMeta\.worldbookSources/);
     assert.match(hostSource, /sessionMeta\.worldbookNames/);
     assert.match(hostSource, /function isNativeRuntimeSource/);
@@ -216,11 +246,20 @@ test('tavern worldbook host bridge exposes named entry edit endpoints and native
     assert.match(tavernSource, /case 'xb-tavern:get-worldbook-preview':/);
     assert.match(tavernSource, /case 'xb-tavern:get-worldbook-entry':/);
     assert.match(tavernSource, /case 'xb-tavern:save-worldbook-entry':/);
+    assert.match(tavernSource, /case 'xb-tavern:get-character-worldbook-state':/);
+    assert.match(tavernSource, /case 'xb-tavern:activate-character-worldbook':/);
+    assert.match(tavernSource, /case 'xb-tavern:bind-character-worldbook':/);
+    assert.match(tavernSource, /case 'xb-tavern:get-global-worldbooks':/);
+    assert.match(tavernSource, /case 'xb-tavern:set-global-worldbooks':/);
     assert.match(tavernSource, /case 'xb-tavern:get-worldbook-runtime':/);
-    assert.match(tavernSource, /case 'xb-tavern:open-worldbook-editor':/);
+    assert.match(appSource, /action === 'needs_import_confirmation'/);
+    assert.match(appSource, /window\.confirm\(`世界书「\$\{name\}」已存在，导入角色内嵌世界书会覆盖它。继续？`\)/);
+    assert.match(appSource, /payload: \{ characterId: targetId, confirmed: true \}/);
+    assert.doesNotMatch(tavernSource, /case 'xb-tavern:open-worldbook-editor':/);
     assert.doesNotMatch(tavernSource, /case 'xb-tavern:list-worldbooks':/);
     assert.doesNotMatch(tavernSource, /case 'xb-tavern:get-worldbook':/);
     assert.doesNotMatch(tavernSource, /case 'xb-tavern:save-worldbook':/);
+    assert.doesNotMatch(tavernSource, /chat-worldbook/);
 });
 
 test('tavern slash command bridge executes through native SillyTavern STscript', () => {
