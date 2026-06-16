@@ -512,6 +512,14 @@
     grid-column: auto;
 }
 
+.worldbook-entry-title-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+    min-width: 0;
+}
+
 .worldbook-entry-key-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(132px, 170px) minmax(0, 1fr);
@@ -608,7 +616,8 @@
     align-items: center;
     justify-content: flex-start;
     gap: 7px;
-    min-height: 38px;
+    align-self: end;
+    min-height: var(--worldbook-entry-control-height);
     white-space: nowrap;
 }
 
@@ -803,26 +812,31 @@
     .worldbook-entry-editor {
         --worldbook-entry-control-height: 34px;
         gap: 8px;
-        padding: 2px 0 0;
+        padding: 2px 0 calc(82px + env(safe-area-inset-bottom, 0px));
     }
 
     .worldbook-entry-editor-head {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
-        border-bottom: 1px solid var(--xb-line);
-        background: var(--xb-settings-sheet-bg);
-        padding: 8px 0;
+        display: contents;
+    }
+
+    .worldbook-entry-editor-head > span {
+        display: none;
     }
 
     .worldbook-entry-editor-actions {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        z-index: 76;
         display: grid;
-        grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         gap: 8px;
-        align-items: center;
+        border: 1px solid var(--xb-line);
+        border-radius: 13px;
+        background: var(--xb-settings-sheet-bg);
+        box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.26);
+        padding: 8px;
     }
 
     .worldbook-entry-editor-actions .worldbook-row-open,
@@ -835,16 +849,49 @@
 
     .worldbook-entry-active-toggle {
         min-height: 34px;
+        padding-top: 14px;
     }
 
     .worldbook-entry-core-grid {
-        grid-template-columns: minmax(0, 1fr) minmax(72px, 0.55fr);
+        grid-template-columns: minmax(0, 1fr) minmax(72px, 0.75fr) minmax(60px, 0.55fr);
         align-items: stretch;
+        gap: 8px;
+    }
+
+    .worldbook-entry-title-row {
+        order: 1;
+        grid-column: 1 / -1;
+        grid-template-columns: minmax(0, 1fr) auto;
         gap: 8px;
     }
 
     .worldbook-entry-title-field {
         grid-column: auto;
+    }
+
+    .worldbook-entry-position-field {
+        order: 2;
+        grid-column: 1;
+    }
+
+    .worldbook-entry-state-field {
+        order: 3;
+        grid-column: 2;
+    }
+
+    .worldbook-entry-depth-field {
+        order: 4;
+        grid-column: 3;
+    }
+
+    .worldbook-entry-order-field {
+        order: 5;
+        grid-column: 1;
+    }
+
+    .worldbook-entry-probability-field {
+        order: 6;
+        grid-column: 2 / -1;
     }
 
     .worldbook-entry-key-grid,
@@ -860,6 +907,7 @@
     }
 
     .worldbook-entry-core-grid > label,
+    .worldbook-entry-title-row > label:not(.worldbook-entry-active-toggle),
     .worldbook-entry-key-grid > label,
     .worldbook-entry-key-grid .worldbook-entry-logic-field,
     .worldbook-entry-advanced-grid > label {
@@ -870,6 +918,7 @@
     }
 
     .worldbook-entry-core-grid > label > span,
+    .worldbook-entry-title-row > label:not(.worldbook-entry-active-toggle) > span,
     .worldbook-entry-key-grid > label > span,
     .worldbook-entry-key-grid .worldbook-entry-logic-field > span,
     .worldbook-entry-advanced-grid > label > span {

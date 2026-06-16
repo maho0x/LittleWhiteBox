@@ -412,14 +412,6 @@ watch(
                           <span v-if="worldbookEntryStatus">{{ worldbookEntryStatus }}</span>
                           <span v-else>编辑条目</span>
                           <div class="worldbook-entry-editor-actions">
-                            <label class="worldbook-entry-active-toggle">
-                              <input
-                                type="checkbox"
-                                :checked="!worldbookEntryDraft.disable"
-                                @change="updateWorldbookEntryDraftPatch({ disable: !($event.target as HTMLInputElement).checked, enabled: ($event.target as HTMLInputElement).checked })"
-                              >
-                              <span>启用</span>
-                            </label>
                             <button
                               type="button"
                               class="worldbook-row-open"
@@ -438,15 +430,25 @@ watch(
                           </div>
                         </div>
                         <div class="worldbook-entry-core-grid">
-                          <label class="worldbook-entry-title-field">
-                            <span>条目名</span>
-                            <input
-                              :value="worldbookEntryDraft.comment"
-                              type="text"
-                              @input="updateWorldbookEntryDraftPatch({ comment: ($event.target as HTMLInputElement).value })"
-                            >
-                          </label>
-                          <label>
+                          <div class="worldbook-entry-title-row">
+                            <label class="worldbook-entry-title-field">
+                              <span>条目名</span>
+                              <input
+                                :value="worldbookEntryDraft.comment"
+                                type="text"
+                                @input="updateWorldbookEntryDraftPatch({ comment: ($event.target as HTMLInputElement).value })"
+                              >
+                            </label>
+                            <label class="worldbook-entry-active-toggle">
+                              <input
+                                type="checkbox"
+                                :checked="!worldbookEntryDraft.disable"
+                                @change="updateWorldbookEntryDraftPatch({ disable: !($event.target as HTMLInputElement).checked, enabled: ($event.target as HTMLInputElement).checked })"
+                              >
+                              <span>启用</span>
+                            </label>
+                          </div>
+                          <label class="worldbook-entry-state-field">
                             <span>状态</span>
                             <select
                               :value="worldbookEntryStateValue(worldbookEntryDraft)"
@@ -463,7 +465,7 @@ watch(
                               </option>
                             </select>
                           </label>
-                          <label>
+                          <label class="worldbook-entry-position-field">
                             <span>注入位置</span>
                             <select
                               :value="worldbookPositionValue(worldbookEntryDraft)"
@@ -479,7 +481,7 @@ watch(
                               </option>
                             </select>
                           </label>
-                          <label>
+                          <label class="worldbook-entry-depth-field">
                             <span>深度</span>
                             <input
                               :value="numberInputValue(worldbookEntryDraft.depth)"
@@ -491,7 +493,7 @@ watch(
                               @input="patchWorldbookEntryField('depth', nullableNumberFromEvent($event))"
                             >
                           </label>
-                          <label>
+                          <label class="worldbook-entry-order-field">
                             <span>排序</span>
                             <input
                               :value="worldbookEntryDraft.order"
@@ -502,7 +504,7 @@ watch(
                               @input="patchWorldbookEntryField('order', Number(($event.target as HTMLInputElement).value))"
                             >
                           </label>
-                          <label>
+                          <label class="worldbook-entry-probability-field">
                             <span>触发概率</span>
                             <input
                               :value="numberInputValue(worldbookEntryDraft.probability)"
