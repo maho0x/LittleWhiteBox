@@ -20,7 +20,7 @@ import { applyTavernSubstituteParams } from "./host/substitute-params.js";
 import { runTavernSlashCommand } from "./host/slash-commands.js";
 import { buildTavernContext } from "./host/sillytavern-context.js";
 import { saveTavernDisplaySettings } from "./host/display-settings.js";
-import { buildTavernNativeChatPrompt } from "./host/native-prompt.js";
+import { buildTavernNativeChatPrompt, cancelTavernNativeChatPrompt } from "./host/native-prompt.js";
 import { listTavernUsers, switchTavernUser } from "./host/users.js";
 import {
   activateTavernCharacterWorldbook,
@@ -320,6 +320,7 @@ function handleCancelRequest(payload = {}) {
     return;
   }
   pendingDrawRequests.get(requestId)?.abort();
+  cancelTavernNativeChatPrompt(requestId);
 }
 async function handleChatPresetRequest(type, payload = {}) {
   const requestId = String(payload.requestId || "");
@@ -396,7 +397,11 @@ async function handleWorldbookRequest(type, payload = {}) {
 async function handleNativePromptRequest(payload = {}) {
   const requestId = String(payload.requestId || "");
   try {
-    const result = await buildTavernNativeChatPrompt(payload.payload);
+    const nativePayload = payload.payload && typeof payload.payload === "object" && !Array.isArray(payload.payload) ? payload.payload : {};
+    const result = await buildTavernNativeChatPrompt({
+      ...nativePayload,
+      requestId
+    });
     replyHostResult(requestId, {
       ok: true,
       result

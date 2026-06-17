@@ -71,6 +71,7 @@ const {
     revealOlderChatMessages,
     roleLabel,
     runtimeActionCheckEvents,
+    runtimePendingUserMessage,
     runtimeText,
     runtimeThoughts,
     runtimeUserMessageVisible,
@@ -166,6 +167,14 @@ const liveAssistantMarkdownVisible = computed(() => hasRenderableLiveAssistantMa
     text: runtimeText.value,
     actionCheckEvents: runtimeActionCheckEvents.value,
 }));
+const pendingUserVisible = computed(() => isRunning.value && !runtimeUserMessageVisible.value && !!runtimePendingUserMessage.value.trim());
+const pendingUserRenderState = computed(() => {
+    const text = runtimePendingUserMessage.value.trim();
+    return {
+        text,
+        signature: roleplayMarkdownSignature(text, 'pending-user'),
+    };
+});
 const thoughtDisclosure = useTavernEphemeralDisclosureScope();
 const runtimeThoughtDisclosureId = 'chat:runtime-thoughts';
 const isMobileActionTrayViewport = useTavernMediaQuery('(max-width: 760px)');
@@ -470,6 +479,36 @@ watch(isMobileActionTrayViewport, (isMobile) => {
             </div>
           </div>
         </template>
+        <div
+          v-if="pendingUserVisible"
+          data-chat-anchor-key="pending:user"
+          class="chat-bubble from-user pending-user"
+        >
+          <div class="bubble-meta">
+            <div class="bubble-identity">
+              <span class="bubble-nameplate">
+                <span class="bubble-avatar-stamp">
+                  <img
+                    v-if="visibleUserAvatar"
+                    :src="visibleUserAvatar"
+                    alt=""
+                    @error="rememberBrokenAvatar(visibleUserAvatar)"
+                  >
+                  <span v-else>{{ String(roleLabel('user')).slice(0, 1) }}</span>
+                </span>
+                <span class="bubble-role-name">{{ roleLabel('user') }}</span>
+                <span class="bubble-meta-line">
+                  <small class="bubble-time-tag">发送中</small>
+                </span>
+              </span>
+            </div>
+          </div>
+          <div
+            class="xb-tavern-markdown"
+            :data-markdown-signature="pendingUserRenderState.signature"
+            v-html="renderRoleplayMarkdown(pendingUserRenderState.text)"
+          />
+        </div>
         <div
           v-if="liveAssistantCanRender && liveAssistantVisible"
           data-chat-anchor-key="streaming:content"

@@ -282,6 +282,7 @@ watch(activeSettingsWorkspace, (workspace) => {
           <strong>{{ selectedPromptRow?.name || '提示词条目' }}</strong>
           <span>{{ promptRoleDisplay(String(selectedPromptRow?.role || 'system')) }}</span>
           <button
+            v-if="isMobileSettingsViewport"
             type="button"
             class="prompt-editor-close"
             title="关闭"

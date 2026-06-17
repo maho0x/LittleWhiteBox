@@ -235,6 +235,9 @@ test('tavern chat preset bridge only writes native prompt fields, never API para
 test('tavern request log is sourced from runtime request snapshots', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const runtimeSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
+    const hostSource = readRepoFile('modules/tavern/tavern.ts');
+    const nativePromptSource = readRepoFile('modules/tavern/host/native-prompt.ts');
+    const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     assert.match(appSource, /lastRequestSnapshot\.value\?\.rawRequestJson \|\| lastRequestSnapshot\.value\?\.rawMessagesJson/);
     assert.match(appSource, /simulateRequestJson\.value = result\.requestSnapshot\.rawRequestJson \|\| result\.requestSnapshot\.rawMessagesJson/);
     assert.match(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: runtimeChatPreset\.value/);
@@ -242,9 +245,20 @@ test('tavern request log is sourced from runtime request snapshots', () => {
     assert.doesNotMatch(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
     assert.doesNotMatch(appSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
     assert.match(appSource, /runXbTavernTurn\(\{[\s\S]*buildNativeChatPrompt,/);
+    assert.match(appSource, /const NATIVE_PROMPT_BUILD_TIMEOUT_MS = 30000/);
+    assert.match(appSource, /xb-tavern:build-native-chat-prompt[\s\S]*timeoutMs: NATIVE_PROMPT_BUILD_TIMEOUT_MS/);
+    assert.match(appSource, /postToHost\('xb-tavern:cancel-request', \{ requestId \}\);/);
+    assert.match(appSource, /runtimePendingUserMessage\.value = messageText/);
+    assert.match(conversationSource, /class="chat-bubble from-user pending-user"/);
     assert.match(runtimeSource, /async function applyNativeChatPromptBuild/);
     assert.match(runtimeSource, /stage: 'simulate_native_prompt_build'/);
     assert.match(runtimeSource, /stage: 'turn_native_prompt_build'/);
+    assert.match(runtimeSource, /debugStage: input\.stage/);
+    assert.match(runtimeSource, /turn stage start/);
+    assert.match(runtimeSource, /turn stage end/);
+    assert.match(nativePromptSource, /nativePromptAbortControllers/);
+    assert.match(nativePromptSource, /export function cancelTavernNativeChatPrompt/);
+    assert.match(hostSource, /cancelTavernNativeChatPrompt\(requestId\)/);
     assert.match(runtimeSource, /rawRequestJson: JSON\.stringify\(requestForJson, null, 2\)/);
     assert.match(runtimeSource, /requestSnapshot = \(await inspectTavernRequest\(/);
 });
@@ -506,6 +520,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(appSource, /function clearRuntimeAssistantLiveState\(\) \{[\s\S]*runtimeText\.value = '';[\s\S]*runtimeThoughts\.value = \[\];[\s\S]*runtimeActionCheckEvents\.value = \[\];[\s\S]*runtimeUserMessageVisible\.value = false;/);
     assert.match(appSource, /runtimeUserMessageVisible\.value = false;[\s\S]*runtimeProvider\.value = ''/);
     assert.match(appSource, /sessionMessages\.value = existingIndex >= 0[\s\S]*runtimeUserMessageVisible\.value = true;/);
+    assert.match(appSource, /onUserMessageSaved: async \(sessionId, message\) => \{[\s\S]*sessionMessages\.value = existingIndex >= 0[\s\S]*runtimePendingUserMessage\.value = '';[\s\S]*await setSelectedTavernSessionId\(sessionId\)/);
     assert.match(appSource, /onAssistantMessageSaved: async \(sessionId, message\) => \{[\s\S]*sessionMessages\.value = existingIndex >= 0[\s\S]*clearRuntimeAssistantLiveState\(\);/);
     assert.match(conversationPanelSource, /const liveAssistantCanRender = computed\(\(\) => isRunning\.value && runtimeUserMessageVisible\.value\)/);
     assert.match(conversationPanelSource, /v-if="liveAssistantCanRender && liveAssistantVisible"[\s\S]*data-chat-anchor-key="streaming:content"/);
@@ -688,6 +703,7 @@ test('tavern settings and chat pages reset ephemeral expanded DOM on scope chang
     assert.match(worldbookSource, /watch\(\s*\[\s*activeSettingsWorkspace,\s*selectedWorldbookName/);
     assert.match(chatPresetSource, /const shouldMountPromptEditor = computed/);
     assert.match(chatPresetSource, /v-if="shouldMountPromptEditor"/);
+    assert.match(chatPresetSource, /class="prompt-editor-close"[\s\S]*v-if="isMobileSettingsViewport"|v-if="isMobileSettingsViewport"[\s\S]*class="prompt-editor-close"/);
     assert.match(chatPresetSource, /watch\(activeSettingsWorkspace[\s\S]*workspace !== 'chatPreset'[\s\S]*mobileEditorOpen\.value = false/);
     assert.match(regexSource, /const shouldMountRegexEditor = computed/);
     assert.match(regexSource, /v-if="shouldMountRegexEditor"/);

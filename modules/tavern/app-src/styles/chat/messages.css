@@ -103,6 +103,7 @@
     justify-content: center;
     margin: -8px 0 -2px;
     padding: 0 18px;
+    animation: tavern-runtime-event-arrive 240ms ease-out both;
 }
 
 .tavern-chat.xb-page .chat-runtime-event.scene-narration::before {
@@ -176,6 +177,46 @@
         linear-gradient(180deg, rgba(var(--xb-accent-rgb), 0.026), transparent 64%),
         var(--xb-paper-plain);
     color: var(--xb-ink-soft);
+}
+
+.chat-bubble.pending-user {
+    opacity: 0.78;
+    animation: tavern-pending-user-arrive 160ms ease-out both;
+}
+
+.chat-bubble.pending-user .bubble-time-tag {
+    color: var(--xb-text-dim);
+}
+
+@keyframes tavern-pending-user-arrive {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 0.78;
+        transform: translateY(0);
+    }
+}
+
+@keyframes tavern-runtime-event-arrive {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat-bubble.pending-user,
+    .tavern-chat.xb-page .chat-runtime-event.scene-narration {
+        animation: none;
+    }
 }
 
 .chat-bubble.streaming {

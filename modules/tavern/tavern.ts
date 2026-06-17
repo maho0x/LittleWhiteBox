@@ -19,7 +19,7 @@ import { applyTavernSubstituteParams } from './host/substitute-params.js';
 import { runTavernSlashCommand } from './host/slash-commands.js';
 import { buildTavernContext } from './host/sillytavern-context.js';
 import { saveTavernDisplaySettings } from './host/display-settings.js';
-import { buildTavernNativeChatPrompt } from './host/native-prompt.js';
+import { buildTavernNativeChatPrompt, cancelTavernNativeChatPrompt } from './host/native-prompt.js';
 import { listTavernUsers, switchTavernUser } from './host/users.js';
 import {
     activateTavernCharacterWorldbook,
@@ -351,6 +351,7 @@ function handleCancelRequest(payload: Record<string, unknown> = {}): void {
     const requestId = String(payload.requestId || '').trim();
     if (!requestId) {return;}
     pendingDrawRequests.get(requestId)?.abort();
+    cancelTavernNativeChatPrompt(requestId);
 }
 
 async function handleChatPresetRequest(type: string, payload: Record<string, unknown> = {}): Promise<void> {
@@ -431,7 +432,13 @@ async function handleWorldbookRequest(type: string, payload: Record<string, unkn
 async function handleNativePromptRequest(payload: Record<string, unknown> = {}): Promise<void> {
     const requestId = String(payload.requestId || '');
     try {
-        const result = await buildTavernNativeChatPrompt(payload.payload);
+        const nativePayload = payload.payload && typeof payload.payload === 'object' && !Array.isArray(payload.payload)
+            ? payload.payload as Record<string, unknown>
+            : {};
+        const result = await buildTavernNativeChatPrompt({
+            ...nativePayload,
+            requestId,
+        });
         replyHostResult(requestId, {
             ok: true,
             result: result as unknown as Record<string, unknown>,

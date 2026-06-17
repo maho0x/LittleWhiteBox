@@ -1839,7 +1839,7 @@ test('xb tavern simulated request applies prompt-stage regex to history without 
     assert.deepEqual((await listTavernMessages(session.id))[1]?.thoughts, [{ label: 'hidden', text: 'OLD_REASONING saved.' }]);
 });
 
-test('xb tavern regex failure before sending does not save untransformed chat messages', async () => {
+test('xb tavern regex failure before sending preserves the raw user message without calling provider', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const session = await createTavernSession({
@@ -1865,7 +1865,50 @@ test('xb tavern regex failure before sending does not save untransformed chat me
         }),
         /regex_failed_before_send/,
     );
-    assert.deepEqual(await listTavernMessages(session.id), []);
+    const messages = await listTavernMessages(session.id);
+    assert.deepEqual(messages.map((message) => `${message.role}:${message.content}`), [
+        'user:RAW_USER fails.',
+    ]);
+    assert.equal(messages[0]?.buildSnapshot, undefined);
+    assert.equal(messages[0]?.requestSnapshot, undefined);
+});
+
+test('xb tavern native prompt build failure preserves the saved user message', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Native prompt failure',
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+    });
+    let providerCalls = 0;
+
+    await assert.rejects(
+        () => runXbTavernTurn({
+            sessionId: session.id,
+            agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+            contextSnapshot: session.contextSnapshot || {},
+            preset,
+            currentUserMessage: 'Keep this even if prompt building fails.',
+            buildNativeChatPrompt: async () => {
+                throw new Error('native_prompt_failed_before_provider');
+            },
+            executeRunOnce: async () => {
+                providerCalls += 1;
+                throw new Error('provider_should_not_run');
+            },
+        }),
+        /native_prompt_failed_before_provider/,
+    );
+
+    assert.equal(providerCalls, 0);
+    const messages = await listTavernMessages(session.id);
+    assert.deepEqual(messages.map((message) => `${message.role}:${message.content}`), [
+        'user:Keep this even if prompt building fails.',
+    ]);
+    assert.equal(messages[0]?.buildSnapshot, undefined);
+    assert.equal(messages[0]?.requestSnapshot, undefined);
 });
 
 test('xb tavern applies native macro substitution to user input, world keys, world content, and final prompt JSON', async () => {

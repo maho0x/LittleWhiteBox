@@ -167,6 +167,7 @@ const SOURCE_APP = 'xb-tavern-app';
 const SOURCE_HOST = 'xb-tavern-host';
 const HOST_REQUEST_TIMEOUT_MS = 5000;
 const CHARACTER_CONTEXT_TIMEOUT_MS = 15000;
+const NATIVE_PROMPT_BUILD_TIMEOUT_MS = 30000;
 const CHARACTER_ARCHIVE_BATCH_SIZE = 48;
 const CHAT_SIDEBAR_INITIAL_LIMIT = 6;
 const CHAT_SIDEBAR_BATCH_SIZE = 12;
@@ -209,6 +210,7 @@ const composeErrorMessage = ref('');
 const runtimeProvider = ref('');
 const runtimeModel = ref('');
 const runtimeUserMessageVisible = ref(false);
+const runtimePendingUserMessage = ref('');
 const isRunning = ref(false);
 const isCancellingRun = ref(false);
 const tavernDrawStatus = ref({ provider: 'disabled', enabled: false, ready: false });
@@ -1093,6 +1095,7 @@ function requestHost(type: string, payload: Record<string, unknown> = {}, option
         };
         const timer = window.setTimeout(() => {
             cleanup();
+            postToHost('xb-tavern:cancel-request', { requestId });
             reject(new Error('host_request_timeout'));
         }, Number(options.timeoutMs) || HOST_REQUEST_TIMEOUT_MS);
         const abort = () => {
@@ -1692,7 +1695,7 @@ async function getNativeWorldbookRuntime(input: {
 const buildNativeChatPrompt: TavernBuildNativeChatPromptRuntime = async (input) => {
     const response = await requestHost('xb-tavern:build-native-chat-prompt', {
         payload: input,
-    });
+    }, { timeoutMs: NATIVE_PROMPT_BUILD_TIMEOUT_MS });
     return (response.result || response) as Awaited<ReturnType<TavernBuildNativeChatPromptRuntime>>;
 };
 
@@ -3422,6 +3425,7 @@ function clearRuntimeAssistantLiveState() {
     runtimeThoughts.value = [];
     runtimeActionCheckEvents.value = [];
     runtimeUserMessageVisible.value = false;
+    runtimePendingUserMessage.value = '';
 }
 
 async function appendManagerProtocolMessages(
@@ -3711,10 +3715,18 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
     runtimeThoughts.value = [];
     runtimeActionCheckEvents.value = [];
     runtimeUserMessageVisible.value = false;
+    runtimePendingUserMessage.value = '';
     runtimeProvider.value = '';
     runtimeModel.value = '';
     chatAutoScroll.value = true;
     resetChatMessageWindowState();
+    const shouldShowPendingUserMessage = !Number.isFinite(Number(options.reuseUserMessageOrder));
+    if (shouldShowPendingUserMessage) {
+        runtimePendingUserMessage.value = messageText;
+        currentUserMessage.value = '';
+        void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
+        scrollChatToBottom(true);
+    }
     try {
         if (!selectedSessionId.value) {
             await createSessionFromContext();
@@ -3751,14 +3763,16 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
             },
             onUserMessageSaved: async (sessionId, message) => {
                 selectedSessionId.value = sessionId;
-                await setSelectedTavernSessionId(sessionId);
                 const existingIndex = sessionMessages.value.findIndex((item) => item.sessionId === message.sessionId && item.order === message.order);
                 sessionMessages.value = existingIndex >= 0
                     ? sessionMessages.value.map((item, index) => index === existingIndex ? message : item)
                     : [...sessionMessages.value, message].sort((left, right) => left.order - right.order);
                 runtimeUserMessageVisible.value = true;
+                runtimePendingUserMessage.value = '';
                 currentUserMessage.value = '';
                 void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
+                scrollChatToBottom(true);
+                await setSelectedTavernSessionId(sessionId);
                 await refreshSessions();
                 scrollChatToBottom(true);
             },
@@ -3786,7 +3800,12 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
         scrollChatToBottom();
     } catch (error) {
         console.error('[小白酒馆] turn failed', error);
+        const pendingUserMessage = runtimePendingUserMessage.value;
         clearRuntimeAssistantLiveState();
+        if (pendingUserMessage && !currentUserMessage.value.trim()) {
+            currentUserMessage.value = pendingUserMessage;
+            void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
+        }
         runtimeError.value = error instanceof Error ? error.message : String(error || 'run_failed');
     } finally {
         if (activeRunController.value === controller) {
@@ -3803,6 +3822,7 @@ watch([
     () => chatMessageWindow.value.startIndex,
     () => visibleChatMarkdownSignature.value,
     () => runtimeText.value,
+    () => runtimePendingUserMessage.value,
     () => runtimeThoughtsSignature.value,
     () => runtimeActionCheckSignature.value,
     () => activeView.value,
@@ -3980,6 +4000,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
         runtimeThoughts,
         runtimeActionCheckEvents,
         runtimeUserMessageVisible,
+        runtimePendingUserMessage,
         saveEditMessage,
         scrollChatToBottom,
         scrollChatToTop,

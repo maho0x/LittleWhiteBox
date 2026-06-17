@@ -805,7 +805,22 @@ export async function appendTavernMessage(sessionId: string, message: TavernAppe
 export async function updateTavernMessage(
     sessionId = '',
     order = -1,
-    patch: Partial<Pick<TavernMessageRecord, 'content' | 'error' | 'thoughts' | 'runtimeEvents'>>,
+    patch: Partial<Pick<TavernMessageRecord,
+        | 'content'
+        | 'error'
+        | 'thoughts'
+        | 'runtimeEvents'
+        | 'contextSnapshot'
+        | 'buildSnapshot'
+        | 'chatPresetId'
+        | 'chatPresetName'
+        | 'presetId'
+        | 'presetName'
+        | 'requestSnapshot'
+        | 'provider'
+        | 'model'
+        | 'finishReason'
+    >>,
 ): Promise<TavernMessageRecord | null> {
     const id = String(sessionId || '').trim();
     const messageOrder = Number(order);
@@ -817,6 +832,16 @@ export async function updateTavernMessage(
     if ('error' in patch) {update.error = patch.error === true;}
     if ('thoughts' in patch) {update.thoughts = cloneSerializable(patch.thoughts, undefined);}
     if ('runtimeEvents' in patch) {update.runtimeEvents = normalizeMessageRuntimeEvents(patch.runtimeEvents);}
+    if ('contextSnapshot' in patch) {update.contextSnapshot = cloneSerializable(patch.contextSnapshot, undefined);}
+    if ('buildSnapshot' in patch) {update.buildSnapshot = cloneSerializable(patch.buildSnapshot, undefined);}
+    if ('chatPresetId' in patch) {update.chatPresetId = String(patch.chatPresetId || '');}
+    if ('chatPresetName' in patch) {update.chatPresetName = String(patch.chatPresetName || '');}
+    if ('presetId' in patch) {update.presetId = String(patch.presetId || '');}
+    if ('presetName' in patch) {update.presetName = String(patch.presetName || '');}
+    if ('requestSnapshot' in patch) {update.requestSnapshot = cloneSerializable(patch.requestSnapshot, undefined);}
+    if ('provider' in patch) {update.provider = String(patch.provider || '');}
+    if ('model' in patch) {update.model = String(patch.model || '');}
+    if ('finishReason' in patch) {update.finishReason = String(patch.finishReason || '');}
     await tavernMessagesTable.update([id, messageOrder], update);
     await tavernSessionsTable.update(id, { updatedAt: now() });
     const updated = await tavernMessagesTable.get([id, messageOrder]);

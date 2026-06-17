@@ -395,6 +395,7 @@ export type TavernBuildNativeChatPromptRuntime = (input: {
     chatPreset?: TavernChatPromptPresetBundle;
     currentUserMessage: string;
     generationType?: string;
+    debugStage?: string;
     memoryPrompt?: string;
     chancePrompt?: string;
     actionCheckPrompt?: string;
@@ -503,6 +504,7 @@ async function applyNativeChatPromptBuild(input: {
         chatPreset: input.chatPreset,
         currentUserMessage: input.currentUserMessage,
         generationType: input.generationType,
+        debugStage: input.stage,
         memoryPrompt: buildMemoryPromptContent(input.memoryContext),
         chancePrompt: input.chancePrompt || '',
         actionCheckPrompt: joinPromptMessages(input.runtimeProtocolMessages || []),
@@ -552,9 +554,29 @@ function wrapTavernStageError(stage: string, error: unknown): Error {
 }
 
 async function runTavernStage<T>(stage: string, task: () => Promise<T> | T): Promise<T> {
+    const startedAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+    console.info('[小白酒馆] turn stage start', { stage });
     try {
-        return await task();
+        const result = await task();
+        const finishedAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        console.info('[小白酒馆] turn stage end', {
+            stage,
+            ms: Math.round(finishedAt - startedAt),
+        });
+        return result;
     } catch (error) {
+        const finishedAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        console.info('[小白酒馆] turn stage failed', {
+            stage,
+            ms: Math.round(finishedAt - startedAt),
+            error: error instanceof Error ? error.message : String(error || 'unknown_error'),
+        });
         throw wrapTavernStageError(stage, error);
     }
 }
@@ -1824,6 +1846,21 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     const actionCheckCapabilities = buildActionCheckCapabilities(sessionContractRuntime);
     const shouldReplaceSessionState = !!reusedUserMessage;
     const rawCurrentUserMessage = stripTavernImageMarkers(reusedUserMessage?.content || input.currentUserMessage);
+    const initialPresetId = String(chatPreset.id || baseSession.chatPresetId || baseSession.presetId || '');
+    const initialPresetName = String(chatPreset.name || baseSession.chatPresetName || baseSession.presetName || '');
+    let userMessage = reusedUserMessage;
+    if (!userMessage) {
+        userMessage = await appendTavernMessage(baseSession.id, {
+            role: 'user',
+            content: rawCurrentUserMessage,
+            contextSnapshot: liveContext,
+            chatPresetId: initialPresetId,
+            chatPresetName: initialPresetName,
+            presetId: initialPresetId,
+            presetName: initialPresetName,
+        });
+        await notifyRunCallback(() => input.onUserMessageSaved?.(baseSession.id, userMessage as TavernMessageRecord));
+    }
     const regexApplications: TavernRegexApplicationSummary = {};
     const inputRegex = reusedUserMessage
         ? { text: rawCurrentUserMessage, summary: undefined }
@@ -1843,6 +1880,12 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             text: inputRegex.text,
             options: substituteOptions,
         }));
+    if (userMessage && !reusedUserMessage && userMessage.content !== currentUserMessage) {
+        userMessage = await updateTavernMessage(baseSession.id, userMessage.order, {
+            content: currentUserMessage,
+        }) || userMessage;
+        await notifyRunCallback(() => input.onUserMessageSaved?.(baseSession.id, userMessage as TavernMessageRecord));
+    }
     const contextWindow = resolveTavernContextWindow({
         messages: historyMessages,
         contextWindowStartOrder: sessionState.contextWindowStartOrder,
@@ -1856,6 +1899,12 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         rerollRuntimeEvents: input.rerollRuntimeEvents,
         randomEncounterRoll: input.randomEncounterRoll,
     });
+    if (userMessage && !reusedUserMessage && chanceEncounterEvent) {
+        userMessage = await updateTavernMessage(baseSession.id, userMessage.order, {
+            runtimeEvents: [chanceEncounterEvent],
+        }) || userMessage;
+        await notifyRunCallback(() => input.onUserMessageSaved?.(baseSession.id, userMessage as TavernMessageRecord));
+    }
     const generationTrigger = String(input.generationTrigger || (reusedUserMessage ? 'regenerate' : 'normal'));
     const contextForBuildRaw: XbTavernContext = {
         ...liveContext,
@@ -2003,18 +2052,9 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     }
     const presetId = String(chatPreset.id || session.chatPresetId || session.presetId || '');
     const presetName = String(chatPreset.name || session.chatPresetName || session.presetName || '');
-    let userMessage = reusedUserMessage;
     if (userMessage) {
         const existingEncounter = getChanceEncounterEvent(userMessage.runtimeEvents);
-        if (!existingEncounter && chanceEncounterEvent) {
-            userMessage = await updateTavernMessage(session.id, userMessage.order, {
-                runtimeEvents: [chanceEncounterEvent],
-            }) || userMessage;
-        }
-    } else {
-        userMessage = await appendTavernMessage(session.id, {
-            role: 'user',
-            content: currentUserMessage,
+        userMessage = await updateTavernMessage(session.id, userMessage.order, {
             contextSnapshot: liveContext,
             buildSnapshot,
             chatPresetId: presetId,
@@ -2022,8 +2062,13 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             presetId,
             presetName,
             requestSnapshot,
-            runtimeEvents: chanceEncounterEvent ? [chanceEncounterEvent] : [],
-        });
+            runtimeEvents: !existingEncounter && chanceEncounterEvent
+                ? [chanceEncounterEvent]
+                : userMessage.runtimeEvents || [],
+        }) || userMessage;
+    }
+    if (!userMessage) {
+        throw new Error('user_message_save_failed');
     }
     await notifyRunCallback(() => input.onUserMessageSaved?.(session.id, userMessage));
 

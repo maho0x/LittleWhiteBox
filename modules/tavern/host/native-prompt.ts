@@ -23,10 +23,12 @@ import type {
 } from '../shared/message-assembler.js';
 
 interface TavernNativePromptInput {
+    requestId?: string;
     context?: XbTavernContext;
     chatPreset?: TavernChatPromptPresetBundle;
     currentUserMessage?: string;
     generationType?: string;
+    debugStage?: string;
     memoryPrompt?: string;
     chancePrompt?: string;
     actionCheckPrompt?: string;
@@ -61,6 +63,112 @@ interface AuthorNoteState {
 }
 
 let nativePromptQueue: Promise<unknown> = Promise.resolve();
+const nativePromptAbortControllers = new Map<string, AbortController>();
+
+interface NativePromptTraceStep {
+    name: string;
+    ms: number;
+}
+
+interface NativePromptTrace {
+    id: string;
+    stage: string;
+    queuedAt: number;
+    startedAt: number;
+    steps: NativePromptTraceStep[];
+    input: TavernNativePromptInput;
+    signal?: AbortSignal;
+}
+
+function nowMs(): number {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+}
+
+function createNativePromptTrace(input: TavernNativePromptInput = {}, queuedAt = nowMs(), signal?: AbortSignal): NativePromptTrace {
+    return {
+        id: `native-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        stage: normalizeText(input.debugStage || 'native_prompt_build'),
+        queuedAt,
+        startedAt: nowMs(),
+        steps: [],
+        input,
+        signal,
+    };
+}
+
+function nativePromptTraceMeta(trace: NativePromptTrace): Record<string, unknown> {
+    const context = trace.input.context || {};
+    const runtime = context.nativeWorldInfo || {};
+    return {
+        id: trace.id,
+        stage: trace.stage,
+        generationType: normalizeText(trace.input.generationType || 'normal'),
+        historyCount: Array.isArray(context.history) ? context.history.length : 0,
+        currentUserChars: normalizeText(trace.input.currentUserMessage || '').length,
+        memoryChars: normalizeText(trace.input.memoryPrompt || '').length,
+        chanceChars: normalizeText(trace.input.chancePrompt || '').length,
+        actionCheckChars: normalizeText(trace.input.actionCheckPrompt || '').length,
+        worldBeforeChars: normalizeText(runtime.worldInfoBefore).length,
+        worldAfterChars: normalizeText(runtime.worldInfoAfter).length,
+        depthEntries: Array.isArray(runtime.worldInfoDepth) ? runtime.worldInfoDepth.length : 0,
+        authorNoteChars: [
+            ...(Array.isArray(runtime.anBefore) ? runtime.anBefore : []),
+            ...(Array.isArray(runtime.anAfter) ? runtime.anAfter : []),
+            asRecord(context.authorNote).prompt,
+        ].map((item) => normalizeText(item).length).reduce((total, value) => total + value, 0),
+    };
+}
+
+function logNativePromptTrace(event: string, trace: NativePromptTrace, extra: Record<string, unknown> = {}): void {
+    console.info(`[小白酒馆] native prompt ${event}`, {
+        ...nativePromptTraceMeta(trace),
+        ...extra,
+    });
+}
+
+function createNativePromptAbortError(): Error {
+    try {
+        return new DOMException('native_prompt_cancelled', 'AbortError') as unknown as Error;
+    } catch {
+        const error = new Error('native_prompt_cancelled');
+        error.name = 'AbortError';
+        return error;
+    }
+}
+
+function assertNativePromptNotCancelled(trace: NativePromptTrace): void {
+    if (trace.signal?.aborted) {
+        throw createNativePromptAbortError();
+    }
+}
+
+async function traceNativePromptStep<T>(
+    trace: NativePromptTrace,
+    name: string,
+    task: () => Promise<T> | T,
+): Promise<T> {
+    assertNativePromptNotCancelled(trace);
+    const startedAt = nowMs();
+    logNativePromptTrace(`${name}:start`, trace);
+    try {
+        const result = await task();
+        assertNativePromptNotCancelled(trace);
+        const ms = Math.round(nowMs() - startedAt);
+        trace.steps.push({ name, ms });
+        logNativePromptTrace(`${name}:end`, trace, { ms });
+        return result;
+    } catch (error) {
+        const ms = Math.round(nowMs() - startedAt);
+        trace.steps.push({ name, ms });
+        logNativePromptTrace(`${name}:failed`, trace, {
+            ms,
+            error: error instanceof Error ? error.message : String(error || 'unknown_error'),
+        });
+        throw error;
+    }
+}
 
 function normalizeText(value: unknown = ''): string {
     return String(value || '').replace(/\r/g, '').trim();
@@ -414,7 +522,8 @@ function getCharacterField(context: XbTavernContext = {}, key: string, camelKey:
     return baseChatReplace((character[camelKey] as unknown) || data[key] || '');
 }
 
-async function buildNativePromptNow(input: TavernNativePromptInput = {}): Promise<TavernNativePromptResult> {
+async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedAt = nowMs(), signal?: AbortSignal): Promise<TavernNativePromptResult> {
+    const trace = createNativePromptTrace(input, queuedAt, signal);
     const context = input.context || {};
     const character = context.character || {};
     const data = asRecord(character.data);
@@ -422,17 +531,27 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}): Promis
     const snapshot = captureExtensionPrompts();
     const personaSnapshot = capturePersonaPrompt();
     const promptManagerSnapshot = capturePromptManager();
+    logNativePromptTrace('start', trace, {
+        queuedMs: Math.round(trace.startedAt - trace.queuedAt),
+    });
     try {
-        applyChatPresetPromptManager(input.chatPreset, context);
-        applyPromptManagerActiveCharacter(context);
-        applyUserPersonaPrompt(context);
-        addInChatPrompt('xb_tavern_memory_d1', input.memoryPrompt, 1, 'system');
-        addInChatPrompt('xb_tavern_chance_d1', input.chancePrompt, 1, 'system');
-        addInChatPrompt('xb_tavern_action_check_d0', input.actionCheckPrompt, 0, 'system');
-        addCharacterDepthPrompt(context);
-        addNativeWorldInfoDepth(runtime);
-        applyAuthorNotePrompt(context, input.currentUserMessage || '', runtime);
-        const [prepared] = await prepareOpenAIMessages({
+        assertNativePromptNotCancelled(trace);
+        await traceNativePromptStep(trace, 'apply_prompt_manager', () => {
+            applyChatPresetPromptManager(input.chatPreset, context);
+            applyPromptManagerActiveCharacter(context);
+        });
+        await traceNativePromptStep(trace, 'apply_persona', () => applyUserPersonaPrompt(context));
+        await traceNativePromptStep(trace, 'inject_runtime_prompts', () => {
+            addInChatPrompt('xb_tavern_memory_d1', input.memoryPrompt, 1, 'system');
+            addInChatPrompt('xb_tavern_chance_d1', input.chancePrompt, 1, 'system');
+            addInChatPrompt('xb_tavern_action_check_d0', input.actionCheckPrompt, 0, 'system');
+            addCharacterDepthPrompt(context);
+            addNativeWorldInfoDepth(runtime);
+            applyAuthorNotePrompt(context, input.currentUserMessage || '', runtime);
+        });
+        const messages = await traceNativePromptStep(trace, 'build_chat_messages', () => buildOpenAiMessages(context, input.currentUserMessage || ''));
+        const messageExamples = await traceNativePromptStep(trace, 'build_examples', () => buildMessageExamples(context));
+        const [prepared] = await traceNativePromptStep(trace, 'prepare_openai_messages', () => prepareOpenAIMessages({
             name2: normalizeText(character.name || name2),
             charDescription: getCharacterField(context, 'description', 'description'),
             charPersonality: getCharacterField(context, 'personality', 'personality'),
@@ -447,17 +566,32 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}): Promis
             cyclePrompt: '',
             systemPromptOverride: baseChatReplace(data.system_prompt || ''),
             jailbreakPromptOverride: baseChatReplace(data.post_history_instructions || ''),
-            messages: buildOpenAiMessages(context, input.currentUserMessage || ''),
-            messageExamples: buildMessageExamples(context),
-        }, true);
-        const messages = (Array.isArray(prepared) ? prepared : [])
+            messages,
+            messageExamples,
+        }, true));
+        const normalizedMessages = (Array.isArray(prepared) ? prepared : [])
             .map(toXbMessage)
             .filter(Boolean) as XbTavernMessage[];
+        logNativePromptTrace('complete', trace, {
+            totalMs: Math.round(nowMs() - trace.startedAt),
+            queuedMs: Math.round(trace.startedAt - trace.queuedAt),
+            preparedCount: Array.isArray(prepared) ? prepared.length : 0,
+            messageCount: normalizedMessages.length,
+            steps: trace.steps,
+        });
         return {
-            messages,
+            messages: normalizedMessages,
             source: 'sillytavern-prepareOpenAIMessages',
-            promptMessageCount: messages.length,
+            promptMessageCount: normalizedMessages.length,
         };
+    } catch (error) {
+        logNativePromptTrace('failed', trace, {
+            totalMs: Math.round(nowMs() - trace.startedAt),
+            queuedMs: Math.round(trace.startedAt - trace.queuedAt),
+            steps: trace.steps,
+            error: error instanceof Error ? error.message : String(error || 'unknown_error'),
+        });
+        throw error;
     } finally {
         restorePromptManager(promptManagerSnapshot);
         restorePersonaPrompt(personaSnapshot);
@@ -472,5 +606,24 @@ function runNativePromptExclusive<T>(task: () => Promise<T>): Promise<T> {
 }
 
 export async function buildTavernNativeChatPrompt(input: unknown = {}): Promise<TavernNativePromptResult> {
-    return runNativePromptExclusive(() => buildNativePromptNow(asRecord(input) as TavernNativePromptInput));
+    const queuedAt = nowMs();
+    const record = asRecord(input) as TavernNativePromptInput;
+    const requestId = normalizeText(record.requestId || '');
+    const controller = new AbortController();
+    if (requestId) {
+        nativePromptAbortControllers.set(requestId, controller);
+    }
+    try {
+        return await runNativePromptExclusive(() => buildNativePromptNow(record, queuedAt, controller.signal));
+    } finally {
+        if (requestId && nativePromptAbortControllers.get(requestId) === controller) {
+            nativePromptAbortControllers.delete(requestId);
+        }
+    }
+}
+
+export function cancelTavernNativeChatPrompt(requestId = ''): void {
+    const key = normalizeText(requestId);
+    if (!key) {return;}
+    nativePromptAbortControllers.get(key)?.abort();
 }
