@@ -594,6 +594,17 @@ const selectedCharacterPreview = computed(() => {
     }
     return null;
 });
+const selectedCharacterSessions = computed<TavernSessionRecord[]>(() => {
+    const characterId = String(selectedCharacterPreview.value?.id || '').trim();
+    if (!characterId) {return [];}
+    return sessions.value
+        .filter((session) => String(session.characterId || '').trim() === characterId)
+        .slice()
+        .sort((left, right) => (
+            (Number(right.updatedAt) || Number(right.createdAt) || 0)
+            - (Number(left.updatedAt) || Number(left.createdAt) || 0)
+        ));
+});
 const selectedCharacterGreetingOptions = computed(() => {
     const character = selectedCharacterPreview.value;
     if (!character) {return [];}
@@ -2071,7 +2082,7 @@ function handleCharacterArchiveKeydown(event: KeyboardEvent) {
         scrollSelectedCharacterPreviewIntoView();
     } else if (event.key === 'Enter') {
         event.preventDefault();
-        void enterSelectedCharacter();
+        characterArchivePageRef.value?.openSessionArchive();
     }
 }
 
@@ -2367,27 +2378,53 @@ async function removeSession(sessionId: string, event?: Event) {
     const id = String(sessionId || '').trim();
     if (!id) {return;}
     const session = sessions.value.find((item) => item.id === id);
+    const deletedCharacterId = String(session?.characterId || '').trim();
+    const isDeletingSelectedSession = id === selectedSessionId.value;
+    const nextSameCharacterSession = deletedCharacterId
+        ? sessions.value
+            .filter((item) => item.id !== id && String(item.characterId || '').trim() === deletedCharacterId)
+            .slice()
+            .sort((left, right) => (
+                (Number(right.updatedAt) || Number(right.createdAt) || 0)
+                - (Number(left.updatedAt) || Number(left.createdAt) || 0)
+            ))[0]
+        : null;
     const title = sessionDisplayTitle(session) || '这个会话';
     if (!window.confirm(`删除「${title}」？`)) {return;}
-    if (id === selectedSessionId.value && isRunning.value) {
+    if (isDeletingSelectedSession && isRunning.value) {
         activeRunController.value?.abort();
     }
     const removed = await deleteTavernSession(id);
     if (!removed) {return;}
     forgetSessionMessageCount(id);
-    if (id === selectedSessionId.value) {
-        resetSessionPreviewState();
-    }
-    await refreshSessions();
-    if (!selectedSessionId.value) {
-        sessionMessages.value = [];
-        await refreshManagerRecords('');
-        activeView.value = 'home';
+    if (!isDeletingSelectedSession) {
+        await refreshSessions();
+        activeView.value = selectedSessionId.value ? 'chat' : 'home';
+        if (selectedSessionId.value) {
+            chatFocus.value = 'chat';
+            scrollChatToBottom(true);
+        }
         return;
     }
-    activeView.value = 'chat';
-    chatFocus.value = 'chat';
-    scrollChatToBottom(true);
+    resetSessionPreviewState();
+    if (nextSameCharacterSession?.id) {
+        selectedSessionId.value = nextSameCharacterSession.id;
+        await setSelectedTavernSessionId(nextSameCharacterSession.id);
+        await refreshSessions();
+        activeView.value = 'chat';
+        chatFocus.value = 'chat';
+        scrollChatToBottom(true);
+        return;
+    }
+    selectedSessionId.value = '';
+    sessionMessages.value = [];
+    await setSelectedTavernSessionId('');
+    await refreshSessions();
+    if (deletedCharacterId) {
+        selectedCharacterPreviewId.value = deletedCharacterId;
+        void syncCharacterWorldbookState(deletedCharacterId);
+    }
+    activeView.value = deletedCharacterId ? 'characters' : 'home';
 }
 
 function openChatView() {
@@ -4178,6 +4215,7 @@ onUnmounted(() => {
         :filtered-count="filteredCharacterCards.length"
         :live-character-id="liveCharacterId"
         :selected-character="selectedCharacterPreview"
+        :selected-character-sessions="selectedCharacterSessions"
         :selected-greeting-index="selectedCharacterGreetingIndex"
         :pending-preview-character-id="pendingCharacterPreviewId"
         :pending-character-session-id="pendingCharacterSessionId"
@@ -4194,7 +4232,7 @@ onUnmounted(() => {
         @select-greeting="selectCharacterGreeting"
         @enter-selected="enterSelectedCharacter"
         @open-character-worldbook="openSelectedCharacterWorldbook"
-        @enter-character="selectCharacterAndCreateSession"
+        @open-session="selectSession"
         @load-more="characterVisibleLimit += CHARACTER_ARCHIVE_BATCH_SIZE"
         @keydown="handleCharacterArchiveKeydown"
         @avatar-error="rememberBrokenAvatar"
@@ -4235,9 +4273,7 @@ onUnmounted(() => {
             class="worldbook-picker-close"
             aria-label="关闭"
             @click="closeCharacterWorldbookSelection"
-          >
-            ×
-          </button>
+          />
         </header>
         <div
           v-if="characterWorldbookStatus"

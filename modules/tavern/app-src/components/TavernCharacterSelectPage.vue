@@ -30,6 +30,18 @@ interface TavernCharacterWorldbookState {
     worldbookOptions: string[];
 }
 
+interface TavernCharacterSessionOption {
+    id: string;
+    title: string;
+    characterId?: string;
+    characterName?: string;
+    createdAt: number;
+    updatedAt: number;
+    summary?: string;
+    chatPresetName?: string;
+    presetName?: string;
+}
+
 const props = defineProps<{
     dark: boolean;
     pendingError: string;
@@ -41,6 +53,7 @@ const props = defineProps<{
     selectedGreetingIndex: number;
     pendingPreviewCharacterId: string;
     pendingCharacterSessionId: string;
+    selectedCharacterSessions: TavernCharacterSessionOption[];
     characterWorldbookState: TavernCharacterWorldbookState | null;
     characterWorldbookBusy: boolean;
     searchText: string;
@@ -58,7 +71,7 @@ const emit = defineEmits<{
     (event: 'select', id: string): void;
     (event: 'enter-selected'): void;
     (event: 'open-character-worldbook'): void;
-    (event: 'enter-character', id: string): void;
+    (event: 'open-session', id: string): void;
     (event: 'select-greeting', index: number): void;
     (event: 'load-more'): void;
     (event: 'keydown', value: KeyboardEvent): void;
@@ -66,6 +79,7 @@ const emit = defineEmits<{
 }>();
 
 const listRef = ref<HTMLElement | null>(null);
+const sessionArchiveOpen = ref(false);
 const advancedDefinitionDisclosure = useTavernEphemeralDisclosureScope();
 
 const greetingOptions = computed(() => {
@@ -82,6 +96,7 @@ const selectedGreetingText = computed(() => {
     return greetingOptions.value[index] || '';
 });
 const hasMultipleGreetings = computed(() => greetingOptions.value.length > 1);
+const selectedCharacterSessionCount = computed(() => props.selectedCharacterSessions.length);
 
 const selectedCharacterPreviewLoading = computed(() => (
     !!props.selectedCharacter
@@ -122,15 +137,52 @@ function greetingLabel(index: number) {
     return index === 0 ? '主开场白' : `备用 ${index}`;
 }
 
+function formatSessionTime(value: unknown) {
+    const time = Number(value) || 0;
+    if (!time) {return '未知时间';}
+    return new Date(time).toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+function sessionArchiveTitle(session: TavernCharacterSessionOption) {
+    return String(session.title || session.characterName || props.selectedCharacter?.name || '未命名会话').trim();
+}
+
+function sessionArchiveMeta(session: TavernCharacterSessionOption) {
+    const preset = String(session.chatPresetName || session.presetName || '').trim();
+    return preset ? `${formatSessionTime(session.updatedAt || session.createdAt)} · ${preset}` : formatSessionTime(session.updatedAt || session.createdAt);
+}
+
+function openSessionArchive() {
+    if (!props.selectedCharacter || props.pendingCharacterSessionId) {return;}
+    sessionArchiveOpen.value = true;
+}
+
+function closeSessionArchive() {
+    sessionArchiveOpen.value = false;
+}
+
+function openSession(sessionId: string) {
+    const id = String(sessionId || '').trim();
+    if (!id) {return;}
+    closeSessionArchive();
+    emit('open-session', id);
+}
+
 watch(
     () => props.selectedCharacter?.id,
     () => {
         advancedDefinitionDisclosure.reset();
+        closeSessionArchive();
         scrollSelectedIntoView();
     },
 );
 
-defineExpose({ scrollSelectedIntoView });
+defineExpose({ scrollSelectedIntoView, openSessionArchive });
 </script>
 
 <template>
@@ -212,7 +264,6 @@ defineExpose({ scrollSelectedIntoView });
               }"
               :disabled="!!pendingCharacterSessionId"
               @click="$emit('select', character.id)"
-              @dblclick="$emit('enter-character', character.id)"
             >
               <div class="card-focus-indicator" />
               <span class="character-card-avatar">
@@ -303,12 +354,21 @@ defineExpose({ scrollSelectedIntoView });
                   </button>
                   <button
                     type="button"
+                    class="os-system-act-btn session-archive-button"
+                    :disabled="!!pendingCharacterSessionId"
+                    @click="openSessionArchive"
+                  >
+                    会话档案
+                    <span v-if="selectedCharacterSessionCount">{{ selectedCharacterSessionCount }}</span>
+                  </button>
+                  <button
+                    type="button"
                     class="os-system-act-btn enter-chat-button"
                     :class="{ 'is-loading': selectedCharacter.id === pendingCharacterSessionId }"
                     :disabled="!!pendingCharacterSessionId"
                     @click="$emit('enter-selected')"
                   >
-                    {{ selectedCharacter.id === pendingCharacterSessionId ? '进入中...' : '进入聊天' }}
+                    {{ selectedCharacter.id === pendingCharacterSessionId ? '新建中...' : '新建聊天' }}
                   </button>
                 </div>
               </div>
@@ -466,8 +526,56 @@ defineExpose({ scrollSelectedIntoView });
           </div>
         </main>
 
+        <div
+          v-if="sessionArchiveOpen && selectedCharacter"
+          class="character-session-archive-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="会话档案"
+        >
+          <section class="character-session-archive">
+            <header>
+              <div>
+                <strong>会话档案</strong>
+                <span>{{ selectedCharacter.name }}</span>
+              </div>
+              <button
+                type="button"
+                class="session-archive-close"
+                aria-label="关闭会话档案"
+                @click="closeSessionArchive"
+              />
+            </header>
+            <div
+              v-if="selectedCharacterSessions.length"
+              class="session-archive-list"
+            >
+              <button
+                v-for="session in selectedCharacterSessions"
+                :key="session.id"
+                type="button"
+                class="session-archive-item"
+                @click="openSession(session.id)"
+              >
+                <span class="session-archive-item-title">{{ sessionArchiveTitle(session) }}</span>
+                <span class="session-archive-item-meta">{{ sessionArchiveMeta(session) }}</span>
+                <span
+                  v-if="session.summary"
+                  class="session-archive-item-summary"
+                >{{ shortText(session.summary, 96) }}</span>
+              </button>
+            </div>
+            <div
+              v-else
+              class="session-archive-empty"
+            >
+              这张角色卡还没有旧会话。
+            </div>
+          </section>
+        </div>
+
         <main
-          v-else
+          v-if="!selectedCharacter"
           class="character-preview-panel dossier-empty"
         >
           <div class="cyber-placeholder">

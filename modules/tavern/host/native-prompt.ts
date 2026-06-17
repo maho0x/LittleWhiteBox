@@ -62,24 +62,6 @@ interface AuthorNoteState {
 
 let nativePromptQueue: Promise<unknown> = Promise.resolve();
 
-const DEFAULT_PROMPT_ORDER = [
-    'main',
-    'worldInfoBefore',
-    'personaDescription',
-    'charDescription',
-    'charPersonality',
-    'scenario',
-    'enhanceDefinitions',
-    'nsfw',
-    'worldInfoAfter',
-    'dialogueExamples',
-    'chatHistory',
-    'jailbreak',
-].map((identifier) => ({
-    identifier,
-    enabled: identifier !== 'enhanceDefinitions',
-}));
-
 function normalizeText(value: unknown = ''): string {
     return String(value || '').replace(/\r/g, '').trim();
 }
@@ -299,25 +281,6 @@ function characterPromptManagerIdentity(context: XbTavernContext = {}): Record<s
     };
 }
 
-function getPromptOrderForCharacter(character: Record<string, unknown>): unknown[] {
-    const runtime = promptManager as typeof promptManager & {
-        getPromptOrderForCharacter?: (character: Record<string, unknown>) => unknown[];
-    };
-    const order = runtime?.getPromptOrderForCharacter?.(character);
-    return Array.isArray(order) ? order : [];
-}
-
-function ensurePromptOrderForActiveCharacter(character: Record<string, unknown>): void {
-    const serviceSettings = asRecord(promptManager?.serviceSettings);
-    const promptOrder = Array.isArray(serviceSettings.prompt_order) ? serviceSettings.prompt_order : [];
-    serviceSettings.prompt_order = promptOrder;
-    if (getPromptOrderForCharacter(character).length) {return;}
-    promptOrder.push({
-        character_id: character.id,
-        order: cloneJson(DEFAULT_PROMPT_ORDER),
-    });
-}
-
 function replacePromptOrderForCharacter(existingPromptOrder: unknown, characterId = '', nextOrder: unknown[] = []): unknown[] {
     const containers = (Array.isArray(existingPromptOrder) ? existingPromptOrder : [])
         .map((container) => ({ ...asRecord(container) }));
@@ -367,7 +330,6 @@ function applyChatPresetPromptManager(chatPreset: TavernChatPromptPresetBundle =
 function applyPromptManagerActiveCharacter(context: XbTavernContext = {}): void {
     const character = characterPromptManagerIdentity(context);
     if (!character || !promptManager) {return;}
-    ensurePromptOrderForActiveCharacter(character);
     (promptManager as typeof promptManager & { activeCharacter?: unknown }).activeCharacter = character;
 }
 

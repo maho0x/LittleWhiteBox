@@ -327,8 +327,9 @@ test('tavern native prompt builder injects LittleWhiteBox state without host cha
     assert.match(nativeSource, /serviceSettings\.prompts = cloneJson\(prompts\);/);
     assert.match(nativeSource, /replacePromptOrderForCharacter\(promptOrder, characterId, activeOrder\)/);
     assert.match(nativeSource, /applyChatPresetPromptManager\(input\.chatPreset, context\);[\s\S]*applyPromptManagerActiveCharacter\(context\);/);
-    assert.match(nativeSource, /DEFAULT_PROMPT_ORDER/);
     assert.match(nativeSource, /activeCharacter = character;/);
+    assert.doesNotMatch(nativeSource, /promptOrder\.push\(\{[\s\S]*character_id: character\.id/);
+    assert.doesNotMatch(nativeSource, /ensurePromptOrderForActiveCharacter/);
     assert.match(nativeSource, /restorePromptManager\(promptManagerSnapshot\);[\s\S]*restorePersonaPrompt\(personaSnapshot\);[\s\S]*restoreExtensionPrompts\(snapshot\);/);
     assert.match(nativeSource, /function readCharacterDepthPrompt[\s\S]*depthPrompt\.prompt[\s\S]*depth_prompt_depth_default[\s\S]*depth_prompt_role_default/);
     assert.match(nativeSource, /const legacyDepthPrompt = asRecord\(data\.depth_prompt\);/);

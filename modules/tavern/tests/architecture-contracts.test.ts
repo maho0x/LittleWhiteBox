@@ -193,7 +193,7 @@ test('tavern character and global worldbook actions stay on native ST boundaries
     assert.match(tavernSource, /case 'xb-tavern:set-global-worldbooks':/);
     assert.doesNotMatch(tavernSource, /chat-worldbook/);
     assert.match(characterSource, /const characterWorldbookBound = computed/);
-    assert.match(characterSource, /class="dossier-title-row"[\s\S]*<h3>\{\{ selectedCharacter\.name \}\}<\/h3>[\s\S]*'is-bound': characterWorldbookBound[\s\S]*open-character-worldbook[\s\S]*进入聊天/);
+    assert.match(characterSource, /class="dossier-title-row"[\s\S]*<h3>\{\{ selectedCharacter\.name \}\}<\/h3>[\s\S]*'is-bound': characterWorldbookBound[\s\S]*open-character-worldbook[\s\S]*会话档案[\s\S]*新建聊天/);
     assert.match(appSource, /requestHost\('xb-tavern:get-character-worldbook-state'/);
     assert.match(appSource, /requestHost\('xb-tavern:activate-character-worldbook'/);
     assert.match(appSource, /requestHost\('xb-tavern:bind-character-worldbook'/);
@@ -613,6 +613,41 @@ test('tavern worldbook preview keeps summary lean and expanded content ephemeral
     assert.match(worldbookHost, /\['extensions\.vectorized', entry\.vectorized === true\]/);
     assert.match(worldbookHost, /\['selectiveLogic', Math\.floor\(normalizeFiniteNumber\(entry\.selectiveLogic, 0\)\)\]/);
     assert.match(mobileCss, /\.settings-layout\.is-worldbooks-workspace \.worldbook-entry-preview summary \{[\s\S]*min-height: 42px;/);
+});
+
+test('tavern character archive separates new chat from existing session selection', () => {
+    const characterSource = readRepoFile('modules/tavern/app-src/components/TavernCharacterSelectPage.vue');
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const previewCss = readRepoFile('modules/tavern/app-src/styles/characters/preview.css');
+
+    assert.match(appSource, /const selectedCharacterSessions = computed<TavernSessionRecord\[\]>/);
+    assert.match(appSource, /:selected-character-sessions="selectedCharacterSessions"/);
+    assert.match(appSource, /@open-session="selectSession"/);
+    assert.match(characterSource, /selectedCharacterSessions: TavernCharacterSessionOption\[\]/);
+    assert.match(characterSource, />\s*会话档案\s*</);
+    assert.match(characterSource, /新建中\.\.\.' : '新建聊天/);
+    assert.match(characterSource, /class="character-session-archive-overlay"/);
+    assert.match(characterSource, /class="session-archive-close"[\s\S]*aria-label="关闭会话档案"[\s\S]*\/>/);
+    assert.doesNotMatch(characterSource, /class="session-archive-close"[\s\S]*×[\s\S]*<\/button>/);
+    assert.match(appSource, /class="worldbook-picker-close"[\s\S]*aria-label="关闭"[\s\S]*\/>/);
+    assert.match(characterSource, /v-for="session in selectedCharacterSessions"/);
+    assert.match(characterSource, /@click="openSession\(session\.id\)"/);
+    assert.match(characterSource, /@click="\$emit\('enter-selected'\)"/);
+    assert.match(characterSource, /<main\s+v-if="!selectedCharacter"\s+class="character-preview-panel dossier-empty"/);
+    assert.doesNotMatch(characterSource, /@dblclick="\$emit\('enter-character'/);
+    assert.match(previewCss, /\.dossier-title-actions \{[\s\S]*display: flex;[\s\S]*gap: 10px;/);
+    assert.match(previewCss, /\.session-archive-button/);
+    assert.match(previewCss, /\.character-session-archive \{[\s\S]*width: min\(520px, 100%\);/);
+    assert.match(previewCss, /grid-template-columns: 42px minmax\(0, 1fr\) minmax\(0, 1fr\);/);
+});
+
+test('tavern deleting a selected chat never falls through to another character session', () => {
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+
+    assert.match(appSource, /const deletedCharacterId = String\(session\?\.characterId \|\| ''\)\.trim\(\);/);
+    assert.match(appSource, /const nextSameCharacterSession = deletedCharacterId[\s\S]*\.filter\(\(item\) => item\.id !== id && String\(item\.characterId \|\| ''\)\.trim\(\) === deletedCharacterId\)/);
+    assert.match(appSource, /if \(nextSameCharacterSession\?\.id\) \{[\s\S]*await setSelectedTavernSessionId\(nextSameCharacterSession\.id\);[\s\S]*activeView\.value = 'chat';/);
+    assert.match(appSource, /selectedSessionId\.value = '';[\s\S]*await setSelectedTavernSessionId\(''\);[\s\S]*selectedCharacterPreviewId\.value = deletedCharacterId;[\s\S]*activeView\.value = deletedCharacterId \? 'characters' : 'home';/);
 });
 
 test('tavern heavy disclosure details bind to ephemeral state instead of keeping bodies mounted', () => {
