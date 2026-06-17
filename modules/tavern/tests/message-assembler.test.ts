@@ -109,7 +109,8 @@ test('xb tavern assembler honors SillyTavern prompt manager marker order', () =>
         if (content.includes('After marker prompt.')) {return 'jailbreak';}
         return 'other';
     }), ['main', 'description', 'world', 'history', 'memory', 'current', 'runtime-protocol', 'jailbreak']);
-    assert.match(contents.find((content) => content.includes('Prompt manager memory note.')) || '', /<world_info_depth depth="1">[\s\S]*<session_memory>/);
+    assert.match(contents.find((content) => content.includes('Prompt manager memory note.')) || '', /<session_memory>[\s\S]*Prompt manager memory note/);
+    assert.doesNotMatch(contents.join('\n'), /<world_info_depth/);
     assert.doesNotMatch(contents.join('\n'), /<character_card>/);
     assert.equal(result.messageLayers.find((layer) => layer.label === 'Char Description')?.sourceId, 'prompt-manager:charDescription');
 });
@@ -1346,7 +1347,8 @@ test('xb tavern assembler maps world positions into stable message locations', (
     assert.equal(contents.includes('<world_info_author_note_top>\nAuthor note lore.\n</world_info_author_note_top>'), true);
     assert.equal(contents.includes('<world_info_examples_bottom>\nExample message lore.\n</world_info_examples_bottom>'), true);
     assert.equal(contents.includes('Look at the vault.'), true);
-    assert.equal(contents.includes('<world_info_depth depth="0">\nDepth lore.\n</world_info_depth>'), true);
+    assert.equal(contents.includes('Depth lore.'), true);
+    assert.doesNotMatch(contents.join('\n'), /<world_info_depth/);
 });
 
 test('xb tavern assembler treats memory as D1 system depth injection inside chat history', () => {
@@ -1383,7 +1385,7 @@ test('xb tavern assembler treats memory as D1 system depth injection inside chat
 
     const contents = result.messages.map((message) => message.content);
     const oldIndex = contents.indexOf('Old reply.');
-    const depthIndex = contents.findIndex((content) => content.includes('<world_info_depth depth="1">'));
+    const depthIndex = contents.findIndex((content) => content.includes('Memory D1 note.') && content.includes('World D1 lore.'));
     const currentIndex = contents.indexOf('Current turn.');
     const protocolIndex = contents.indexOf('Runtime protocol block.');
     const afterIndex = contents.indexOf('After history rule.');
@@ -1393,7 +1395,8 @@ test('xb tavern assembler treats memory as D1 system depth injection inside chat
     assert.ok(protocolIndex > currentIndex);
     assert.ok(afterIndex > protocolIndex);
     assert.equal(result.messages[depthIndex]?.role, 'system');
-    assert.match(contents[depthIndex] || '', /<world_info_depth depth="1">[\s\S]*<session_memory>[\s\S]*Memory D1 note\.[\s\S]*World D1 lore\.[\s\S]*<\/world_info_depth>/);
+    assert.match(contents[depthIndex] || '', /<session_memory>[\s\S]*Memory D1 note\.[\s\S]*World D1 lore\./);
+    assert.doesNotMatch(contents[depthIndex] || '', /<world_info_depth/);
     assert.equal(result.messageLayers.find((layer) => layer.index === depthIndex)?.layer, 'world-depth');
     assert.equal(result.messageLayers.find((layer) => layer.index === depthIndex)?.label, 'world info depth 1');
     assert.equal(result.messageLayers.find((layer) => layer.index === protocolIndex)?.layer, 'runtime-protocol');

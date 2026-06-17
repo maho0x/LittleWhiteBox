@@ -220,7 +220,8 @@ test('xb tavern run turn injects chance encounter as D1 before action-check prot
     assert.ok(userIndex >= 0);
     assert.ok(eventIndex >= 0);
     assert.ok(eventIndex < userIndex);
-    assert.match(requestMessages[eventIndex]?.content || '', /<world_info_depth depth="1">[\s\S]*Chance Encounter Triggered/);
+    assert.match(requestMessages[eventIndex]?.content || '', /Chance Encounter Triggered/);
+    assert.doesNotMatch(requestMessages[eventIndex]?.content || '', /<world_info_depth/);
     assert.ok(protocolIndex > userIndex);
     assert.ok(afterHistoryIndex > protocolIndex);
 });

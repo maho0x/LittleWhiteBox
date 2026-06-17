@@ -118,6 +118,7 @@ test('xb tavern brain injects memory as D1 system before current user message', 
     assert.ok(memoryLayer.index > historyLayer.index);
     assert.ok(memoryLayer.index < currentUserLayer.index);
     assert.equal(brain.buildResult.messages[memoryLayer.index]?.role, 'system');
-    assert.match(brain.buildResult.messages[memoryLayer.index]?.content || '', /<world_info_depth depth="1">[\s\S]*<session_memory>/);
+    assert.match(brain.buildResult.messages[memoryLayer.index]?.content || '', /<session_memory>/);
+    assert.doesNotMatch(brain.rawMessagesJson, /<world_info_depth/);
     assert.match(brain.rawMessagesJson, /信任正在增加/);
 });

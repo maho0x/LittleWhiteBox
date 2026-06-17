@@ -1791,13 +1791,13 @@ function buildPromptManagerOrderedUnits(options: {
     return units;
 }
 
-function buildConversationMessageUnit(message: XbTavernMessage, index: number): XbTavernMessageUnit {
-    const depthMatch = message.content.match(/<world_info_depth depth="(\d+)">/);
-    if (depthMatch) {
+function buildConversationMessageUnit(message: XbTavernMessage, index: number, depthByMessage: WeakMap<XbTavernMessage, number>): XbTavernMessageUnit {
+    const depth = depthByMessage.get(message);
+    if (Number.isFinite(Number(depth))) {
         return {
             message,
             layer: 'world-depth',
-            label: `world info depth ${depthMatch[1]}`,
+            label: `world info depth ${Math.max(0, Number(depth))}`,
         };
     }
     return {
@@ -1864,7 +1864,7 @@ function buildDepthMessages(entries: ActivatedWorldEntry[] = []): Array<{ depth:
     });
     return [...groups.values()].map((group) => ({
         depth: group.depth,
-        message: makeMessage(group.role, `<world_info_depth depth="${group.depth}">\n${group.entries.join('\n\n')}\n</world_info_depth>`),
+        message: makeMessage(group.role, group.entries.join('\n\n')),
     })).filter((item): item is { depth: number; message: XbTavernMessage } => !!item.message);
 }
 
@@ -2150,10 +2150,13 @@ function buildXbTavernMessagesFromPrepared(
         ...worldBuckets.atDepth,
         ...buildRuntimeDepthEntries(runtimeDepthEntries),
     ];
+    const depthMessages = buildDepthMessages(depthEntries);
+    const depthByMessage = new WeakMap<XbTavernMessage, number>();
+    depthMessages.forEach((item) => depthByMessage.set(item.message, item.depth));
     const conversationMessages = insertDepthMessages(
         (prepared.promptConversationMessages || buildPromptConversationMessages(prepared, chatPreset))
             .map(appendPromptReasoningToMessage),
-        buildDepthMessages(depthEntries),
+        depthMessages,
     );
 
     const topSections = presetSectionUnits(pickSections(presetSections, 'top'), 'top');
@@ -2163,7 +2166,7 @@ function buildXbTavernMessagesFromPrepared(
     const afterHistorySections = presetSectionUnits(pickSections(presetSections, 'afterHistory'), 'after history');
     const assistantPrefillSections = presetSectionUnits(pickSections(presetSections, 'assistantPrefill'), 'assistant prefill', 'assistant-prefill');
     const hasPromptManagerOrder = presetSections.some((section) => section.source === 'promptManager');
-    const conversationUnits = conversationMessages.map((message, index) => buildConversationMessageUnit(message, index));
+    const conversationUnits = conversationMessages.map((message, index) => buildConversationMessageUnit(message, index, depthByMessage));
     for (let index = conversationUnits.length - 1; index >= 0; index -= 1) {
         if (conversationUnits[index]?.message?.role === 'user') {
             conversationUnits[index].label = 'current user message';
