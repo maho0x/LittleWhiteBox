@@ -35,7 +35,7 @@ import type {
     XbTavernWorldEntry,
 } from '../shared/message-assembler.js';
 
-type TavernWorldbookSourceType = 'chat' | 'persona' | 'character' | 'global' | 'embedded' | string;
+type TavernWorldbookSourceType = 'chat' | 'persona' | 'character' | 'global' | string;
 
 interface TavernWorldbookSourceRow {
     name: string;
@@ -588,10 +588,6 @@ function dedupeSources(sources: XbTavernNativeWorldInfoSource[] = []): XbTavernN
     return result;
 }
 
-function isNativeRuntimeSource(source: XbTavernNativeWorldInfoSource = { name: '' }): boolean {
-    return normalizeText(source.sourceType) !== 'embedded';
-}
-
 function collectRuntimeSources(context: XbTavernContext = {}): XbTavernNativeWorldInfoSource[] {
     const sessionMeta = asRecord(context.sessionMeta);
     const metaSources = Array.isArray(sessionMeta.worldbookSources)
@@ -618,8 +614,7 @@ function collectRuntimeSources(context: XbTavernContext = {}): XbTavernNativeWor
             sourceIndex: Number.isFinite(Number(book.worldSourceIndex)) ? Number(book.worldSourceIndex) : index,
         }))
         : [];
-    return dedupeSources([...metaSources, ...legacyMetaSources, ...bookSources])
-        .filter((source) => isNativeRuntimeSource(source));
+    return dedupeSources([...metaSources, ...legacyMetaSources, ...bookSources]);
 }
 
 function buildHistoryScanLines(context: XbTavernContext = {}, currentUserMessage = '', includeNames = false): string[] {

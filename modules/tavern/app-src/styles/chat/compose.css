@@ -54,7 +54,7 @@
 
 .chat-compose textarea {
     min-height: 32px;
-    max-height: 99px;
+    max-height: 76px;
     resize: vertical;
     border: 0;
     border-radius: 0;
@@ -185,7 +185,7 @@
 
     .chat-compose textarea {
         min-height: 31px;
-        max-height: 88px;
+        max-height: 76px;
         padding: 4px 8px 4px 14px;
     }
 

@@ -1,5 +1,4 @@
 import {
-    XBTavernWorldPosition,
     type XbTavernCharacter,
     type XbTavernContext,
     type XbTavernHistoryMessage,
@@ -132,75 +131,6 @@ export function normalizeSillyTavernHistory(source: SillyTavernContextSource = {
             is_user: !!message.is_user,
         };
     }).filter((message) => message.content);
-}
-
-function normalizeEmbeddedCharacterBook(source: SillyTavernContextSource = {}): XbTavernWorldBook | null {
-    const character = pickCharacter(source);
-    const data = pickData(character);
-    const characterBook = asRecord(data.character_book);
-    const entries = readEntryList(characterBook.entries);
-    if (!entries.length) {return null;}
-    const name = normalizeText(characterBook.name) || `${normalizeText(character.name || data.name) || 'Character'} embedded lorebook`;
-    return {
-        name,
-        entries: entries.map((entry, index) => normalizeCharacterBookEntry(asRecord(entry), name, index)),
-    };
-}
-
-function normalizeCharacterBookEntry(entry: Record<string, unknown> = {}, sourceWorldBook = '', index = 0): XbTavernWorldEntry {
-    const extensions = asRecord(entry.extensions);
-    const extensionOrEntry = (extensionKey: string, entryKey: string) => (
-        Object.prototype.hasOwnProperty.call(extensions, extensionKey) ? extensions[extensionKey] : entry[entryKey]
-    );
-    const position = extensions.position ?? (
-        normalizeText(entry.position) === 'before_char' ? XBTavernWorldPosition.before : XBTavernWorldPosition.after
-    );
-    return {
-        ...cloneJson(entry),
-        uid: (entry.id ?? entry.uid ?? index) as XbTavernWorldEntry['uid'],
-        key: Array.isArray(entry.keys)
-            ? entry.keys.map((item) => normalizeText(item)).filter(Boolean)
-            : entry.key as XbTavernWorldEntry['key'],
-        keysecondary: Array.isArray(entry.secondary_keys)
-            ? entry.secondary_keys.map((item) => normalizeText(item)).filter(Boolean)
-            : entry.keysecondary as XbTavernWorldEntry['keysecondary'],
-        comment: normalizeText(entry.comment),
-        content: normalizeText(entry.content),
-        constant: entry.constant === true,
-        selective: entry.selective === true,
-        order: Number.isFinite(Number(entry.insertion_order)) ? Number(entry.insertion_order) : Number(entry.order),
-        position: position as XbTavernWorldEntry['position'],
-        disable: entry.enabled === false || entry.disable === true,
-        excludeRecursion: extensionOrEntry('exclude_recursion', 'excludeRecursion') as XbTavernWorldEntry['excludeRecursion'],
-        preventRecursion: extensionOrEntry('prevent_recursion', 'preventRecursion') as XbTavernWorldEntry['preventRecursion'],
-        delayUntilRecursion: extensionOrEntry('delay_until_recursion', 'delayUntilRecursion') as XbTavernWorldEntry['delayUntilRecursion'],
-        probability: extensionOrEntry('probability', 'probability') as XbTavernWorldEntry['probability'],
-        useProbability: extensionOrEntry('useProbability', 'useProbability') as XbTavernWorldEntry['useProbability'],
-        depth: extensionOrEntry('depth', 'depth') as XbTavernWorldEntry['depth'],
-        selectiveLogic: extensionOrEntry('selectiveLogic', 'selectiveLogic') as XbTavernWorldEntry['selectiveLogic'],
-        outletName: normalizeText(extensionOrEntry('outlet_name', 'outletName')),
-        group: normalizeText(extensionOrEntry('group', 'group')),
-        groupOverride: extensionOrEntry('group_override', 'groupOverride') as XbTavernWorldEntry['groupOverride'],
-        groupWeight: extensionOrEntry('group_weight', 'groupWeight') as XbTavernWorldEntry['groupWeight'],
-        scanDepth: extensionOrEntry('scan_depth', 'scanDepth') as XbTavernWorldEntry['scanDepth'],
-        caseSensitive: extensionOrEntry('case_sensitive', 'caseSensitive') as XbTavernWorldEntry['caseSensitive'],
-        matchWholeWords: extensionOrEntry('match_whole_words', 'matchWholeWords') as XbTavernWorldEntry['matchWholeWords'],
-        characterFilter: (extensionOrEntry('character_filter', 'characterFilter') || entry.character_filter) as XbTavernWorldEntry['characterFilter'],
-        ignoreBudget: extensionOrEntry('ignore_budget', 'ignoreBudget') as XbTavernWorldEntry['ignoreBudget'],
-        role: extensionOrEntry('role', 'role') as XbTavernWorldEntry['role'],
-        sticky: extensionOrEntry('sticky', 'sticky') as XbTavernWorldEntry['sticky'],
-        cooldown: extensionOrEntry('cooldown', 'cooldown') as XbTavernWorldEntry['cooldown'],
-        delay: extensionOrEntry('delay', 'delay') as XbTavernWorldEntry['delay'],
-        matchPersonaDescription: extensionOrEntry('match_persona_description', 'matchPersonaDescription') as XbTavernWorldEntry['matchPersonaDescription'],
-        matchCharacterDescription: extensionOrEntry('match_character_description', 'matchCharacterDescription') as XbTavernWorldEntry['matchCharacterDescription'],
-        matchCharacterPersonality: extensionOrEntry('match_character_personality', 'matchCharacterPersonality') as XbTavernWorldEntry['matchCharacterPersonality'],
-        matchCharacterDepthPrompt: extensionOrEntry('match_character_depth_prompt', 'matchCharacterDepthPrompt') as XbTavernWorldEntry['matchCharacterDepthPrompt'],
-        matchScenario: extensionOrEntry('match_scenario', 'matchScenario') as XbTavernWorldEntry['matchScenario'],
-        matchCreatorNotes: extensionOrEntry('match_creator_notes', 'matchCreatorNotes') as XbTavernWorldEntry['matchCreatorNotes'],
-        sourceWorldBook,
-        worldSourceType: 'embedded',
-        worldSourceIndex: -1,
-    };
 }
 
 function addUnique(target: string[], value: unknown): void {
@@ -355,11 +285,9 @@ export function buildXbTavernContextFromSillyTavern(
     source: SillyTavernContextSource = {},
     options: BuildXbTavernContextOptions = {},
 ): XbTavernContext {
-    const embeddedBook = normalizeEmbeddedCharacterBook(source);
     const worldbookSources = collectSillyTavernWorldbookSources(source, options);
     const sourceByName = new Map(worldbookSources.map((item) => [item.name, item]));
     const worldBooks = dedupeWorldBooks([
-        ...(embeddedBook ? [embeddedBook] : []),
         ...(Array.isArray(options.worldBooks) ? options.worldBooks.map((book) => applyWorldbookSource(book, sourceByName.get(book.name))) : []),
         ...(Array.isArray(options.extraWorldBooks) ? options.extraWorldBooks.map((book) => applyWorldbookSource(book, sourceByName.get(book.name))) : []),
     ]);

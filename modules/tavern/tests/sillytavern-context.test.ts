@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    XBTavernWorldPosition,
     buildXbTavernMessages,
 } from '../shared/message-assembler';
 import {
@@ -99,7 +98,7 @@ test('sillytavern context adapter switches character snapshots by id', () => {
     assert.equal(context.worldEntries?.[0].sourceWorldBook, 'NiaWorld');
 });
 
-test('sillytavern context adapter includes embedded character lorebook entries', () => {
+test('sillytavern context adapter ignores character-card lore until it is imported', () => {
     const source = {
         characterId: 0,
         characters: [{
@@ -118,7 +117,6 @@ test('sillytavern context adapter includes embedded character lorebook entries',
                             insertion_order: 50,
                             position: 'before_char',
                             extensions: {
-                                position: XBTavernWorldPosition.before,
                                 depth: 2,
                                 character_filter: { names: ['aster.png'] },
                             },
@@ -138,17 +136,11 @@ test('sillytavern context adapter includes embedded character lorebook entries',
     const context = buildXbTavernContextFromSillyTavern(source, {});
 
     assert.deepEqual(collectSillyTavernWorldbookNames(source), []);
-    assert.equal(context.worldBooks?.[0]?.name, 'AsterEmbedded');
-    assert.equal(context.worldEntries?.[0]?.content, 'Embedded lore.');
-    assert.equal(context.worldEntries?.[0]?.sourceWorldBook, 'AsterEmbedded');
-    assert.deepEqual(context.worldEntries?.[0]?.key, ['embedded-key']);
-    assert.equal(context.worldEntries?.[0]?.order, 50);
-    assert.equal(context.worldEntries?.[0]?.position, XBTavernWorldPosition.before);
-    assert.deepEqual(context.worldEntries?.[0]?.characterFilter, { names: ['aster.png'] });
-    assert.equal(context.worldEntries?.[1]?.disable, true);
+    assert.deepEqual(context.worldBooks, []);
+    assert.deepEqual(context.worldEntries, []);
 
     const result = buildXbTavernMessages(context, {}, {
         currentUserMessage: 'embedded-key disabled-key',
     });
-    assert.deepEqual(result.activatedWorldEntries.map((entry) => entry.uid), [1]);
+    assert.deepEqual(result.activatedWorldEntries, []);
 });

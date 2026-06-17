@@ -6994,13 +6994,13 @@ function G0(e, t = {}) {
   if (n === "chat") return 0;
   if (n === "persona") return 1;
   const r = Number(t.insertionStrategy ?? 1);
-  return n === "character" || n === "embedded" ? r === 2 ? 3 : 2 : n === "global" ? r === 1 ? 3 : 2 : 4;
+  return n === "character" ? r === 2 ? 3 : 2 : n === "global" ? r === 1 ? 3 : 2 : 4;
 }
 function W0(e, t = {}) {
   const n = $e(e.worldSourceType);
   if (Number(t.insertionStrategy ?? 1) === 0) {
     if (n === "global") return 0;
-    if (n === "character" || n === "embedded") return 1;
+    if (n === "character") return 1;
   }
   return 0;
 }
@@ -7610,7 +7610,7 @@ function NI(e = {}, t = {}, n = {}) {
     characterFilterData: d.characterFilterData || yB(e),
     turn: n.turn ?? n.worldSettings?.turn,
     entryStates: n.entryStates ?? n.worldSettings?.entryStates
-  }, M = wB(e), k = e.nativeWorldInfo ? M.filter((E) => $e(E.worldSourceType) === "embedded") : M, R = nB(k, A), L = R.activatedBeforeBudget, p = R.budgetDebug, w = rB(k, L, A, p), y = R.activatedEntries;
+  }, M = wB(e), k = e.nativeWorldInfo ? [] : M, R = nB(k, A), L = R.activatedBeforeBudget, p = R.budgetDebug, w = rB(k, L, A, p), y = R.activatedEntries;
   if (b.length || T.length || e.nativeWorldInfo) {
     const E = T.length ? T : b;
     return {
@@ -39418,7 +39418,7 @@ async function eS(e) {
   };
 }
 function AN(e, t = !1) {
-  return !t || String(e.worldSourceType || "").trim() === "embedded";
+  return !t;
 }
 function GA(e = {}, t, n = !1) {
   const r = e.worldEntryStates || {}, s = t.meta.worldEntryStateUpdates || {};
@@ -48922,7 +48922,7 @@ ${be}`), console.error("[小白酒馆] host request failed", {
         maxHeight: 180
       } : {
         minHeight: 36,
-        maxHeight: 99
+        maxHeight: 76
       });
     }
     async function ND(v, C = {}) {

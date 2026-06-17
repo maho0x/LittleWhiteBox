@@ -160,7 +160,7 @@ test('xb tavern assembler uses native worldbook prompt blocks as the rendered tr
     assert.equal(result.worldEntryCandidates[0]?.sourceWorldBook, 'Lore');
 });
 
-test('xb tavern assembler still activates embedded character book when native world info exists', () => {
+test('xb tavern assembler lets native world info own all worldbook activation', () => {
     const result = buildXbTavernMessages({
         character: { name: 'Aster', description: 'Pilot.' },
         user: { name: 'Player' },
@@ -180,26 +180,26 @@ test('xb tavern assembler still activates embedded character book when native wo
                 }],
             },
             {
-                name: 'Embedded Character Book',
-                worldSourceType: 'embedded',
+                name: 'Raw Card Book',
+                worldSourceType: 'card',
                 entries: [{
-                    uid: 'embedded-book',
-                    key: ['embedded-key'],
-                    content: 'Embedded card lore.',
-                    worldSourceType: 'embedded',
+                    uid: 'raw-card-book',
+                    key: ['raw-card-key'],
+                    content: 'Raw card lore.',
+                    worldSourceType: 'card',
                 }],
             },
         ],
     }, {}, {
-        currentUserMessage: 'embedded-key',
+        currentUserMessage: 'raw-card-key',
     });
 
     const joined = result.messages.map((message) => message.content).join('\n');
     assert.match(joined, /Native bound lore\./);
-    assert.match(joined, /Embedded card lore\./);
+    assert.doesNotMatch(joined, /Raw card lore\./);
     assert.doesNotMatch(joined, /Bound book lore should not be duplicated locally\./);
-    assert.deepEqual(result.activatedWorldEntries.map((entry) => entry.uid), ['native:0:0', 'embedded-book']);
-    assert.equal(result.worldEntryCandidates.find((entry) => entry.uid === 'embedded-book')?.status, 'activated');
+    assert.deepEqual(result.activatedWorldEntries.map((entry) => entry.uid), ['native:0:0']);
+    assert.equal(result.worldEntryCandidates.find((entry) => entry.uid === 'raw-card-book'), undefined);
     assert.equal(result.worldEntryCandidates.find((entry) => entry.uid === 'bound-book'), undefined);
 });
 

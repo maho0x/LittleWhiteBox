@@ -2859,7 +2859,7 @@ function handleComposeInput(event: Event) {
     const isManagerCompose = !!textarea.closest('.manager-compose');
     autoSizeTextarea(textarea, isManagerCompose
         ? { minHeight: 48, maxHeight: 180 }
-        : { minHeight: 36, maxHeight: 99 });
+        : { minHeight: 36, maxHeight: 76 });
 }
 
 async function saveEditMessage(message: TavernMessageRecord, options: { rerun?: boolean; content?: string } = {}) {

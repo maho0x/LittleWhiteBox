@@ -2,7 +2,7 @@
 import { getContext } from "../../../../../../extensions.js";
 import { getTagKeyForEntity, tag_map } from "../../../../../../tags.js";
 import { getCharaFilename } from "../../../../../../utils.js";
-import { getWorldInfoSettings, METADATA_KEY, selected_world_info, world_info, world_info_position } from "../../../../../../world-info.js";
+import { getWorldInfoSettings, METADATA_KEY, selected_world_info, world_info } from "../../../../../../world-info.js";
 import { power_user } from "../../../../../../power-user.js";
 import { chat_metadata, characters as sillyTavernCharacters, getOneCharacter, getRequestHeaders, getThumbnailUrl, unshallowCharacter } from "../../../../../../../script.js";
 function normalizeText(value = "") {
@@ -295,70 +295,6 @@ function isCurrentCharacterSelection(ctx, options = {}) {
   const selectedId = normalizeText(resolveCharacterId(ctx, options));
   return !!selectedId && selectedId === currentId;
 }
-function normalizeEmbeddedCharacterBook(ctx = getContext?.() || {}, options = {}) {
-  const character = getCurrentCharacter(ctx, options) || {};
-  const data = asRecord(character.data) || character;
-  const characterBook = asRecord(data.character_book);
-  const entries = readEntryList(characterBook.entries);
-  if (!entries.length) {
-    return null;
-  }
-  const name = normalizeText(characterBook.name) || `${normalizeText(character.name || data.name) || "Character"} embedded lorebook`;
-  return {
-    name,
-    entries: entries.map((entry, index) => normalizeCharacterBookEntry(entry, name, index)),
-    worldSourceType: "embedded",
-    worldSourceIndex: -1
-  };
-}
-function normalizeCharacterBookEntry(entry = {}, sourceWorldBook = "", index = 0) {
-  const extensions = asRecord(entry.extensions);
-  const position = extensions.position ?? (normalizeText(entry.position) === "before_char" ? world_info_position.before : world_info_position.after);
-  return {
-    ...cloneJson(entry),
-    uid: entry.id ?? entry.uid ?? index,
-    key: Array.isArray(entry.keys) ? entry.keys : entry.key,
-    keysecondary: Array.isArray(entry.secondary_keys) ? entry.secondary_keys : entry.keysecondary,
-    comment: entry.comment || "",
-    content: entry.content || "",
-    constant: entry.constant === true,
-    selective: entry.selective === true,
-    order: Number.isFinite(Number(entry.insertion_order)) ? Number(entry.insertion_order) : entry.order,
-    position,
-    disable: entry.enabled === false || entry.disable === true,
-    excludeRecursion: extensions.exclude_recursion ?? entry.excludeRecursion,
-    preventRecursion: extensions.prevent_recursion ?? entry.preventRecursion,
-    delayUntilRecursion: extensions.delay_until_recursion ?? entry.delayUntilRecursion,
-    probability: extensions.probability ?? entry.probability,
-    useProbability: extensions.useProbability ?? entry.useProbability,
-    depth: extensions.depth ?? entry.depth,
-    selectiveLogic: extensions.selectiveLogic ?? entry.selectiveLogic,
-    outletName: extensions.outlet_name ?? entry.outletName,
-    group: extensions.group ?? entry.group,
-    groupOverride: extensions.group_override ?? entry.groupOverride,
-    groupWeight: extensions.group_weight ?? entry.groupWeight,
-    scanDepth: extensions.scan_depth ?? entry.scanDepth,
-    caseSensitive: extensions.case_sensitive ?? entry.caseSensitive,
-    matchWholeWords: extensions.match_whole_words ?? entry.matchWholeWords,
-    characterFilter: extensions.character_filter ?? entry.characterFilter ?? entry.character_filter,
-    useGroupScoring: extensions.use_group_scoring ?? entry.useGroupScoring,
-    role: extensions.role ?? entry.role,
-    sticky: extensions.sticky ?? entry.sticky,
-    cooldown: extensions.cooldown ?? entry.cooldown,
-    delay: extensions.delay ?? entry.delay,
-    matchPersonaDescription: extensions.match_persona_description ?? entry.matchPersonaDescription,
-    matchCharacterDescription: extensions.match_character_description ?? entry.matchCharacterDescription,
-    matchCharacterPersonality: extensions.match_character_personality ?? entry.matchCharacterPersonality,
-    matchCharacterDepthPrompt: extensions.match_character_depth_prompt ?? entry.matchCharacterDepthPrompt,
-    matchScenario: extensions.match_scenario ?? entry.matchScenario,
-    matchCreatorNotes: extensions.match_creator_notes ?? entry.matchCreatorNotes,
-    triggers: extensions.triggers ?? entry.triggers,
-    ignoreBudget: extensions.ignore_budget ?? entry.ignoreBudget,
-    sourceWorldBook,
-    worldSourceType: "embedded",
-    worldSourceIndex: -1
-  };
-}
 function collectWorldbookSources(ctx = getContext?.() || {}, options = {}) {
   const character = getCurrentCharacter(ctx, options) || {};
   const data = asRecord(character.data) || character;
@@ -478,7 +414,6 @@ async function buildTavernContext(options = {}) {
   await hydrateSelectedCharacter(ctx, options);
   const useCurrentHistory = options.includeHistory !== false && isCurrentCharacterSelection(ctx, options);
   const includeWorldbooks = options.includeWorldbooks !== false;
-  const embeddedBook = includeWorldbooks ? normalizeEmbeddedCharacterBook(ctx, options) : null;
   const worldbookSources = collectWorldbookSources(ctx, options);
   const worldbookNames = worldbookSources.map((source) => source.name);
   const fetchedWorldBooks = includeWorldbooks ? await Promise.all(worldbookSources.map(async (source) => {
@@ -495,7 +430,6 @@ async function buildTavernContext(options = {}) {
     }
   })) : [];
   const worldBooks = dedupeWorldBooks([
-    ...embeddedBook ? [embeddedBook] : [],
     ...fetchedWorldBooks
   ]);
   const context = {

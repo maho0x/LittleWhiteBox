@@ -517,7 +517,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(managerPanelSource, /v-model="managerInputDraft"[\s\S]*rows="1"/);
     assert.match(composeCss, /--xb-compose-safe-space: 44px;/);
     assert.match(composeCss, /--xb-compose-safe-space: 40px;/);
-    assert.match(composeCss, /\.chat-compose textarea \{[\s\S]*min-height: 32px;[\s\S]*padding: 5px 10px 5px 14px;/);
+    assert.match(composeCss, /\.chat-compose textarea \{[\s\S]*min-height: 32px;[\s\S]*max-height: 76px;[\s\S]*padding: 5px 10px 5px 14px;/);
     assert.match(managerCss, /\.tavern-chat\.xb-page \.manager-compose button\.primary-action \{[\s\S]*min-height: 32px;/);
     assert.doesNotMatch(managerCss, /\.tavern-chat\.xb-page \.manager-compose button\.primary-action \{[\s\S]*min-height: 58px;/);
     assert.doesNotMatch(cssSource, /\.chat-bubble\.from-assistant\s*\{[^}]*border-left:/);

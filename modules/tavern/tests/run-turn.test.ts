@@ -1624,7 +1624,7 @@ test('xb tavern simulated request applies regex without saving messages', async 
     assert.deepEqual(await listTavernMessages(session.id), []);
 });
 
-test('xb tavern native world info still applies WORLD_INFO regex only to embedded entries', async () => {
+test('xb tavern native world info keeps WORLD_INFO regex out of local world entries', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const worldInfoTexts: string[] = [];
@@ -1637,13 +1637,12 @@ test('xb tavern native world info still applies WORLD_INFO regex only to embedde
                 id: item.id,
                 text: item.text
                     .replace(/RAW_USER/g, 'REGEX_USER')
-                    .replace(/RAW_EMBEDDED/g, 'REGEX_EMBEDDED')
                     .replace(/RAW_BOUND/g, 'REGEX_BOUND')
                     .replace(/RAW_NATIVE/g, 'REGEX_NATIVE'),
-                changed: /RAW_(USER|EMBEDDED|BOUND|NATIVE)/.test(item.text),
+                changed: /RAW_(USER|BOUND|NATIVE)/.test(item.text),
             };
         }),
-        changedCount: items.filter((item) => /RAW_(USER|EMBEDDED|BOUND|NATIVE)/.test(item.text)).length,
+        changedCount: items.filter((item) => /RAW_(USER|BOUND|NATIVE)/.test(item.text)).length,
     });
 
     const result = await simulateXbTavernRequest({
@@ -1674,13 +1673,13 @@ test('xb tavern native world info still applies WORLD_INFO regex only to embedde
                     }],
                 },
                 {
-                    name: 'Embedded Character Book',
-                    worldSourceType: 'embedded',
+                    name: 'Raw Card Book',
+                    worldSourceType: 'card',
                     entries: [{
-                        uid: 'embedded-book',
-                        content: 'RAW_EMBEDDED embedded lore.',
+                        uid: 'raw-card-book',
+                        content: 'RAW_CARD card lore.',
                         constant: true,
-                        worldSourceType: 'embedded',
+                        worldSourceType: 'card',
                     }],
                 },
             ],
@@ -1695,12 +1694,11 @@ test('xb tavern native world info still applies WORLD_INFO regex only to embedde
         }),
     });
 
-    assert.deepEqual(worldInfoTexts, ['RAW_EMBEDDED embedded lore.']);
+    assert.deepEqual(worldInfoTexts, []);
     assert.match(result.requestSnapshot.rawRequestJson, /REGEX_USER simulate/);
     assert.match(result.requestSnapshot.rawRequestJson, /RAW_NATIVE native lore/);
-    assert.match(result.requestSnapshot.rawRequestJson, /REGEX_EMBEDDED embedded lore/);
-    assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /RAW_EMBEDDED|RAW_BOUND|REGEX_NATIVE|REGEX_BOUND/);
-    assert.equal((result.requestSnapshot.regexApplications as { worldInfo?: number } | undefined)?.worldInfo, 1);
+    assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /RAW_CARD|RAW_BOUND|REGEX_CARD|REGEX_NATIVE|REGEX_BOUND/);
+    assert.equal((result.requestSnapshot.regexApplications as { worldInfo?: number } | undefined)?.worldInfo || 0, 0);
 });
 
 test('xb tavern simulated request applies prompt-stage regex to history without rewriting saved text', async () => {

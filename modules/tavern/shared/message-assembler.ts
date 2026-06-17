@@ -94,7 +94,7 @@ export interface XbTavernWorldBook {
     name: string;
     entries: XbTavernWorldEntry[];
     error?: string;
-    worldSourceType?: 'chat' | 'persona' | 'character' | 'global' | 'embedded' | string;
+    worldSourceType?: 'chat' | 'persona' | 'character' | 'global' | string;
     worldSourceIndex?: number;
 }
 
@@ -164,7 +164,7 @@ export interface XbTavernWorldEntry {
     outletName?: string;
     world?: string;
     worldName?: string;
-    worldSourceType?: 'chat' | 'persona' | 'character' | 'global' | 'embedded' | string;
+    worldSourceType?: 'chat' | 'persona' | 'character' | 'global' | string;
     worldSourceIndex?: number;
     sourceWorldBook?: string;
     extensions?: Record<string, unknown>;
@@ -184,7 +184,7 @@ export interface XbTavernNativeWorldInfoTimedState {
 
 export interface XbTavernNativeWorldInfoSource {
     name: string;
-    sourceType?: 'chat' | 'persona' | 'character' | 'global' | 'embedded' | string;
+    sourceType?: 'chat' | 'persona' | 'character' | 'global' | string;
     sourceIndex?: number;
 }
 
@@ -979,7 +979,7 @@ function worldSourceRank(entry: ActivatedWorldEntry, settings: XbTavernWorldSett
     if (sourceType === 'chat') {return 0;}
     if (sourceType === 'persona') {return 1;}
     const strategy = Number(settings.insertionStrategy ?? 1);
-    if (sourceType === 'character' || sourceType === 'embedded') {
+    if (sourceType === 'character') {
         return strategy === 2 ? 3 : 2;
     }
     if (sourceType === 'global') {
@@ -993,7 +993,7 @@ function worldSourceTieRank(entry: ActivatedWorldEntry, settings: XbTavernWorldS
     const strategy = Number(settings.insertionStrategy ?? 1);
     if (strategy === 0) {
         if (sourceType === 'global') {return 0;}
-        if (sourceType === 'character' || sourceType === 'embedded') {return 1;}
+        if (sourceType === 'character') {return 1;}
     }
     return 0;
 }
@@ -1975,7 +1975,7 @@ function prepareXbTavernMessageBuild(
     };
     const allWorldEntries = collectContextWorldEntries(context);
     const localWorldEntries = context.nativeWorldInfo
-        ? allWorldEntries.filter((entry) => normalizeText(entry.worldSourceType) === 'embedded')
+        ? []
         : allWorldEntries;
     const activation = runWorldActivation(localWorldEntries, worldSettings);
     const activatedBeforeBudget = activation.activatedBeforeBudget;

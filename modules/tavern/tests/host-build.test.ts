@@ -268,8 +268,8 @@ test('tavern worldbook host bridge exposes named entry edit endpoints and native
     assert.doesNotMatch(hostSource, /export function openTavernWorldbookEditor/);
     assert.match(hostSource, /sessionMeta\.worldbookSources/);
     assert.match(hostSource, /sessionMeta\.worldbookNames/);
-    assert.match(hostSource, /function isNativeRuntimeSource/);
-    assert.match(hostSource, /sourceType\) !== 'embedded'/);
+    assert.doesNotMatch(hostSource, /function isNativeRuntimeSource/);
+    assert.doesNotMatch(hostSource, /sourceType\) !== 'embedded'/);
     assert.match(hostSource, /runTavernWorldbookStateExclusive\(async \(\) => \{[\s\S]*await checkWorldInfo\(chatLines, maxContext, false, globalScanData\)/);
     assert.match(hostSource, /tavernWorldbookStateQueue = new Promise<void>/);
     assert.match(hostSource, /worldInfoBefore:/);
@@ -324,6 +324,9 @@ test('tavern message assembler can render native worldbook prompt blocks directl
     assert.match(assemblerSource, /anBefore\?: string\[\];/);
     assert.match(assemblerSource, /anAfter\?: string\[\];/);
     assert.match(assemblerSource, /outlets\?: Record<string, string\[\]>;/);
-    assert.match(assemblerSource, /allWorldEntries\.filter\(\(entry\) => normalizeText\(entry\.worldSourceType\) === 'embedded'\)/);
+    assert.match(assemblerSource, /const localWorldEntries = context\.nativeWorldInfo\s*\? \[\]\s*: allWorldEntries;/);
+    assert.doesNotMatch(assemblerSource, /allWorldEntries\.filter\(\(entry\) => normalizeText\(entry\.worldSourceType\) === 'embedded'\)/);
+    assert.doesNotMatch(assemblerSource, /sourceType === 'embedded'/);
+    assert.doesNotMatch(assemblerSource, /'global' \| 'embedded'/);
     assert.match(assemblerSource, /\.\.\.nativeWorldEntries,[\s\S]*\.\.\.localActivatedWorldEntries/);
 });

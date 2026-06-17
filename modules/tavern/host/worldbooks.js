@@ -492,9 +492,6 @@ function dedupeSources(sources = []) {
   });
   return result;
 }
-function isNativeRuntimeSource(source = { name: "" }) {
-  return normalizeText(source.sourceType) !== "embedded";
-}
 function collectRuntimeSources(context = {}) {
   const sessionMeta = asRecord(context.sessionMeta);
   const metaSources = Array.isArray(sessionMeta.worldbookSources) ? sessionMeta.worldbookSources.map((source, index) => {
@@ -515,7 +512,7 @@ function collectRuntimeSources(context = {}) {
     sourceType: normalizeText(book.worldSourceType),
     sourceIndex: Number.isFinite(Number(book.worldSourceIndex)) ? Number(book.worldSourceIndex) : index
   })) : [];
-  return dedupeSources([...metaSources, ...legacyMetaSources, ...bookSources]).filter((source) => isNativeRuntimeSource(source));
+  return dedupeSources([...metaSources, ...legacyMetaSources, ...bookSources]);
 }
 function buildHistoryScanLines(context = {}, currentUserMessage = "", includeNames = false) {
   const userName = normalizeText(context.user?.name) || "User";

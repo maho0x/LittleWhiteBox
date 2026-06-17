@@ -883,7 +883,8 @@ async function injectNativeWorldInfoRuntime(input: {
 }
 
 function shouldApplyWorldInfoRegexToEntry(entry: ActivatedWorldEntry, hasNativeWorldInfo = false): boolean {
-    return !hasNativeWorldInfo || String(entry.worldSourceType || '').trim() === 'embedded';
+    void entry;
+    return !hasNativeWorldInfo;
 }
 
 function mergeBuildWorldEntryStateUpdates(
