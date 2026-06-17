@@ -94,8 +94,11 @@ test('tavern chat typography follows host SillyTavern font metrics inside the if
     assert.match(markdownSource, /const doc = ownerDocument\?\.createElement \? ownerDocument : globalThis\.document;/);
     assert.match(markdownSource, /const copied = await copyText\(codeText, doc\);/);
     assert.match(markdownSource, /copyButton\.classList\.toggle\('is-copied', copied\);/);
-    assert.match(messagesCss, /\.message-actions \{[\s\S]*border-top: 1px solid rgba\(120, 112, 98, 0\.16\);[\s\S]*padding-top: 10px;/);
-    assert.match(messagesCss, /\.xb-os-shell\.theme-dark \.message-actions \{[\s\S]*border-top-color: rgba\(238, 244, 241, 0\.14\);/);
+    assert.match(messagesCss, /\.chat-bubble>\.message-actions \{[\s\S]*position: absolute;[\s\S]*top: -1px;[\s\S]*right: -1px;[\s\S]*border-radius: 0 10px 0 8px;[\s\S]*opacity: 0;/);
+    assert.match(messagesCss, /\.chat-bubble>\.message-actions button \{[\s\S]*width: 30px;[\s\S]*min-width: 30px;[\s\S]*height: 30px;[\s\S]*min-height: 30px;[\s\S]*padding: 0;/);
+    assert.match(messagesCss, /@media \(max-width: 760px\) \{[\s\S]*\.chat-bubble>\.message-actions \{[\s\S]*opacity: 0;[\s\S]*pointer-events: none;[\s\S]*\.chat-bubble\.is-action-tray-open>\.message-actions[\s\S]*opacity: 1;[\s\S]*pointer-events: auto;/);
+    assert.doesNotMatch(messagesCss, /\.message-actions \{[\s\S]*border-top: 1px solid rgba\(120, 112, 98, 0\.16\);/);
+    assert.doesNotMatch(messagesCss, /\.message-actions \{[\s\S]*border-bottom: 1px solid rgba\(120, 112, 98, 0\.14\);/);
     assert.match(composeCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);
     assert.match(messagesCss, /font-size: var\(--xb-host-main-font-size, 15px\);/);
     assert.match(memoryCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);

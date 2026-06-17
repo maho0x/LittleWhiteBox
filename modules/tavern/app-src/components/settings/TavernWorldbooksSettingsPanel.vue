@@ -268,10 +268,7 @@ watch(
     </div>
     <section class="worldbook-section worldbook-global-enable">
       <div class="worldbook-section-head worldbook-global-enable-head">
-        <div>
-          <span class="worldbook-section-kicker">全局区</span>
-          <h3>已启用的世界书</h3>
-        </div>
+        <h3>已启用的全局世界书</h3>
       </div>
       <div class="worldbook-global-bar">
         <button
@@ -313,10 +310,7 @@ watch(
     </section>
     <section class="worldbook-section worldbook-main-section">
       <div class="worldbook-section-head worldbook-main-head">
-        <div>
-          <span class="worldbook-section-kicker">操作区</span>
-          <h3>世界书操作</h3>
-        </div>
+        <h3>世界书操作</h3>
       </div>
       <div class="preset-command-bar worldbook-command-bar">
         <label class="preset-source-select worldbook-source-select">

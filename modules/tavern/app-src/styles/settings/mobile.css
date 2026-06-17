@@ -367,16 +367,11 @@
     }
 
     .settings-layout.is-worldbooks-workspace .worldbook-section-head {
-        grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
+        gap: 0;
     }
 
     .settings-layout.is-worldbooks-workspace .worldbook-section h3 {
         font-size: 14px;
-    }
-
-    .settings-layout.is-worldbooks-workspace .worldbook-section-kicker {
-        font-size: 10px;
     }
 
     .settings-layout.is-worldbooks-workspace .worldbook-global-toggle {

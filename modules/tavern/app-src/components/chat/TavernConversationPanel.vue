@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import TavernScrollControls from '../TavernScrollControls.vue';
 import TavernMessageEditPanel from './TavernMessageEditPanel.vue';
 import { useTavernChatContext, useTavernShellContext } from '../tavern-app-context';
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
+import { useTavernMediaQuery } from '../useTavernMediaQuery';
 import {
     hasRenderableLiveAssistantContent,
     hasRenderableLiveAssistantMarkdown,
@@ -39,7 +40,6 @@ const {
     chatMessageWindow,
     chatScrollControlsActive,
     chatScrollRef,
-    copyMessage,
     currentUserMessage,
     deleteMessageTurn,
     displayMessageContent,
@@ -168,9 +168,24 @@ const liveAssistantMarkdownVisible = computed(() => hasRenderableLiveAssistantMa
 }));
 const thoughtDisclosure = useTavernEphemeralDisclosureScope();
 const runtimeThoughtDisclosureId = 'chat:runtime-thoughts';
+const isMobileActionTrayViewport = useTavernMediaQuery('(max-width: 760px)');
+const activeMessageActionsKey = ref('');
 
 function messageThoughtDisclosureId(message: TavernMessageRecord) {
     return `chat:thought:${messageKey(message)}`;
+}
+
+function isMessageActionTrayOpen(message: TavernMessageRecord) {
+    return activeMessageActionsKey.value === messageKey(message);
+}
+
+function showMessageActionTray(message: TavernMessageRecord) {
+    if (!isMobileActionTrayViewport.value || isEditingMessage(message)) {return;}
+    activeMessageActionsKey.value = messageKey(message);
+}
+
+function clearMessageActionTray() {
+    activeMessageActionsKey.value = '';
 }
 
 watch(
@@ -178,20 +193,31 @@ watch(
     ([view, focus]) => {
         if (view !== 'chat' || focus !== 'chat') {
             thoughtDisclosure.reset();
+            clearMessageActionTray();
         }
     },
 );
 
 watch(
     () => `${selectedSessionId.value}:${chatMessageWindow.value.startIndex}:${chatMessageWindow.value.visibleCount}`,
-    () => thoughtDisclosure.reset(),
+    () => {
+        thoughtDisclosure.reset();
+        clearMessageActionTray();
+    },
 );
+
+watch(isMobileActionTrayViewport, (isMobile) => {
+    if (!isMobile) {
+        clearMessageActionTray();
+    }
+});
 </script>
 
 <template>
   <section
     class="chat-face chat-face-front chat-main"
     :aria-hidden="chatFocus === 'manager'"
+    @click="clearMessageActionTray"
   >
     <div
       v-if="visibleCharacterAvatar"
@@ -242,6 +268,7 @@ watch(
         :ref="setChatScrollRef"
         class="chat-scroll"
         @scroll="handleChatScroll"
+        @click="clearMessageActionTray"
         @wheel.passive="handleChatWheel"
         @touchstart.passive="handleChatTouchStart"
         @touchmove.passive="handleChatTouchMove"
@@ -268,28 +295,116 @@ watch(
             :class="[
               message.role === 'user' ? 'from-user' : 'from-assistant',
               { 'is-error': message.error },
+              { 'is-action-tray-open': isMessageActionTrayOpen(message) },
             ]"
+            @click.stop="showMessageActionTray(message)"
           >
             <div class="bubble-meta">
-              <span class="bubble-nameplate">
-                <span class="bubble-avatar-stamp">
-                  <img
-                    v-if="message.role === 'user' && visibleUserAvatar"
-                    :src="visibleUserAvatar"
-                    alt=""
-                    @error="rememberBrokenAvatar(visibleUserAvatar)"
-                  >
-                  <img
-                    v-else-if="message.role !== 'user' && visibleCharacterAvatar"
-                    :src="visibleCharacterAvatar"
-                    alt=""
-                    @error="rememberBrokenAvatar(visibleCharacterAvatar)"
-                  >
-                  <span v-else>{{ String(roleLabel(message.role)).slice(0, 1) }}</span>
+              <div class="bubble-identity">
+                <span class="bubble-nameplate">
+                  <span class="bubble-avatar-stamp">
+                    <img
+                      v-if="message.role === 'user' && visibleUserAvatar"
+                      :src="visibleUserAvatar"
+                      alt=""
+                      @error="rememberBrokenAvatar(visibleUserAvatar)"
+                    >
+                    <img
+                      v-else-if="message.role !== 'user' && visibleCharacterAvatar"
+                      :src="visibleCharacterAvatar"
+                      alt=""
+                      @error="rememberBrokenAvatar(visibleCharacterAvatar)"
+                    >
+                    <span v-else>{{ String(roleLabel(message.role)).slice(0, 1) }}</span>
+                  </span>
+                  <span class="bubble-role-name">{{ message.error ? '错误' : roleLabel(message.role) }}</span>
+                  <span class="bubble-meta-line">
+                    <span
+                      class="message-floor-label"
+                      :title="`第 ${messageFloorLabel(message).slice(1)} 楼`"
+                      :aria-label="`第 ${messageFloorLabel(message).slice(1)} 楼`"
+                    >
+                      {{ messageFloorLabel(message) }}
+                    </span>
+                    <small class="bubble-time-tag">{{ formatMessageTime(message.createdAt) }}</small>
+                  </span>
                 </span>
-                <span class="bubble-role-name">{{ message.error ? '错误' : roleLabel(message.role) }}</span>
+              </div>
+            </div>
+            <div
+              v-if="!isEditingMessage(message)"
+              class="message-actions"
+              :class="{ 'has-status': !!drawMessageStatusText(message) }"
+              @click.stop
+            >
+              <span
+                v-if="drawMessageStatusText(message)"
+                class="message-draw-status"
+                :class="drawMessageStatusClass(message)"
+              >
+                {{ drawMessageStatusText(message) }}
               </span>
-              <small>{{ formatMessageTime(message.createdAt) }}</small>
+              <button
+                type="button"
+                :disabled="!canDrawMessage(message)"
+                :class="[actionFeedback(message, 'draw'), { 'is-running': isDrawingMessage(message) }]"
+                :title="drawMessageTitle(message)"
+                :aria-label="drawMessageTitle(message)"
+                @click="drawMessage(message)"
+              >
+                {{ isDrawingMessage(message) ? '■' : '🎨' }}
+              </button>
+              <button
+                type="button"
+                :disabled="!canEditMessage(message)"
+                :class="actionFeedback(message, 'edit')"
+                title="编辑"
+                aria-label="编辑"
+                @click="startEditMessage(message)"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                :disabled="!canRerunMessage(message)"
+                :class="actionFeedback(message, 'rerun')"
+                :title="message.role === 'user' ? '发送最后一楼' : '重新生成最后回复'"
+                :aria-label="message.role === 'user' ? '发送最后一楼' : '重新生成最后回复'"
+                @click="rerunFromMessage(message)"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M1 4v6h6M23 20v-6h-6" />
+                  <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15" />
+                </svg>
+              </button>
+              <span
+                class="message-action-divider"
+                aria-hidden="true"
+              />
+              <button
+                type="button"
+                :disabled="isRunning"
+                :class="actionFeedback(message, 'delete')"
+                title="从这里删除后续剧情"
+                aria-label="从这里删除后续剧情"
+                @click="deleteMessageTurn(message)"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
             </div>
             <TavernMessageEditPanel
               v-if="isEditingMessage(message)"
@@ -343,84 +458,15 @@ watch(
                 />
               </template>
             </template>
-            <div
-              v-for="(event, eventIndex) in (message.role === 'user' ? (message.runtimeEvents || []) : [])"
-              :key="`${message.sessionId}-${message.order}-runtime-event-${event.type}-${eventIndex}`"
-              class="chat-runtime-event scene-narration inline-runtime-event"
-              aria-hidden="true"
-            >
-              <div class="scene-tag">
-                {{ String((event as { label?: string }).label || '') }}
-              </div>
-            </div>
-            <div
-              v-if="!isEditingMessage(message)"
-              class="message-actions"
-              :class="{ 'has-status': !!drawMessageStatusText(message) }"
-            >
-              <span
-                class="message-floor-label"
-                :title="`第 ${messageFloorLabel(message).slice(1)} 楼`"
-                :aria-label="`第 ${messageFloorLabel(message).slice(1)} 楼`"
-              >
-                {{ messageFloorLabel(message) }}
-              </span>
-              <span
-                v-if="drawMessageStatusText(message)"
-                class="message-draw-status"
-                :class="drawMessageStatusClass(message)"
-              >
-                {{ drawMessageStatusText(message) }}
-              </span>
-              <button
-                type="button"
-                :disabled="!canDrawMessage(message)"
-                :class="[actionFeedback(message, 'draw'), { 'is-running': isDrawingMessage(message) }]"
-                :title="drawMessageTitle(message)"
-                :aria-label="drawMessageTitle(message)"
-                @click="drawMessage(message)"
-              >
-                {{ isDrawingMessage(message) ? '■' : '🎨' }}
-              </button>
-              <button
-                type="button"
-                :class="actionFeedback(message, 'copy')"
-                title="复制"
-                aria-label="复制"
-                @click="copyMessage(message)"
-              >
-                ⧉
-              </button>
-              <button
-                type="button"
-                :disabled="!canEditMessage(message)"
-                :class="actionFeedback(message, 'edit')"
-                title="编辑"
-                aria-label="编辑"
-                @click="startEditMessage(message)"
-              >
-                ✎
-              </button>
-              <button
-                type="button"
-                :disabled="!canRerunMessage(message)"
-                :class="actionFeedback(message, 'rerun')"
-                :title="message.role === 'user' ? '发送最后一楼' : '重新生成最后回复'"
-                :aria-label="message.role === 'user' ? '发送最后一楼' : '重新生成最后回复'"
-                @click="rerunFromMessage(message)"
-              >
-                ↻
-              </button>
-              <button
-                type="button"
-                :disabled="isRunning"
-                :class="actionFeedback(message, 'delete')"
-                title="从这里删除后续剧情"
-                aria-label="从这里删除后续剧情"
-                @click="deleteMessageTurn(message)"
-              >
-                ⌫
-              </button>
+          </div>
+          <div
+            v-for="(event, eventIndex) in (message.role === 'user' ? (message.runtimeEvents || []) : [])"
+            :key="`${message.sessionId}-${message.order}-runtime-event-${event.type}-${eventIndex}`"
+            class="chat-runtime-event scene-narration"
+            aria-hidden="true"
+          >
+            <div class="scene-tag">
+              {{ String((event as { label?: string }).label || '') }}
             </div>
           </div>
         </template>
