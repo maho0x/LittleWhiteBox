@@ -55,6 +55,7 @@ textarea:disabled {
     position: absolute;
     top: 6px;
     right: 6px;
+    z-index: 2;
     display: grid;
     place-items: center;
     width: 24px;
@@ -69,6 +70,10 @@ textarea:disabled {
     font: 650 12px/1 "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
     opacity: 0.82;
     padding: 0;
+    pointer-events: auto;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .xb-tavern-code-copy:hover {

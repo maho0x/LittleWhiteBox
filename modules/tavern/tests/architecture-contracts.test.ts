@@ -245,8 +245,8 @@ test('tavern request log is sourced from runtime request snapshots', () => {
     assert.doesNotMatch(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
     assert.doesNotMatch(appSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
     assert.match(appSource, /runXbTavernTurn\(\{[\s\S]*buildNativeChatPrompt,/);
-    assert.match(appSource, /xb-tavern:build-native-chat-prompt[\s\S]*timeoutMs: 0, signal: input\.signal/);
-    assert.match(appSource, /const timeoutMs = 'timeoutMs' in options \? Number\(options\.timeoutMs\) : HOST_REQUEST_TIMEOUT_MS/);
+    assert.match(appSource, /xb-tavern:build-native-chat-prompt[\s\S]*signal: input\.signal/);
+    assert.doesNotMatch(appSource, /host_request_timeout|HOST_REQUEST_TIMEOUT_MS|const timeoutMs =/);
     assert.match(appSource, /postToHost\('xb-tavern:cancel-request', \{ requestId \}\);/);
     assert.match(appSource, /runtimePendingUserMessage\.value = messageText/);
     assert.match(conversationSource, /class="chat-bubble from-user pending-user"/);
@@ -347,6 +347,8 @@ test('tavern chat exposes local settings modals without leaving the session', ()
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.prompt-edit-button \{[\s\S]*display: grid;/);
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.preset-preview-panel \{[\s\S]*z-index: 1;[\s\S]*background: var\(--xb-settings-sheet-bg\);/);
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.prompt-detail-form \{[\s\S]*background: var\(--xb-settings-sheet-bg\);/);
+    assert.match(chatQuickSettingsCss, /@media \(max-width: 760px\) \{[\s\S]*\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.preset-preview-panel\.prompt-editor-panel \{[\s\S]*position: fixed;[\s\S]*z-index: 180;[\s\S]*inset:[\s\S]*max\(10px, env\(safe-area-inset-top, 0px\)\)[\s\S]*overflow: hidden;[\s\S]*border-radius: 14px;/);
+    assert.match(chatQuickSettingsCss, /@media \(max-width: 760px\) \{[\s\S]*\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.prompt-detail-form \{[\s\S]*flex: 1 1 auto;[\s\S]*overflow: auto;/);
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-worldbooks-workspace \.worldbook-entry-editor \{[\s\S]*z-index: 1;[\s\S]*background: var\(--xb-settings-sheet-bg\);/);
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-worldbooks-workspace \.worldbook-entry-editor input\[type="text"\],[\s\S]*background-color: var\(--xb-settings-control-bg\);/);
     assert.doesNotMatch(settingsControllerSource, /activeView\.value !== 'settings' \|\| options\.activeSettingsWorkspace\.value !== 'worldbooks'/);

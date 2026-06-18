@@ -165,8 +165,6 @@ interface TavernCharacterWorldbookActionResult {
 
 const SOURCE_APP = 'xb-tavern-app';
 const SOURCE_HOST = 'xb-tavern-host';
-const HOST_REQUEST_TIMEOUT_MS = 5000;
-const CHARACTER_CONTEXT_TIMEOUT_MS = 15000;
 const CHARACTER_ARCHIVE_BATCH_SIZE = 48;
 const CHAT_SIDEBAR_INITIAL_LIMIT = 6;
 const CHAT_SIDEBAR_BATCH_SIZE = 12;
@@ -295,7 +293,6 @@ function readInitialTavernThemeDark(): boolean {
 interface PendingHostRequest {
     resolve: (value: Record<string, unknown>) => void;
     reject: (error: Error) => void;
-    timer?: number;
     type: string;
     abort?: () => void;
     signal?: AbortSignal;
@@ -318,7 +315,6 @@ interface PendingRuntimeDisplayRegexRequest {
     input: DisplayRegexTextRequest;
 }
 const pendingHostRequests = new Map<string, PendingHostRequest>();
-const TAVERN_DRAW_REQUEST_TIMEOUT_MS = 1000 * 60 * 20;
 const DRAW_COMPLETION_NOTICE_TEXT = '配图已生成';
 function normalizedSearchText(value = '') {
     return String(value || '').trim().toLocaleLowerCase();
@@ -422,11 +418,9 @@ const {
     chatScrollRef,
     managerScrollRef,
     requestHost,
-    imageRequestTimeoutMs: HOST_REQUEST_TIMEOUT_MS * 2,
 });
 const characterOptionCache = new Map<string, { signature: string; option: TavernCharacterOption }>();
 const memoryFileSearchCorpusCache = new WeakMap<TavernMemoryIndexFileEntry, string>();
-let pendingCharacterSessionTimer: number | null = null;
 let characterPreviewRequestSequence = 0;
 let characterWorldbookRequestSequence = 0;
 let simulateRequestSequence = 0;
@@ -1078,7 +1072,7 @@ function createAbortError() {
     }
 }
 
-function requestHost(type: string, payload: Record<string, unknown> = {}, options: { timeoutMs?: number; signal?: AbortSignal } = {}) {
+function requestHost(type: string, payload: Record<string, unknown> = {}, options: { signal?: AbortSignal } = {}) {
     const requestId = createHostRequestId();
     if (options.signal?.aborted) {
         return Promise.reject(createAbortError());
@@ -1092,16 +1086,7 @@ function requestHost(type: string, payload: Record<string, unknown> = {}, option
             }
             pendingHostRequests.delete(requestId);
         };
-        const timeoutMs = 'timeoutMs' in options ? Number(options.timeoutMs) : HOST_REQUEST_TIMEOUT_MS;
-        const timer = Number.isFinite(timeoutMs) && timeoutMs > 0
-            ? window.setTimeout(() => {
-                cleanup();
-                postToHost('xb-tavern:cancel-request', { requestId });
-                reject(new Error('host_request_timeout'));
-            }, timeoutMs)
-            : undefined;
         const abort = () => {
-            if (timer) {window.clearTimeout(timer);}
             cleanup();
             postToHost('xb-tavern:cancel-request', { requestId });
             reject(createAbortError());
@@ -1109,7 +1094,7 @@ function requestHost(type: string, payload: Record<string, unknown> = {}, option
         if (options.signal) {
             options.signal.addEventListener('abort', abort, { once: true });
         }
-        pendingHostRequests.set(requestId, { resolve, reject, timer, type, abort: options.signal ? abort : undefined, signal: options.signal });
+        pendingHostRequests.set(requestId, { resolve, reject, type, abort: options.signal ? abort : undefined, signal: options.signal });
     });
 }
 
@@ -1697,7 +1682,7 @@ async function getNativeWorldbookRuntime(input: {
 const buildNativeChatPrompt: TavernBuildNativeChatPromptRuntime = async (input) => {
     const response = await requestHost('xb-tavern:build-native-chat-prompt', {
         payload: input,
-    }, { timeoutMs: 0, signal: input.signal });
+    }, { signal: input.signal });
     return (response.result || response) as Awaited<ReturnType<TavernBuildNativeChatPromptRuntime>>;
 };
 
@@ -1705,7 +1690,7 @@ async function getHostContext(input: {
     characterId?: string;
     includeHistory?: boolean;
     includeWorldbooks?: boolean;
-} = {}, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Record<string, unknown>> {
+} = {}, options: { signal?: AbortSignal } = {}): Promise<Record<string, unknown>> {
     const response = await requestHost('xb-tavern:get-context', {
         payload: {
             characterId: input.characterId,
@@ -1783,7 +1768,6 @@ function resolveHostRequest(payload: Record<string, unknown> = {}) {
     const requestId = String(payload.requestId || '');
     const pending = pendingHostRequests.get(requestId);
     if (!pending) {return;}
-    if (pending.timer) {window.clearTimeout(pending.timer);}
     if (pending.abort && pending.signal) {
         pending.signal.removeEventListener('abort', pending.abort);
     }
@@ -1930,10 +1914,7 @@ async function selectCharacterForPreview(characterId: string) {
     pendingCharacterPreviewId.value = targetId;
     pendingCharacterError.value = '';
     try {
-        const payload = await getHostContext(
-            { characterId: targetId, includeHistory: false, includeWorldbooks: false },
-            { timeoutMs: CHARACTER_CONTEXT_TIMEOUT_MS },
-        );
+        const payload = await getHostContext({ characterId: targetId, includeHistory: false, includeWorldbooks: false });
         if (sequence !== characterPreviewRequestSequence || selectedCharacterPreviewId.value !== targetId) {return;}
         applyCharacterListPayload(payload);
     } catch (error) {
@@ -2314,10 +2295,6 @@ async function handleHomePrimaryAction() {
 }
 
 function clearPendingCharacterSession() {
-    if (pendingCharacterSessionTimer) {
-        window.clearTimeout(pendingCharacterSessionTimer);
-        pendingCharacterSessionTimer = null;
-    }
     pendingCharacterSessionId.value = '';
     pendingCharacterGreetingIndex.value = 0;
 }
@@ -2356,12 +2333,6 @@ async function selectCharacterAndCreateSession(characterId: string) {
     statusText.value = '正在读取角色卡';
     pendingCharacterSessionId.value = targetId;
     pendingCharacterGreetingIndex.value = greetingIndex;
-    if (pendingCharacterSessionTimer) {window.clearTimeout(pendingCharacterSessionTimer);}
-    pendingCharacterSessionTimer = window.setTimeout(() => {
-        if (pendingCharacterSessionId.value !== targetId) {return;}
-        clearPendingCharacterSession();
-        pendingCharacterError.value = '读取角色卡超时。';
-    }, CHARACTER_CONTEXT_TIMEOUT_MS);
     postToHost('xb-tavern:refresh-context', { characterId: targetId, includeHistory: false });
 }
 
@@ -2809,10 +2780,7 @@ async function drawMessage(message: TavernMessageRecord) {
                 role: message.role,
                 characterName: selectedSession.value?.characterName || effectiveCharacter.value.name || '',
             },
-        }, {
-            timeoutMs: TAVERN_DRAW_REQUEST_TIMEOUT_MS,
-            signal: controller.signal,
-        });
+        }, { signal: controller.signal });
         if (controller.signal.aborted) {
             flashMessageAction(message, 'draw', false);
             return;
@@ -4173,7 +4141,6 @@ onUnmounted(() => {
     window.removeEventListener('message', onHostMessage);
     setHostChatCompletionsRequestHeadersProvider(null);
     pendingHostRequests.forEach((request) => {
-        if (request.timer) {window.clearTimeout(request.timer);}
         if (request.abort && request.signal) {
             request.signal.removeEventListener('abort', request.abort);
         }

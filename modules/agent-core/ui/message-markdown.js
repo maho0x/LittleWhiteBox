@@ -210,8 +210,13 @@ async function copyText(text = '', ownerDocument = null) {
         textarea.style.top = '0';
         textarea.style.opacity = '0';
         textarea.style.pointerEvents = 'none';
+        textarea.style.fontSize = '16px';
         doc.body.appendChild(textarea);
-        textarea.focus({ preventScroll: true });
+        try {
+            textarea.focus({ preventScroll: true });
+        } catch {
+            textarea.focus();
+        }
         textarea.select();
         textarea.setSelectionRange(0, textarea.value.length);
         const copied = doc.execCommand?.('copy') || false;
@@ -287,9 +292,20 @@ export function enhanceMarkdownCodeBlocks(rootNode, options = {}) {
     const copyButtonTitle = String(options.copyButtonTitle || '复制代码');
     const copySuccessTitle = String(options.copySuccessTitle || '已复制');
     const copyFailureTitle = String(options.copyFailureTitle || '复制失败');
+    const flattenPreCode = options.flattenPreCode === true;
 
     Array.from(rootNode.querySelectorAll('pre')).forEach((pre) => {
         if (pre.closest(`.${codeBlockClassName}`)) return;
+
+        const codeNode = pre.children.length === 1 && pre.firstElementChild?.tagName === 'CODE'
+            ? pre.firstElementChild
+            : null;
+        if (flattenPreCode && codeNode) {
+            while (codeNode.firstChild) {
+                pre.insertBefore(codeNode.firstChild, codeNode);
+            }
+            codeNode.remove();
+        }
 
         const wrapper = doc.createElement('div');
         wrapper.className = codeBlockClassName;
@@ -300,7 +316,21 @@ export function enhanceMarkdownCodeBlocks(rootNode, options = {}) {
         copyButton.textContent = '⧉';
         copyButton.title = copyButtonTitle;
         copyButton.setAttribute('aria-label', copyButtonTitle);
-        copyButton.addEventListener('click', async () => {
+        copyButton.addEventListener('pointerdown', (event) => {
+            event.stopPropagation();
+        });
+        copyButton.addEventListener('pointerup', (event) => {
+            event.stopPropagation();
+        });
+        copyButton.addEventListener('touchstart', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+        copyButton.addEventListener('touchend', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+        copyButton.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
             const codeText = pre.querySelector('code')?.textContent || pre.textContent || '';
             const copied = await copyText(codeText, doc);
             copyButton.textContent = copied ? '✓' : '!';

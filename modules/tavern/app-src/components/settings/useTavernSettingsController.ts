@@ -54,7 +54,7 @@ interface TavernSettingsControllerOptions {
     isRunning: Ref<boolean>;
     describeError: (error: unknown) => string;
     postToHost: (type: string, payload?: Record<string, unknown>) => void;
-    requestHost: (type: string, payload?: Record<string, unknown>, options?: { timeoutMs?: number; signal?: AbortSignal }) => Promise<Record<string, unknown>>;
+    requestHost: (type: string, payload?: Record<string, unknown>, options?: { signal?: AbortSignal }) => Promise<Record<string, unknown>>;
     shortText: (value?: string, limit?: number) => string;
 }
 

@@ -11,8 +11,7 @@ const TAVERN_IMAGE_MARKER_REGEX = /\[tavern-image:([a-z0-9\-_]+)\]/gi;
 export interface TavernMarkdownToolsOptions {
     chatScrollRef: Ref<HTMLElement | null>;
     managerScrollRef: Ref<HTMLElement | null>;
-    requestHost: (type: string, payload?: { payload?: object }, options?: { timeoutMs?: number }) => Promise<{ result?: unknown } & Record<string, unknown>>;
-    imageRequestTimeoutMs: number;
+    requestHost: (type: string, payload?: { payload?: object }) => Promise<{ result?: unknown } & Record<string, unknown>>;
 }
 
 export interface TavernRoleplayMarkdownOptions {
@@ -210,7 +209,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         figure.dataset.tavernImageHydrating = 'true';
         void options.requestHost('xb-tavern:draw-image', {
             payload: { slotId },
-        }, { timeoutMs: options.imageRequestTimeoutMs })
+        })
             .then((response) => {
                 if (!canHydrateTavernFigure(figure, slotId)) {return;}
                 const result = (response.result || response) as Record<string, unknown>;
@@ -427,6 +426,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             enhanceMarkdownContent(node, {
                 codeBlockClassName: 'xb-tavern-codeblock',
                 codeCopyClassName: 'xb-tavern-code-copy',
+                flattenPreCode: true,
                 htmlBlockMode: 'preview',
             });
             enhanceTavernImageMarkers(node);
@@ -445,6 +445,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             enhanceMarkdownContent(node, {
                 codeBlockClassName: 'xb-tavern-codeblock',
                 codeCopyClassName: 'xb-tavern-code-copy',
+                flattenPreCode: true,
             });
             node.dataset.markdownEnhanced = signature;
         });

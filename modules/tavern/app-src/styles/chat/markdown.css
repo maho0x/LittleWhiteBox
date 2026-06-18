@@ -209,24 +209,29 @@
 .xb-tavern-markdown pre {
     min-width: 0;
     max-width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: visible;
     border: 1px solid rgba(120, 112, 98, 0.22);
-    border-radius: 10px;
+    border-radius: 8px;
     background: rgba(26, 26, 26, 0.035);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
-    padding: 7px 8px;
-    white-space: pre;
-    word-break: normal;
+    box-shadow: none;
+    padding: 8px 34px 8px 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .xb-tavern-markdown pre code {
     position: relative;
-    display: block;
-    overflow-x: auto;
+    display: contents;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
     padding: 0;
     background: transparent;
+    color: inherit;
+    font: inherit;
     white-space: inherit;
+    overflow-wrap: inherit;
     word-break: inherit;
 }
 
