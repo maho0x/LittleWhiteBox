@@ -77,6 +77,31 @@ test('tavern markdown keeps guidance details boundaries around markdown content'
     assert.doesNotMatch(html, /<\/details>\s*<\/p>/);
 });
 
+test('tavern markdown protects nested inline HTML structure lines without breaking markdown ownership', () => {
+    const html = renderMarkdownToHtml([
+        '<details>',
+        '  <summary>',
+        '    <span class="guide-title">状态</span>',
+        '  </summary>',
+        '  <div>',
+        '## 指引标题',
+        '',
+        '- 第一条',
+        '- 第二条',
+        '  </div>',
+        '</details>',
+        '',
+        '正文在折叠后',
+    ].join('\n'));
+
+    assert.match(html, /<details>\s*<summary>\s*<span class="custom-guide-title">状态<\/span>\s*<\/summary>\s*<div>/);
+    assert.match(html, /<h2 id="">指引标题<\/h2>/);
+    assert.match(html, /<ul>\s*<li>第一条<\/li>\s*<li>第二条<\/li>\s*<\/ul>\s*<\/div>\s*<\/details>/);
+    assert.match(html, /<\/details>\s*<p>正文在折叠后<\/p>/);
+    assert.doesNotMatch(html, /<\/details>\s*<\/li>/);
+    assert.doesNotMatch(html, /<\/summary>\s*<\/p>/);
+});
+
 test('tavern markdown protects generic HTML container boundaries around markdown lists', () => {
     const html = renderMarkdownToHtml([
         '<section class="panel"><div>',
@@ -89,7 +114,7 @@ test('tavern markdown protects generic HTML container boundaries around markdown
         '外部正文',
     ].join('\n'));
 
-    assert.match(html, /<section class="panel"><div>/);
+    assert.match(html, /<section class="custom-panel"><div>/);
     assert.match(html, /<h3 id="">面板标题<\/h3>/);
     assert.match(html, /<ol>\s*<li>第一项<\/li>\s*<li>第二项<\/li>\s*<\/ol>\s*<\/div><\/section>/);
     assert.match(html, /<\/section>\s*<p>外部正文<\/p>/);
@@ -108,6 +133,18 @@ test('tavern markdown sanitizes ordinary chat HTML without disabling html code b
     assert.doesNotMatch(html, /javascript:/i);
     assert.doesNotMatch(html, /\son[a-z]+\s*=/i);
     assert.match(html, /<details open><summary>abc<\/summary>/);
+});
+
+test('tavern markdown decodes style tags as scoped ST-style message CSS', () => {
+    const html = renderMarkdownToHtml([
+        '<style>.foo{color:red}</style>',
+        '<span class="foo">红字</span>',
+    ].join('\n'));
+
+    assert.match(html, /<style>[\s\S]*\.xb-tavern-markdown \.custom-foo, \.xb-assistant-markdown \.custom-foo\{color:red\}[\s\S]*<\/style>/);
+    assert.match(html, /<span class="custom-foo">红字<\/span>/);
+    assert.doesNotMatch(html, /<p>\.foo\{color:red\}<\/p>/);
+    assert.doesNotMatch(html, /<custom-style/i);
 });
 
 test('tavern markdown does not turn ordinary standalone HTML documents into iframe previews', () => {

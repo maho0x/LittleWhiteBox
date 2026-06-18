@@ -7,46 +7,9 @@ let htmlBoundarySerial = 0;
 const htmlBoundaryStore = new Map();
 
 const HTML_BLOCK_LANGUAGES = new Set(['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte']);
-const HTML_MARKDOWN_BOUNDARY_TAGS = new Set([
-    'address',
-    'article',
-    'aside',
-    'blockquote',
-    'details',
-    'dialog',
-    'div',
-    'dl',
-    'fieldset',
-    'figcaption',
-    'figure',
-    'footer',
-    'form',
-    'h1',
-    'h2',
-    'h3',
-    'h4',
-    'h5',
-    'h6',
-    'header',
-    'hr',
-    'li',
-    'main',
-    'nav',
-    'ol',
-    'p',
-    'pre',
-    'section',
-    'summary',
-    'table',
-    'tbody',
-    'td',
-    'tfoot',
-    'th',
-    'thead',
-    'tr',
-    'ul',
-]);
 export const HTML_PREVIEW_SANDBOX = 'allow-scripts';
+const STYLE_SCOPE_SELECTORS = ['.xb-tavern-markdown', '.xb-assistant-markdown'];
+const HTML_RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title']);
 
 function escapeHtml(text) {
     return String(text || '')
@@ -104,22 +67,20 @@ function storeHtmlBoundary(html = '') {
     return `@@XBHTMLRAW:${id}@@`;
 }
 
-function isHtmlBoundaryLine(line = '') {
+function isHtmlStructureLine(line = '') {
     const trimmed = String(line || '').trim();
     if (!trimmed || !trimmed.startsWith('<') || !trimmed.endsWith('>')) return false;
     if (/^<!--[\s\S]*-->$/.test(trimmed) || /^<!doctype\b/i.test(trimmed) || /^<\?xml\b/i.test(trimmed)) return false;
 
-    let hasBoundaryTag = false;
+    let hasHtmlTag = false;
     const tagRegex = /<\/?\s*([a-z][\w:-]*)\b[^>]*>/gi;
     let match = null;
     while ((match = tagRegex.exec(trimmed)) !== null) {
         const tagName = String(match[1] || '').toLowerCase();
-        if (HTML_MARKDOWN_BOUNDARY_TAGS.has(tagName)) {
-            hasBoundaryTag = true;
-            break;
-        }
+        if (HTML_RAW_TEXT_TAGS.has(tagName)) return false;
+        hasHtmlTag = true;
     }
-    if (!hasBoundaryTag) return false;
+    if (!hasHtmlTag) return false;
 
     const textOutsideTags = trimmed.replace(/<\/?\s*[a-z][\w:-]*\b[^>]*>/gi, '').trim();
     return !textOutsideTags || !/(^|\s)(?:#{1,6}\s|[-+*]\s|\d+\.\s|```|~~~|>\s)/.test(textOutsideTags);
@@ -130,23 +91,26 @@ function preprocessNonFenceMarkdown(text = '') {
     if (!normalized.trim()) return normalized;
     const lines = normalized.split(/\r?\n/);
     const protectedLines = [];
-    lines.forEach((line, index) => {
-        if (!isHtmlBoundaryLine(line)) {
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (!isHtmlStructureLine(line)) {
             protectedLines.push(line);
-            return;
+            continue;
         }
 
+        const blockLines = [line];
+        while (index + 1 < lines.length && isHtmlStructureLine(lines[index + 1])) {
+            index += 1;
+            blockLines.push(lines[index]);
+        }
+
+        const isClosingBlock = blockLines.every((blockLine) => /^\s*<\//.test(blockLine));
         const previousLine = protectedLines[protectedLines.length - 1] ?? '';
-        if (protectedLines.length && previousLine.trim()) {
+        if (isClosingBlock && previousLine.trim()) {
             protectedLines.push('');
         }
-        protectedLines.push(storeHtmlBoundary(line));
-
-        const nextLine = lines[index + 1] ?? '';
-        if (nextLine.trim()) {
-            protectedLines.push('');
-        }
-    });
+        protectedLines.push(storeHtmlBoundary(blockLines.join('\n')));
+    }
     return protectedLines.join('\n');
 }
 
@@ -210,10 +174,109 @@ function isDangerousUrl(value = '') {
     return /^(?:javascript|vbscript|data):/.test(normalized);
 }
 
+function encodeStyleTags(html = '') {
+    return String(html || '').replace(/<style>([\s\S]+?)<\/style>/gim, (_match, style) => (
+        `<custom-style>${encodeURIComponent(style)}</custom-style>`
+    ));
+}
+
+function splitCssSelectors(selectorText = '') {
+    const selectors = [];
+    let current = '';
+    let depth = 0;
+    for (const char of String(selectorText || '')) {
+        if (char === '(' || char === '[') depth += 1;
+        if ((char === ')' || char === ']') && depth > 0) depth -= 1;
+        if (char === ',' && depth === 0) {
+            selectors.push(current);
+            current = '';
+            continue;
+        }
+        current += char;
+    }
+    if (current) selectors.push(current);
+    return selectors;
+}
+
+function sanitizeCssSelector(selector = '') {
+    const pseudoClasses = ['has', 'not', 'where', 'is', 'matches', 'any'];
+    const pseudoRegex = new RegExp(`:(${pseudoClasses.join('|')})\\(([^)]+)\\)`, 'g');
+    const sanitizeSimpleSelector = (value = '') => String(value || '').split(/\s+/).map((part) => (
+        part.replace(/\.([\w-]+)/g, (match, className) => (
+            String(className || '').startsWith('custom-') ? match : `.custom-${className}`
+        ))
+    )).join(' ');
+
+    const sanitized = String(selector || '').replace(pseudoRegex, (_match, pseudoClass, content) => (
+        `:${pseudoClass}(${sanitizeSimpleSelector(content)})`
+    ));
+    return sanitizeSimpleSelector(sanitized);
+}
+
+function normalizeStyleScopePrefixes(prefixes = STYLE_SCOPE_SELECTORS) {
+    const rawPrefixes = Array.isArray(prefixes) ? prefixes : [prefixes];
+    const normalized = rawPrefixes
+        .map((prefix) => String(prefix || '').trim())
+        .filter(Boolean)
+        .map((prefix) => `${prefix} `);
+    return normalized.length ? normalized : STYLE_SCOPE_SELECTORS.map((prefix) => `${prefix} `);
+}
+
+function prefixCssSelectors(css = '', prefixes = STYLE_SCOPE_SELECTORS) {
+    const scopePrefixes = normalizeStyleScopePrefixes(prefixes);
+    return String(css || '')
+        .replace(/@import[^;]+;?/gi, '')
+        .replace(/(^|[{}])\s*([^@{}][^{}]*)\{/g, (match, boundary, selectorText) => {
+            const selectors = splitCssSelectors(selectorText)
+                .map((selector) => selector.trim())
+                .filter(Boolean);
+            if (!selectors.length) return match;
+            if (selectors.every((selector) => /^(?:from|to|\d+(?:\.\d+)?%)$/i.test(selector))) {
+                return match;
+            }
+            const scoped = selectors.flatMap((selector) => {
+                const sanitizedSelector = sanitizeCssSelector(selector);
+                return scopePrefixes.map((prefix) => `${prefix}${sanitizedSelector}`);
+            }).join(', ');
+            return `${boundary}${scoped}{`;
+        })
+        .replace(/[^{};]+:\s*[^{};]*:\/\/[^{};]*(?:;|(?=}))/g, '');
+}
+
+function decodeStyleTags(html = '', options = {}) {
+    const prefixes = Array.isArray(options.prefixes)
+        ? options.prefixes
+        : (options.prefix ? [options.prefix] : STYLE_SCOPE_SELECTORS);
+    return String(html || '').replace(/<custom-style>([\s\S]+?)<\/custom-style>/gim, (_match, encodedStyle) => {
+        try {
+            const style = decodeURIComponent(String(encodedStyle || '')).replaceAll(/<br\/>/g, '');
+            return `<style>${prefixCssSelectors(style, prefixes)}</style>`;
+        } catch (error) {
+            return `CSS ERROR: ${error instanceof Error ? error.message : String(error || 'decode_failed')}`;
+        }
+    });
+}
+
+function prefixMessageClassAttribute(value = '') {
+    return String(value || '').split(/\s+/).filter(Boolean).map((className) => {
+        if (className.startsWith('fa-') || className.startsWith('note-') || className === 'monospace') {
+            return className;
+        }
+        return className.startsWith('custom-') ? className : `custom-${className}`;
+    }).join(' ');
+}
+
 function sanitizeMarkdownHtmlFallback(html = '') {
     return String(html || '')
         .replace(/<\/?(?:script|style|iframe|object|embed|link|meta|base|form|input|button|textarea|select|option)[^>]*>/gi, '')
         .replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi, '')
+        .replace(/\s+class\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi, (match, quotedValue) => {
+            const quote = String(quotedValue || '')[0];
+            const hasQuote = quote === '"' || quote === "'";
+            const rawValue = hasQuote ? String(quotedValue).slice(1, -1) : String(quotedValue || '');
+            const prefixed = prefixMessageClassAttribute(rawValue);
+            return hasQuote ? ` class=${quote}${prefixed}${quote}` : ` class=${prefixed}`;
+        })
         .replace(/\s+(href|src|xlink:href)\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi, (match, name, quotedValue) => {
             const value = String(quotedValue || '').replace(/^["']|["']$/g, '');
             return isDangerousUrl(value) ? '' : ` ${name}=${quotedValue}`;
@@ -238,7 +301,7 @@ function getStMessageSanitizer() {
 }
 
 function sanitizeMarkdownHtml(html = '') {
-    const raw = String(html || '');
+    const raw = encodeStyleTags(html);
     const sanitizer = getStMessageSanitizer();
     const config = {
         RETURN_DOM: false,
@@ -249,12 +312,12 @@ function sanitizeMarkdownHtml(html = '') {
     };
     if (sanitizer) {
         try {
-            return String(sanitizer.sanitize(raw, config) || '');
+            return decodeStyleTags(String(sanitizer.sanitize(raw, config) || ''));
         } catch {
             // Fall through to the local test fallback.
         }
     }
-    return sanitizeMarkdownHtmlFallback(raw);
+    return decodeStyleTags(sanitizeMarkdownHtmlFallback(raw));
 }
 
 export function renderMarkdownToHtml(text) {
