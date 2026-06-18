@@ -1,5 +1,6 @@
 /* eslint-disable -- generated from TypeScript source; run npm run build:tavern */
 import { getRequestHeaders } from "../../../../../../script.js";
+import { extension_settings } from "../../../../../extensions.js";
 import { extensionFolderPath } from "../../core/constants.js";
 import { createFirstPartyIframeOverlay, loadFirstPartyIframeCacheKey } from "../../core/first-party-iframe-app.js";
 import { isTrustedMessage, postToIframe } from "../../core/iframe-messaging.js";
@@ -36,6 +37,7 @@ import {
 } from "./host/worldbooks.js";
 const SOURCE_HOST = "xb-tavern-host";
 const SOURCE_APP = "xb-tavern-app";
+const LITTLE_WHITE_BOX_EXT_ID = "LittleWhiteBox";
 const OVERLAY_ID = "xiaobaix-tavern-overlay";
 const IFRAME_ID = "xiaobaix-tavern-iframe";
 const HTML_PATH = `${extensionFolderPath}/modules/tavern/tavern.html`;
@@ -173,6 +175,14 @@ async function sendConfigToFrame(options = {}) {
 }
 async function refreshContext(options = {}) {
   postToFrame("xb-tavern:context", await buildTavernContext(options));
+}
+function isHtmlRenderEnabled() {
+  return extension_settings?.[LITTLE_WHITE_BOX_EXT_ID]?.renderEnabled !== false;
+}
+function refreshRenderSettings() {
+  postToFrame("xb-tavern:context", {
+    htmlRenderEnabled: isHtmlRenderEnabled()
+  });
 }
 async function saveConfigFromFrame(payload = {}) {
   const requestId = String(payload.requestId || "");
@@ -639,7 +649,8 @@ async function initTavern() {
   window.xiaobaixTavern = {
     open: openTavern,
     close: closeTavern,
-    refreshContext
+    refreshContext,
+    refreshRenderSettings
   };
 }
 function cleanupTavern() {

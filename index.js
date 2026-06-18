@@ -897,7 +897,7 @@ async function setupSettings() {
                 setTimeout(() => processExistingMessages(), 100);
             }
             try {
-                window.xiaobaixTavern?.refreshContext?.({ includeWorldbooks: false });
+                window.xiaobaixTavern?.refreshRenderSettings?.();
             } catch (e) {}
         });
 

@@ -1,4 +1,5 @@
 import { getRequestHeaders } from '../../../../../../script.js';
+import { extension_settings } from '../../../../../extensions.js';
 import { extensionFolderPath } from '../../core/constants.js';
 import { createFirstPartyIframeOverlay, loadFirstPartyIframeCacheKey } from '../../core/first-party-iframe-app.js';
 import { isTrustedMessage, postToIframe } from '../../core/iframe-messaging.js';
@@ -43,6 +44,7 @@ interface TavernFacade {
     open: () => Promise<void>;
     close: () => void;
     refreshContext: (options?: Record<string, unknown>) => Promise<void>;
+    refreshRenderSettings: () => void;
 }
 
 declare global {
@@ -59,6 +61,7 @@ declare global {
 
 const SOURCE_HOST = 'xb-tavern-host';
 const SOURCE_APP = 'xb-tavern-app';
+const LITTLE_WHITE_BOX_EXT_ID = 'LittleWhiteBox';
 const OVERLAY_ID = 'xiaobaix-tavern-overlay';
 const IFRAME_ID = 'xiaobaix-tavern-iframe';
 const HTML_PATH = `${extensionFolderPath}/modules/tavern/tavern.html`;
@@ -196,6 +199,16 @@ async function sendConfigToFrame(options: Record<string, unknown> = {}): Promise
 
 async function refreshContext(options: Record<string, unknown> = {}): Promise<void> {
     postToFrame('xb-tavern:context', await buildTavernContext(options) as unknown as Record<string, unknown>);
+}
+
+function isHtmlRenderEnabled(): boolean {
+    return (extension_settings?.[LITTLE_WHITE_BOX_EXT_ID] as Record<string, unknown> | undefined)?.renderEnabled !== false;
+}
+
+function refreshRenderSettings(): void {
+    postToFrame('xb-tavern:context', {
+        htmlRenderEnabled: isHtmlRenderEnabled(),
+    });
 }
 
 async function saveConfigFromFrame(payload: Record<string, unknown> = {}): Promise<void> {
@@ -685,6 +698,7 @@ export async function initTavern(): Promise<void> {
         open: openTavern,
         close: closeTavern,
         refreshContext,
+        refreshRenderSettings,
     };
 }
 

@@ -530,6 +530,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
           </div>
           <div
             class="xb-tavern-markdown"
+            :key="`pending-user:${pendingUserRenderState.signature}`"
             :data-markdown-signature="pendingUserRenderState.signature"
             v-html="renderRoleplayMarkdown(pendingUserRenderState.text)"
           />
@@ -589,6 +590,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
           <div
             v-if="liveAssistantMarkdownVisible"
             class="xb-tavern-markdown"
+            :key="`live-assistant:${liveAssistantRenderState.signature}`"
             :data-action-check-groups="liveAssistantRenderState.actionCheckGroups || undefined"
             :data-markdown-signature="liveAssistantRenderState.signature"
             v-html="renderRoleplayMarkdown(liveAssistantRenderState.text)"

@@ -520,6 +520,7 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     const managerSource = readRepoFile('modules/tavern/app-src/components/chat/TavernManagerPanel.vue');
     const hostSource = readRepoFile('modules/tavern/host/sillytavern-context.ts');
+    const tavernHostSource = readRepoFile('modules/tavern/tavern.ts');
     const indexSource = readRepoFile('index.js');
     const markdownSource = readRepoFile('modules/agent-core/ui/message-markdown.js');
     assert.match(appSource, /useTavernMarkdownTools/);
@@ -531,17 +532,25 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(markdownToolsSource, /function enhanceTavernImageMarkers/);
     assert.match(hostSource, /htmlRenderEnabled: isHtmlRenderEnabled\(\)/);
     assert.match(appSource, /const htmlRenderEnabled = ref\(true\);/);
+    assert.match(appSource, /if \('context' in payload\) \{[\s\S]*context\.value = payload\.context as XbTavernContext \|\| \{\};[\s\S]*\}/);
     assert.match(appSource, /htmlRenderEnabled\.value = payload\.htmlRenderEnabled !== false;/);
     assert.match(appSource, /htmlRenderEnabled,\s*requestHost,/);
     assert.match(contextSource, /htmlRenderEnabled: Ref<boolean>;/);
     assert.match(conversationSource, /htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
+    assert.match(conversationSource, /pending-user:\$\{pendingUserRenderState\.signature\}/);
+    assert.match(conversationSource, /live-assistant:\$\{liveAssistantRenderState\.signature\}/);
     assert.match(managerSource, /function managerMarkdownSignature/);
     assert.match(managerSource, /htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
+    assert.match(managerSource, /history-message:\$\{item\.key\}:\$\{managerMarkdownSignature\(item\.message\.content\)\}/);
+    assert.match(managerSource, /live-message:\$\{item\.key\}:\$\{managerMarkdownSignature\(item\.message\.content\)\}/);
     assert.match(appSource, /visibleManagerMarkdownSignature[\s\S]*htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
     assert.match(markdownToolsSource, /htmlBlockMode: options\.htmlRenderEnabled\.value \? 'preview' : 'code'/);
     assert.match(markdownToolsSource, /htmlBlockMode: options\.htmlRenderEnabled\.value \? undefined : 'code'/);
     assert.match(markdownSource, /if \(options\.htmlBlockMode === 'code'\) \{[\s\S]*return buildHtmlCodeView\(doc, code\);/);
-    assert.match(indexSource, /window\.xiaobaixTavern\?\.refreshContext\?\.\(\{ includeWorldbooks: false \}\);/);
+    assert.match(tavernHostSource, /refreshRenderSettings: \(\) => void;/);
+    assert.match(tavernHostSource, /function refreshRenderSettings\(\): void \{[\s\S]*htmlRenderEnabled: isHtmlRenderEnabled\(\),[\s\S]*\}/);
+    assert.match(indexSource, /window\.xiaobaixTavern\?\.refreshRenderSettings\?\.\(\);/);
+    assert.doesNotMatch(indexSource, /refreshContext\?\.\(\{ includeWorldbooks: false \}\)/);
 });
 
 test('tavern memory editor actions live outside the app controller', () => {

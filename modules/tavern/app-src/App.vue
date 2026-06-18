@@ -1817,8 +1817,12 @@ function installHostRequestHeadersProvider(payload: Record<string, unknown> = {}
 
 function applyHostPayload(payload: Record<string, unknown>) {
     installHostRequestHeadersProvider(payload);
-    context.value = payload.context as XbTavernContext || {};
-    diagnostics.value = payload.diagnostics as TavernDiagnostics || {};
+    if ('context' in payload) {
+        context.value = payload.context as XbTavernContext || {};
+    }
+    if ('diagnostics' in payload) {
+        diagnostics.value = payload.diagnostics as TavernDiagnostics || {};
+    }
     const nextHostMainFontSizePx = 'hostMainFontSizePx' in payload
         ? normalizeHostPx(payload.hostMainFontSizePx, hostMainFontSizePx.value)
         : hostMainFontSizePx.value;
