@@ -260,7 +260,7 @@ test('xb tavern run turn sends the same ST-native prompt shape used by simulatio
             return {
                 source: 'test-native-builder',
                 promptMessageCount: 1,
-                messages: [{ role: 'system', content: 'NATIVE_MESSAGE' }],
+                messages: [{ role: 'assistant', content: 'NATIVE_MESSAGE \n\t' }],
             };
         },
         executeRunOnce: async (options: TavernRunOnceOptions) => {
@@ -277,8 +277,10 @@ test('xb tavern run turn sends the same ST-native prompt shape used by simulatio
         },
     });
 
-    assert.deepEqual(sentMessages, [{ role: 'system', content: 'NATIVE_MESSAGE' }]);
+    assert.deepEqual(sentMessages, [{ role: 'assistant', content: 'NATIVE_MESSAGE' }]);
     assert.equal(result.buildResult.messages[0]?.content, 'NATIVE_MESSAGE');
+    assert.equal(result.requestSnapshot.rawMessagesJson.includes('NATIVE_MESSAGE \\n'), false);
+    assert.equal(result.requestSnapshot.rawRequestJson.includes('NATIVE_MESSAGE \\n'), false);
     assert.equal((nativeInput?.chatPreset as { name?: string } | undefined)?.name, preset.name);
     assert.match(nativeInput?.memoryPrompt || '', /NATIVE_MEMORY_NOTE/);
     assert.match(nativeInput?.chancePrompt || '', /Chance Encounter Triggered/);
@@ -2811,6 +2813,28 @@ test('xb tavern run turn records provider failures as error assistant messages',
         },
     });
     assert.doesNotMatch(retryRaw, /provider_failed/);
+});
+
+test('xb tavern provider fetch failures suggest switching tavern completion source', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const result = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: {
+            character: { id: 'char-1', name: 'Aster' },
+        },
+        preset,
+        currentUserMessage: 'Fail fetch.',
+        executeRunOnce: async () => {
+            throw new Error('[xb-tavern:provider_chat] Failed to fetch');
+        },
+    });
+
+    assert.match(result.error || '', /^\[xb-tavern:provider_chat\] Failed to fetch/);
+    assert.match(result.error || '', /可以尝试在 API 配置中切换酒馆补全源。/);
+    const messages = await listTavernMessages(result.sessionId);
+    assert.equal(messages[1]?.error, true);
+    assert.match(messages[1]?.content || '', /可以尝试在 API 配置中切换酒馆补全源。/);
 });
 
 test('xb tavern run turn keeps the actual failed request snapshot when provider exposes it', async () => {

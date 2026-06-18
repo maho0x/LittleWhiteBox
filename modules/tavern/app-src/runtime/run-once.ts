@@ -268,6 +268,21 @@ function joinPromptMessages(messages: XbTavernMessage[] = []): string {
         .join('\n\n');
 }
 
+function trimFinalAssistantMessageEnd(messages: XbTavernMessage[] = []): XbTavernMessage[] {
+    if (!messages.length) {return [];}
+    return messages.map((message, index) => {
+        if (index !== messages.length - 1 || message.role !== 'assistant') {
+            return message;
+        }
+        const content = String(message.content || '').trimEnd();
+        if (content === message.content) {return message;}
+        return {
+            ...message,
+            content,
+        };
+    });
+}
+
 function buildSyntheticMessageLayers(messages: XbTavernMessage[] = [], source = 'sillytavern-native'): XbTavernMessageLayer[] {
     return messages.map((message, index) => {
         const chars = String(message.content || '').length;
@@ -287,7 +302,7 @@ function replaceBuildResultForPromptSource(
     messages: XbTavernMessage[] = [],
     source = 'sillytavern-native',
 ): XbTavernMessageBuildResult {
-    const nextMessages = messages
+    const nextMessages = trimFinalAssistantMessageEnd(messages)
         .map((message) => ({
             ...message,
             content: String(message.content || ''),
@@ -554,6 +569,15 @@ function wrapTavernStageError(stage: string, error: unknown): Error {
         wrapped.stack = `${wrapped.name}: ${wrapped.message}\nCaused by: ${error.stack}`;
     }
     return wrapped;
+}
+
+function formatTavernRunErrorMessage(errorText: string): string {
+    const text = String(errorText || 'run_failed');
+    if (/^\[xb-tavern:provider_chat\]\s*Failed to fetch\b/i.test(text)
+        && !/切换酒馆补全源/.test(text)) {
+        return `${text}\n\n可以尝试在 API 配置中切换酒馆补全源。`;
+    }
+    return text;
 }
 
 async function runTavernStage<T>(stage: string, task: () => Promise<T> | T): Promise<T> {
@@ -1129,6 +1153,7 @@ async function inspectTavernRequest(input: {
     snapshotMessages: XbTavernMessage[];
 }> {
     const providerConfig = input.providerConfig || assertXbTavernProviderReady(input.agentConfig);
+    const providerMessages = trimFinalAssistantMessageEnd(input.messages);
     const runtime = createXbTavernAgentRuntime(providerConfig, {
         tools: Array.isArray(input.tools) ? input.tools : [],
         toolChoice: input.toolChoice || (Array.isArray(input.tools) && input.tools.length ? 'auto' : 'none'),
@@ -1137,13 +1162,13 @@ async function inspectTavernRequest(input: {
         missingApiKeyMessage: '请先在 API 配置里选择模型/填写 Key。',
     }) as TavernChatAdapter;
     const task = runtime.buildChatTask({
-        messages: input.messages,
+        messages: providerMessages,
         signal: input.signal,
         onStreamProgress: input.onStreamProgress,
     });
     const requestPlan = resolveTavernToolLoopRequestPlan({
         supportsSessionToolLoop: adapter.supportsSessionToolLoop === true,
-        messages: input.messages,
+        messages: providerMessages,
         toolResponses: input.toolResponses,
         finalAnswerReminderText: input.finalAnswerReminderText,
     });
@@ -2276,7 +2301,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 managerStatus: '',
             };
         }
-        const errorText = error instanceof Error ? error.message : String(error || 'run_failed');
+        const errorText = formatTavernRunErrorMessage(error instanceof Error ? error.message : String(error || 'run_failed'));
         const errorMessage = await appendTavernMessage(session.id, {
             role: 'assistant',
             content: aborted ? '已停止生成。' : errorText,
