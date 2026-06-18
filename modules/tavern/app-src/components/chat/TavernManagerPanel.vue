@@ -246,8 +246,8 @@ watch(
             </div>
             <div
               v-if="!isEditingManagerMessage(item.message)"
-              class="xb-tavern-markdown"
               :key="`history-message:${item.key}:${managerMarkdownSignature(item.message.content)}`"
+              class="xb-tavern-markdown"
               :data-markdown-signature="managerMarkdownSignature(item.message.content)"
               v-html="renderChatMarkdown(item.message.content)"
             />
@@ -344,8 +344,8 @@ watch(
                 </details>
                 <div
                   v-if="round.assistantMessage.content"
-                  class="manager-tool-preface xb-tavern-markdown"
                   :key="`history-tool-preface:${item.key}:${round.assistantMessage.order}:${managerMarkdownSignature(round.assistantMessage.content)}`"
+                  class="manager-tool-preface xb-tavern-markdown"
                   :data-markdown-signature="managerMarkdownSignature(round.assistantMessage.content)"
                   v-html="renderChatMarkdown(round.assistantMessage.content)"
                 />
@@ -382,8 +382,8 @@ watch(
               <small>正在处理</small>
             </div>
             <div
-              class="xb-tavern-markdown"
               :key="`live-message:${item.key}:${managerMarkdownSignature(item.message.content)}`"
+              class="xb-tavern-markdown"
               :data-markdown-signature="managerMarkdownSignature(item.message.content)"
               v-html="renderChatMarkdown(item.message.content)"
             />
@@ -436,8 +436,8 @@ watch(
                 </details>
                 <div
                   v-if="round.assistantMessage.content"
-                  class="manager-tool-preface xb-tavern-markdown"
                   :key="`live-tool-preface:${item.key}:${round.assistantMessage.order}:${managerMarkdownSignature(round.assistantMessage.content)}`"
+                  class="manager-tool-preface xb-tavern-markdown"
                   :data-markdown-signature="managerMarkdownSignature(round.assistantMessage.content)"
                   v-html="renderChatMarkdown(round.assistantMessage.content)"
                 />
@@ -556,8 +556,8 @@ watch(
                     </details>
                     <div
                       v-if="tool.preface"
-                      class="manager-tool-preface xb-tavern-markdown"
                       :key="`work-tool-preface:${currentManagerWorkRun.id}:${tool.id}:${managerMarkdownSignature(tool.preface)}`"
+                      class="manager-tool-preface xb-tavern-markdown"
                       :data-markdown-signature="managerMarkdownSignature(tool.preface)"
                       v-html="renderChatMarkdown(tool.preface)"
                     />
