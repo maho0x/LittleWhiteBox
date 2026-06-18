@@ -529,7 +529,9 @@ function handleFrameMessage(event) {
     switch (data.type) {
         case 'xb-ebook:frame-ready':
             frameReady = true;
-            void sendInitialConfigToFrame().then(() => {
+            void sendInitialConfigToFrame().catch((error) => {
+                console.warn('[LittleWhiteBox][Ebook] failed to send initial config', error);
+            }).finally(() => {
                 flushPendingMessages();
                 if (pendingOpenSettings) {
                     revealEbookSettings();

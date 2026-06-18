@@ -433,6 +433,8 @@ let managerRecordsPollRunning = false;
 let memoryTokenizerWarmupPromise: Promise<void> | null = null;
 let memoryTokenizerIdleCancel: (() => void) | null = null;
 let sessionContextSyncSequence = 0;
+let initialConfigApplied = false;
+let postReadyStartupStarted = false;
 const pendingDisplayRegexKeys = new Set<string>();
 const pendingRuntimeDisplayRegexRequests = new Map<string, PendingRuntimeDisplayRegexRequest>();
 const latestRuntimeDisplayRegexKeys = new Map<string, string>();
@@ -1863,6 +1865,12 @@ function applyHostPayload(payload: Record<string, unknown>) {
     void nextTick(renderApiSettingsPanel);
 }
 
+function startPostReadyStartupTasksAfterInitialConfig() {
+    if (!initialConfigApplied || postReadyStartupStarted) {return;}
+    postReadyStartupStarted = true;
+    void runPostReadyStartupTasks();
+}
+
 function applyCharacterListPayload(payload: Record<string, unknown>) {
     const characters = payload.availableCharacters;
     if (Array.isArray(characters)) {
@@ -1902,6 +1910,8 @@ function onHostMessage(event: MessageEvent) {
     }
     if (data.type === 'xb-tavern:config') {
         applyHostPayload(data.payload || {});
+        initialConfigApplied = true;
+        startPostReadyStartupTasksAfterInitialConfig();
         return;
     }
     if (data.type === 'xb-tavern:context') {
@@ -3659,7 +3669,26 @@ async function handleManagerSubmit() {
     const managerSessionId = selectedSessionId.value;
     managerInputDraft.value = '';
     void nextTick(() => resetTextareaHeight(managerComposeTextareaRef.value));
-    await promoteMemoryTokenizerWarmup();
+    isManagerAssistantRunning.value = true;
+    isManagerAssistantCancelling.value = false;
+    managerInputStatus.value = '准备中';
+    try {
+        await promoteMemoryTokenizerWarmup();
+    } catch (error) {
+        isManagerAssistantRunning.value = false;
+        isManagerAssistantCancelling.value = false;
+        managerInputDraft.value = text;
+        managerInputStatus.value = describeError(error);
+        return;
+    }
+    if (isManagerAssistantCancelling.value) {
+        isManagerAssistantRunning.value = false;
+        isManagerAssistantCancelling.value = false;
+        managerInputDraft.value = text;
+        managerInputStatus.value = '';
+        return;
+    }
+    isManagerAssistantRunning.value = false;
     await sendManagerQuestion(managerSessionId, text);
 }
 
@@ -3749,7 +3778,6 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
     if (!messageText) {
         return;
     }
-    await promoteMemoryTokenizerWarmup();
     const controller = new AbortController();
     activeRunController.value = controller;
     isRunning.value = true;
@@ -3773,6 +3801,16 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
         scrollChatToBottom(true);
     }
     try {
+        await promoteMemoryTokenizerWarmup();
+        if (controller.signal.aborted) {
+            const pendingUserMessage = runtimePendingUserMessage.value;
+            clearRuntimeAssistantLiveState();
+            if (pendingUserMessage && !currentUserMessage.value.trim()) {
+                currentUserMessage.value = pendingUserMessage;
+                void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
+            }
+            return;
+        }
         if (!selectedSessionId.value) {
             await createSessionFromContext();
         }
@@ -4223,7 +4261,6 @@ onMounted(async () => {
     syncApiSettingsConfigFromAgentConfig();
     await nextTick();
     postToHost('xb-tavern:frame-ready');
-    void runPostReadyStartupTasks();
     scheduleMemoryTokenizerWarmup();
 });
 

@@ -61,11 +61,15 @@ test('tavern startup posts frame-ready before heavy app tasks and prewarms host 
     assert.notEqual(readyIndex, -1);
     const beforeReady = appSource.slice(mountedIndex, readyIndex);
     assert.doesNotMatch(beforeReady, /refreshPresets\(\)|refreshSessions\(\)|warmupMemoryTokenizer\(\)|preloadXbTavernMemoryTokenizer\(\)/);
-    assert.match(appSource, /await nextTick\(\);\s*postToHost\('xb-tavern:frame-ready'\);\s*void runPostReadyStartupTasks\(\);\s*scheduleMemoryTokenizerWarmup\(\);/);
+    assert.match(appSource, /await nextTick\(\);\s*postToHost\('xb-tavern:frame-ready'\);\s*scheduleMemoryTokenizerWarmup\(\);/);
+    assert.doesNotMatch(appSource.slice(readyIndex, appSource.indexOf('onUnmounted', readyIndex)), /void runPostReadyStartupTasks\(\);/);
+    assert.match(appSource, /if \(data\.type === 'xb-tavern:config'\) \{[\s\S]*applyHostPayload\(data\.payload \|\| \{\}\);[\s\S]*initialConfigApplied = true;[\s\S]*startPostReadyStartupTasksAfterInitialConfig\(\);/);
+    assert.match(appSource, /function startPostReadyStartupTasksAfterInitialConfig\(\) \{[\s\S]*postReadyStartupStarted = true;[\s\S]*void runPostReadyStartupTasks\(\);/);
     assert.match(appSource, /async function runPostReadyStartupTasks\(\) \{[\s\S]*Promise\.allSettled\(\[\s*refreshPresets\(\),\s*refreshSessions\(\),\s*\]\)/);
     assert.match(appSource, /function scheduleMemoryTokenizerWarmup\(\) \{[\s\S]*queueStartupIdleTask/);
     assert.match(appSource, /watch\(\[\s*activeView,\s*chatFocus,\s*chatWorkspacePanel,[\s\S]*promoteMemoryTokenizerWarmup\(\)/);
-    assert.match(appSource, /async function runOnce[\s\S]*await promoteMemoryTokenizerWarmup\(\);[\s\S]*const controller = new AbortController/);
+    assert.match(appSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*isRunning\.value = true;[\s\S]*await promoteMemoryTokenizerWarmup\(\);/);
+    assert.match(appSource, /async function handleManagerSubmit\(\) \{[\s\S]*isManagerAssistantRunning\.value = true;[\s\S]*managerInputStatus\.value = '准备中';[\s\S]*await promoteMemoryTokenizerWarmup\(\);[\s\S]*await sendManagerQuestion\(managerSessionId, text\);/);
     assert.match(hostSource, /let initialConfigPromise: Promise<Record<string, unknown>> \| null = null;/);
     assert.match(hostSource, /function prepareInitialConfig\(\): void \{[\s\S]*initialConfigPromise = promise;/);
     assert.match(hostSource, /async function sendInitialConfigToFrame\(\): Promise<void> \{[\s\S]*const promise = initialConfigPromise \|\| buildFrameConfigPayload\(\);[\s\S]*postToFrame\('xb-tavern:config', await promise\);/);

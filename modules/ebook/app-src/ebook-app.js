@@ -896,12 +896,14 @@ export function createEbookApp(options = {}) {
         bookController.handleTtsState(payload);
     }
 
-    async function hydrateEbookStartup() {
+    async function hydrateEbookStartup(options = {}) {
         if (startupHydrationPromise) return startupHydrationPromise;
         state.isShelfLoading = true;
         state.shelfLoadError = '';
         state.status = '正在打开书架...';
-        render();
+        if (options.renderInitial !== false) {
+            render();
+        }
         startupHydrationPromise = (async () => {
             try {
                 await bookController.initializeBook();
@@ -929,7 +931,7 @@ export function createEbookApp(options = {}) {
         state.status = '正在打开书架...';
         render();
         hostBridge.postToHost('xb-ebook:frame-ready');
-        void hydrateEbookStartup();
+        void hydrateEbookStartup({ renderInitial: false });
     }
 
     return {
