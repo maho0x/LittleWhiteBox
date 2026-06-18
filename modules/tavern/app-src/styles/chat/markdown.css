@@ -1,5 +1,25 @@
 /* Tavern chat: markdown */
 
+[data-chat-font-size] {
+    --xb-tavern-reading-font-size: calc(var(--xb-host-main-font-size, 15px) + var(--xb-tavern-reading-font-offset, 0px));
+    --xb-tavern-reading-line-height: calc(var(--xb-host-prose-line-height, 23px) + var(--xb-tavern-reading-line-offset, 0px));
+}
+
+[data-chat-font-size='small'] {
+    --xb-tavern-reading-font-offset: 0px;
+    --xb-tavern-reading-line-offset: 0px;
+}
+
+[data-chat-font-size='medium'] {
+    --xb-tavern-reading-font-offset: 1px;
+    --xb-tavern-reading-line-offset: 2px;
+}
+
+[data-chat-font-size='large'] {
+    --xb-tavern-reading-font-offset: 2px;
+    --xb-tavern-reading-line-offset: 4px;
+}
+
 .xb-tavern-markdown {
     min-width: 0;
     max-width: 100%;
@@ -8,8 +28,8 @@
     overflow-wrap: anywhere;
     color: var(--xb-ink);
     font-family: var(--xb-font-serif);
-    font-size: var(--xb-host-main-font-size, 15px);
-    line-height: var(--xb-host-prose-line-height, 23px);
+    font-size: var(--xb-tavern-reading-font-size, 15px);
+    line-height: var(--xb-tavern-reading-line-height, 23px);
 }
 
 .chat-bubble.from-user .xb-tavern-markdown {

@@ -1,4 +1,5 @@
 /* eslint-disable -- generated from TypeScript source; run npm run build:tavern */
+const TAVERN_CHAT_FONT_SIZES = ["small", "medium", "large"];
 function asRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -13,13 +14,18 @@ function normalizeLoadBatchSize(value, fallback = 20) {
   const clamped = clampInteger(value, fallback, 5, 50);
   return Math.min(50, Math.max(5, Math.round(clamped / 5) * 5));
 }
+function normalizeChatFontSize(value) {
+  return value === "medium" || value === "large" ? value : "small";
+}
 function normalizeTavernDisplaySettings(value = {}) {
   const settings = asRecord(value);
   return {
     hiddenOutsideCount: clampInteger(settings.hiddenOutsideCount, 5, 1, 20),
-    loadBatchSize: normalizeLoadBatchSize(settings.loadBatchSize, 20)
+    loadBatchSize: normalizeLoadBatchSize(settings.loadBatchSize, 20),
+    chatFontSize: normalizeChatFontSize(settings.chatFontSize)
   };
 }
 export {
+  TAVERN_CHAT_FONT_SIZES,
   normalizeTavernDisplaySettings
 };

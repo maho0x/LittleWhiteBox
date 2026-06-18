@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import {
+    TAVERN_CHAT_FONT_SIZES,
+    type TavernChatFontSize,
+} from '../../../shared/settings';
 import { useTavernSettingsContext, type TavernUserOption } from '../tavern-app-context';
 
 const settings = useTavernSettingsContext();
@@ -42,6 +46,17 @@ function handleLoadBatchInput(value: string) {
     const next = Number(value);
     if (!Number.isFinite(next)) {return;}
     updateDisplaySettingsPatch({ loadBatchSize: next });
+}
+
+const chatFontSizeLabels: Record<TavernChatFontSize, string> = {
+    small: '小',
+    medium: '中',
+    large: '大',
+};
+
+function selectChatFontSize(size: TavernChatFontSize) {
+    if (displaySettings.value.chatFontSize === size) {return;}
+    updateDisplaySettingsPatch({ chatFontSize: size });
 }
 </script>
 
@@ -131,6 +146,32 @@ function handleLoadBatchInput(value: string) {
             :disabled="baseSettingsSaving"
             @change="handleLoadBatchInput(($event.target as HTMLInputElement).value)"
           >
+        </div>
+      </section>
+
+      <section class="base-settings-section">
+        <h3>字体</h3>
+        <div class="base-setting-row base-setting-row--controller">
+          <div>
+            <strong>聊天字体</strong>
+            <span>只影响聊天正文与输入框</span>
+          </div>
+          <div
+            class="xb-workspace-controller chat-font-size-controller"
+            aria-label="聊天字体"
+          >
+            <button
+              v-for="size in TAVERN_CHAT_FONT_SIZES"
+              :key="size"
+              type="button"
+              class="xb-layout-button"
+              :class="{ 'is-active': displaySettings.chatFontSize === size }"
+              :disabled="baseSettingsSaving"
+              @click="selectChatFontSize(size)"
+            >
+              {{ chatFontSizeLabels[size] }}
+            </button>
+          </div>
         </div>
       </section>
 

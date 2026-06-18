@@ -138,6 +138,42 @@
     text-align: center;
 }
 
+.base-setting-row--controller {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.chat-font-size-controller {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--xb-line-strong);
+    border-radius: 999px;
+    background: var(--xb-settings-control-bg);
+}
+
+.chat-font-size-controller .xb-layout-button {
+    min-width: 40px;
+    min-height: 30px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 14px;
+    color: var(--xb-text-muted);
+    cursor: pointer;
+}
+
+.chat-font-size-controller .xb-layout-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.chat-font-size-controller .xb-layout-button.is-active {
+    background: var(--xb-ink);
+    color: var(--xb-paper);
+}
+
 .base-context-block {
     width: min(560px, 100%);
     border: 1px solid var(--xb-line);
@@ -199,6 +235,10 @@
     .base-setting-row {
         grid-template-columns: minmax(0, 1fr) 82px;
         gap: 10px;
+    }
+
+    .base-setting-row--controller {
+        grid-template-columns: minmax(0, 1fr) auto;
     }
 
     .base-setting-row input {

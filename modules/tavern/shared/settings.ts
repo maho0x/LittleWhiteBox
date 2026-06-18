@@ -6,9 +6,14 @@ export interface TavernUserOption {
     active: boolean;
 }
 
+export type TavernChatFontSize = 'small' | 'medium' | 'large';
+
+export const TAVERN_CHAT_FONT_SIZES: readonly TavernChatFontSize[] = ['small', 'medium', 'large'];
+
 export interface TavernDisplaySettings {
     hiddenOutsideCount: number;
     loadBatchSize: number;
+    chatFontSize: TavernChatFontSize;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -26,10 +31,15 @@ function normalizeLoadBatchSize(value: unknown, fallback = 20) {
     return Math.min(50, Math.max(5, Math.round(clamped / 5) * 5));
 }
 
+function normalizeChatFontSize(value: unknown): TavernChatFontSize {
+    return value === 'medium' || value === 'large' ? value : 'small';
+}
+
 export function normalizeTavernDisplaySettings(value: unknown = {}): TavernDisplaySettings {
     const settings = asRecord(value);
     return {
         hiddenOutsideCount: clampInteger(settings.hiddenOutsideCount, 5, 1, 20),
         loadBatchSize: normalizeLoadBatchSize(settings.loadBatchSize, 20),
+        chatFontSize: normalizeChatFontSize(settings.chatFontSize),
     };
 }

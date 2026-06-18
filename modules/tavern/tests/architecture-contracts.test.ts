@@ -497,6 +497,27 @@ test('tavern-only settings normalization stays out of agent core', () => {
     assert.match(hostDisplaySettingsSource, /tavern-display-settings/);
 });
 
+test('tavern base settings panel exposes a three-segment chat font size control that saves via display settings', () => {
+    const panelSource = readRepoFile('modules/tavern/app-src/components/settings/TavernBaseSettingsPanel.vue');
+    const settingsSource = readRepoFile('modules/tavern/shared/settings.ts');
+
+    assert.match(settingsSource, /export type TavernChatFontSize = 'small' \| 'medium' \| 'large';/);
+    assert.match(settingsSource, /export const TAVERN_CHAT_FONT_SIZES/);
+
+    assert.match(panelSource, /<h3>字体<\/h3>/);
+    assert.match(panelSource, /class="xb-workspace-controller chat-font-size-controller"/);
+    assert.match(panelSource, /v-for="size in TAVERN_CHAT_FONT_SIZES"/);
+    assert.match(panelSource, /:class="\{ 'is-active': displaySettings\.chatFontSize === size \}"/);
+    assert.match(panelSource, /selectChatFontSize\(size\)/);
+
+    for (const label of ['小', '中', '大']) {
+        assert.ok(panelSource.includes(`'${label}'`), `panel must render chat font size label ${label}`);
+    }
+
+    assert.match(panelSource, /updateDisplaySettingsPatch\(\{ chatFontSize: size \}\)/);
+    assert.doesNotMatch(panelSource, /saveCurrentPreset|requestHost\(|postToHost\(/);
+});
+
 test('tavern user host bridge stays separate from context assembly', () => {
     const contextSource = readRepoFile('modules/tavern/host/sillytavern-context.ts');
     const usersSource = readRepoFile('modules/tavern/host/users.ts');

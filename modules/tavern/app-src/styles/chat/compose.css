@@ -171,8 +171,8 @@
     color: var(--xb-ink);
     padding: 5px 6px 5px 12px;
     font-family: var(--xb-font-serif);
-    font-size: var(--xb-host-main-font-size, 15px);
-    line-height: var(--xb-host-prose-line-height, 23px);
+    font-size: var(--xb-tavern-reading-font-size, 15px);
+    line-height: var(--xb-tavern-reading-line-height, 23px);
 }
 
 .chat-compose textarea::placeholder {

@@ -4301,6 +4301,7 @@ onUnmounted(() => {
   <main
     class="xb-tavern xb-os-shell"
     :class="{ 'is-home-view': activeView === 'home' || activeView === 'about', 'theme-dark': homeThemeDark, 'theme-light': !homeThemeDark }"
+    :data-chat-font-size="tavernDisplaySettings.chatFontSize"
     :style="rootTypographyStyle"
   >
     <section class="xb-os-stage">

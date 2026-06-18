@@ -83,7 +83,7 @@ test('tavern chat typography follows host SillyTavern font metrics inside the if
     assert.match(appSource, /const hostProseLineHeightPx = ref\('23px'\);/);
     assert.match(appSource, /--xb-host-main-font-size/);
     assert.match(appSource, /--xb-host-prose-line-height/);
-    assert.match(markdownCss, /font-size: var\(--xb-host-main-font-size, 15px\);/);
+    assert.match(markdownCss, /font-size: var\(--xb-tavern-reading-font-size, 15px\);/);
     assert.match(markdownCss, /\.xb-tavern-markdown pre \{[\s\S]*background: rgba\(26, 26, 26, 0\.035\);/);
     assert.match(markdownCss, /\.xb-tavern-markdown pre \{[\s\S]*overflow: visible;[\s\S]*box-shadow: none;[\s\S]*padding: 8px 34px 8px 10px;[\s\S]*white-space: pre-wrap;[\s\S]*overflow-wrap: anywhere;/);
     assert.match(markdownCss, /\.xb-tavern-markdown pre code \{[\s\S]*display: contents;[\s\S]*border: 0;[\s\S]*border-radius: 0;[\s\S]*padding: 0;[\s\S]*background: transparent;[\s\S]*font: inherit;/);
@@ -115,9 +115,34 @@ test('tavern chat typography follows host SillyTavern font metrics inside the if
     assert.match(messagesCss, /@media \(max-width: 760px\) \{[\s\S]*\.chat-bubble>\.message-actions \{[\s\S]*opacity: 0;[\s\S]*pointer-events: none;[\s\S]*\.chat-bubble\.is-action-tray-open>\.message-actions[\s\S]*opacity: 1;[\s\S]*pointer-events: auto;/);
     assert.doesNotMatch(messagesCss, /\.message-actions \{[\s\S]*border-top: 1px solid rgba\(120, 112, 98, 0\.16\);/);
     assert.doesNotMatch(messagesCss, /\.message-actions \{[\s\S]*border-bottom: 1px solid rgba\(120, 112, 98, 0\.14\);/);
-    assert.match(composeCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);
-    assert.match(messagesCss, /font-size: var\(--xb-host-main-font-size, 15px\);/);
+    assert.match(composeCss, /line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
+    assert.match(messagesCss, /font-size: var\(--xb-tavern-reading-font-size, 15px\);/);
     assert.match(memoryCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);
+});
+
+test('tavern chat font size preference scales reading typography relative to host metrics', () => {
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const markdownCss = readRepoFile('modules/tavern/app-src/styles/chat/markdown.css');
+    const composeCss = readRepoFile('modules/tavern/app-src/styles/chat/compose.css');
+    const messagesCss = readRepoFile('modules/tavern/app-src/styles/chat/messages.css');
+    const memoryCss = readRepoFile('modules/tavern/app-src/styles/chat/memory-editor.css');
+
+    assert.match(appSource, /:data-chat-font-size="tavernDisplaySettings\.chatFontSize"/);
+
+    assert.match(markdownCss, /\[data-chat-font-size\] \{[\s\S]*--xb-tavern-reading-font-size: calc\(var\(--xb-host-main-font-size, 15px\) \+ var\(--xb-tavern-reading-font-offset, 0px\)\);[\s\S]*--xb-tavern-reading-line-height: calc\(var\(--xb-host-prose-line-height, 23px\) \+ var\(--xb-tavern-reading-line-offset, 0px\)\);/);
+    assert.match(markdownCss, /\[data-chat-font-size='small'\] \{[\s\S]*--xb-tavern-reading-font-offset: 0px;[\s\S]*--xb-tavern-reading-line-offset: 0px;/);
+    assert.match(markdownCss, /\[data-chat-font-size='medium'\] \{[\s\S]*--xb-tavern-reading-font-offset: 1px;[\s\S]*--xb-tavern-reading-line-offset: 2px;/);
+    assert.match(markdownCss, /\[data-chat-font-size='large'\] \{[\s\S]*--xb-tavern-reading-font-offset: 2px;[\s\S]*--xb-tavern-reading-line-offset: 4px;/);
+
+    assert.match(markdownCss, /\.xb-tavern-markdown \{[\s\S]*font-size: var\(--xb-tavern-reading-font-size, 15px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
+    assert.match(composeCss, /\.chat-compose textarea \{[\s\S]*font-size: var\(--xb-tavern-reading-font-size, 15px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
+    assert.match(messagesCss, /\.action-check-card-copy \{[\s\S]*font-size: var\(--xb-tavern-reading-font-size, 15px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
+    assert.match(messagesCss, /\.message-edit-box \{[\s\S]*font-size: var\(--xb-tavern-reading-font-size, 15px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
+
+    assert.doesNotMatch(markdownCss, /font-size: var\(--xb-host-main-font-size/);
+    assert.doesNotMatch(composeCss, /font-size: var\(--xb-host-main-font-size/);
+    assert.doesNotMatch(memoryCss, /--xb-tavern-reading-font-size|--xb-tavern-reading-line-height/);
+    assert.match(memoryCss, /font-size: var\(--xb-host-main-font-size, 15px\);/);
 });
 
 test('tavern markdown blockquotes do not render showdown formatting whitespace as blank lines', () => {
