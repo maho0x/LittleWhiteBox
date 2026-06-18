@@ -104,12 +104,15 @@ function preprocessNonFenceMarkdown(text = '') {
             blockLines.push(lines[index]);
         }
 
-        const isClosingBlock = blockLines.every((blockLine) => /^\s*<\//.test(blockLine));
         const previousLine = protectedLines[protectedLines.length - 1] ?? '';
-        if (isClosingBlock && previousLine.trim()) {
+        if (previousLine.trim()) {
             protectedLines.push('');
         }
         protectedLines.push(storeHtmlBoundary(blockLines.join('\n')));
+        const nextLine = lines[index + 1] ?? '';
+        if (nextLine.trim() && !isHtmlStructureLine(nextLine)) {
+            protectedLines.push('');
+        }
     }
     return protectedLines.join('\n');
 }
@@ -149,11 +152,16 @@ function injectHtmlBlockPlaceholders(html = '') {
 }
 
 function injectHtmlBoundaryPlaceholders(html = '') {
-    return String(html || '').replace(/(?:<p>\s*)?@@XBHTMLRAW:([a-z0-9-]+)@@(?:\s*<\/p>)?/g, (_match, id) => {
+    const restoreHtmlBoundary = (_match, id) => {
         const raw = htmlBoundaryStore.get(id) || '';
         htmlBoundaryStore.delete(id);
         return raw;
-    });
+    };
+    return String(html || '')
+        .replace(/<p>\s*@@XBHTMLRAW:([a-z0-9-]+)@@\s*<\/p>/g, restoreHtmlBoundary)
+        .replace(/(^|[\r\n])@@XBHTMLRAW:([a-z0-9-]+)@@(?=[\r\n]|$)/g, (match, prefix, id) => (
+            `${prefix}${restoreHtmlBoundary(match, id)}`
+        ));
 }
 
 function decodeHtmlAttribute(value = '') {

@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { HTML_PREVIEW_SANDBOX, renderMarkdownToHtml } from '../../agent-core/ui/message-markdown.js';
 
+function assertBalancedParagraphs(html: string) {
+    const opens = html.match(/<p(?:\s[^>]*)?>/g)?.length || 0;
+    const closes = html.match(/<\/p>/g)?.length || 0;
+    assert.equal(closes, opens, html);
+    assert.doesNotMatch(html, /<br\s*\/?>[^<]*<\/p>/i);
+}
+
 function withParentDomPurify(
     sanitize: (html: string, config: Record<string, unknown>) => string,
     run: () => void,
@@ -65,7 +72,6 @@ test('tavern markdown keeps guidance details boundaries around markdown content'
         '- 第一条',
         '- 第二条',
         '</div></details>',
-        '',
         '正文在折叠后',
     ].join('\n'));
 
@@ -75,6 +81,7 @@ test('tavern markdown keeps guidance details boundaries around markdown content'
     assert.match(html, /<\/details>\s*<p>正文在折叠后<\/p>/);
     assert.doesNotMatch(html, /<\/details>\s*<\/li>/);
     assert.doesNotMatch(html, /<\/details>\s*<\/p>/);
+    assertBalancedParagraphs(html);
 });
 
 test('tavern markdown protects nested inline HTML structure lines without breaking markdown ownership', () => {
@@ -100,6 +107,7 @@ test('tavern markdown protects nested inline HTML structure lines without breaki
     assert.match(html, /<\/details>\s*<p>正文在折叠后<\/p>/);
     assert.doesNotMatch(html, /<\/details>\s*<\/li>/);
     assert.doesNotMatch(html, /<\/summary>\s*<\/p>/);
+    assertBalancedParagraphs(html);
 });
 
 test('tavern markdown protects generic HTML container boundaries around markdown lists', () => {
@@ -120,6 +128,61 @@ test('tavern markdown protects generic HTML container boundaries around markdown
     assert.match(html, /<\/section>\s*<p>外部正文<\/p>/);
     assert.doesNotMatch(html, /<\/section>\s*<\/li>/);
     assert.doesNotMatch(html, /<\/section>\s*<\/p>/);
+    assertBalancedParagraphs(html);
+});
+
+test('tavern markdown keeps protected html boundaries out of mixed paragraphs', () => {
+    const cases = [
+        {
+            name: 'opening container before plain text',
+            markdown: ['<div>', 'plain text', '</div>'].join('\n'),
+            expected: /<div>\s*<p>plain text<\/p>\s*<\/div>/,
+        },
+        {
+            name: 'custom roleplay container before outside text',
+            markdown: ['<fictional_scenarios>', '“谢谢”', '</fictional_scenarios>', '正文'].join('\n'),
+            expected: /<fictional_scenarios>\s*<p>“谢谢”<\/p>\s*<\/fictional_scenarios>\s*<p>正文<\/p>/,
+        },
+        {
+            name: 'single line inline html before plain text',
+            markdown: ['<span>状态</span>', '正文'].join('\n'),
+            expected: /<span>状态<\/span>\s*<p>正文<\/p>/,
+        },
+        {
+            name: 'nested containers around markdown list before outside text',
+            markdown: ['<section><div>', '- item', '</div></section>', '正文'].join('\n'),
+            expected: /<section><div>\s*<ul>\s*<li>item<\/li>\s*<\/ul>\s*<\/div><\/section>\s*<p>正文<\/p>/,
+        },
+    ];
+
+    for (const item of cases) {
+        const html = renderMarkdownToHtml(item.markdown);
+        assert.match(html, item.expected, item.name);
+        assert.doesNotMatch(html, /@@XBHTMLRAW/, item.name);
+        assertBalancedParagraphs(html);
+    }
+});
+
+test('tavern markdown keeps original guidance template ownership stable without spacer lines', () => {
+    const html = renderMarkdownToHtml([
+        '<details><summary><div>深层思考中</div></summary><div>',
+        '## Guidance',
+        '',
+        '- 第一条',
+        '- 第二条',
+        '</div></details>',
+        '<fictional_scenarios>',
+        '正文',
+        '</fictional_scenarios>',
+    ].join('\n'));
+
+    assert.doesNotMatch(html, /<pre/i);
+    assert.match(html, /<summary><div>深层思考中<\/div><\/summary>/);
+    assert.match(html, /<details>[\s\S]*<h2 id="[^"]*">Guidance<\/h2>[\s\S]*<ul>\s*<li>第一条<\/li>\s*<li>第二条<\/li>\s*<\/ul>[\s\S]*<\/details>/);
+    assert.match(html, /<\/details>\s*<fictional_scenarios>\s*<p>正文<\/p>\s*<\/fictional_scenarios>/);
+    assert.doesNotMatch(html, /<details>[\s\S]*<fictional_scenarios>[\s\S]*<\/details>/);
+    assert.doesNotMatch(html, /<\/details>\s*<\/p>/);
+    assertBalancedParagraphs(html);
 });
 
 test('tavern markdown sanitizes ordinary chat HTML without disabling html code block previews', () => {
