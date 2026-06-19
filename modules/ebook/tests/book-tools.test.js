@@ -25,6 +25,7 @@ const {
     default: db,
     createBook,
     deleteBook,
+    deleteBookPath,
     getBook,
     getBookFile,
     getSelectedBookId,
@@ -192,6 +193,27 @@ test('Library book list reports drafted chapter counts without counting the star
     const [listed] = await listBooks();
     assert.equal(listed.title, '章节统计书');
     assert.equal(listed.chapterCount, 2);
+});
+
+test('Library book list counts chapter 001 and high chapter numbers without off-by-one', async () => {
+    await resetDb();
+    const book = await createBook('高章节统计书');
+    const writes = [];
+    for (let index = 1; index <= 276; index += 1) {
+        const path = `book/chapters/${String(index).padStart(3, '0')}.md`;
+        writes.push(upsertBookFile(book.id, path, `# 第 ${index} 章\n\n第 ${index} 章正文。`));
+    }
+    await Promise.all(writes);
+
+    const [listed] = await listBooks();
+    assert.equal(listed.title, '高章节统计书');
+    assert.equal(listed.chapterCount, 276);
+
+    const turnPrompt = buildBookTurnContextPrompt({
+        book,
+        files: await listBookFiles(book.id),
+    });
+    assert.match(turnPrompt, /已实际创作章节：276 章/);
 });
 
 test('Shared applyTextEdits replaces short and multiline text fragments', () => {
@@ -1036,12 +1058,21 @@ test('Book context prompt keeps stable files separate from volatile turn context
 
     assert.match(turnPrompt, /\[本轮作品上下文\]/);
     assert.match(turnPrompt, /title: 提示词书稿/);
+    assert.match(turnPrompt, /\[创作进度\]/);
+    assert.match(turnPrompt, /已实际创作章节：1 章/);
     assert.match(turnPrompt, /\[状态追踪\]/);
     assert.match(turnPrompt, /林栖第一次看到旧信/);
     assert.doesNotMatch(turnPrompt, /\[Current file\]|book\/chapters\/001\.md/);
     assert.doesNotMatch(turnPrompt, /\[创作记录\]|第一章已经起草/);
     assert.doesNotMatch(turnPrompt, /\[作品概况\]|正文章节|已导入资料|chat\.md/);
     assert.doesNotMatch(stablePrompt, /\[Book readiness\]|\[Core file digests\]/);
+
+    const defaultTurnPrompt = buildBookTurnContextPrompt({
+        book: { id: 'book-default', title: '默认书稿' },
+        files: DEFAULT_BOOK_FILES,
+    });
+    assert.match(defaultTurnPrompt, /\[创作进度\]/);
+    assert.match(defaultTurnPrompt, /已实际创作章节：0 章/);
 });
 
 test('Delegate book context injects review rules and core story files', () => {
@@ -6381,6 +6412,7 @@ test('Book agent refreshes file snapshot before first model request', async () =
     await upsertBookFile(book.id, 'book/state.md', '# 状态追踪\n\n旧状态。');
     const staleFiles = await listBookFiles(book.id);
     await upsertBookFile(book.id, 'book/state.md', '# 状态追踪\n\n新状态。');
+    await upsertBookFile(book.id, 'book/chapters/001.md', '# 第 1 章\n\n已经正式写完。');
     const state = {
         config: {},
         book,
@@ -6442,6 +6474,75 @@ test('Book agent refreshes file snapshot before first model request', async () =
     assert.equal(refreshCount >= 2, true);
     assert.match(firstUserPrompt, /新状态/);
     assert.doesNotMatch(firstUserPrompt, /旧状态/);
+    assert.match(firstUserPrompt, /已实际创作章节：1 章/);
+    assert.doesNotMatch(firstUserPrompt, /已实际创作章节：0 章/);
+});
+
+test('Book agent refreshes drafted chapter progress after chapter deletion', async () => {
+    await resetDb();
+    const book = await createBook('章节删减刷新测试');
+    await upsertBookFile(book.id, 'book/chapters/001.md', '# 第 1 章\n\n第一章正文。');
+    await upsertBookFile(book.id, 'book/chapters/002.md', '# 第 2 章\n\n第二章正文。');
+    const staleFiles = await listBookFiles(book.id);
+    await deleteBookPath(book.id, 'book/chapters/002.md');
+    const state = {
+        config: {},
+        book,
+        books: [book],
+        files: staleFiles,
+        selectedPath: 'book/chapters/001.md',
+        readerPath: '',
+        viewMode: 'studio',
+        editorContent: '',
+        savedContent: '',
+        messages: [],
+        toolTrace: [],
+        historySummary: '',
+        archivedTurnCount: 0,
+        isBusy: false,
+        activeController: null,
+        status: '就绪',
+        toast: '',
+    };
+    let firstUserPrompt = '';
+    const runner = createEbookAgentRunner({
+        state,
+        async refreshBooksAndFiles() {
+            state.files = await listBookFiles(book.id);
+        },
+        render() {},
+        showToast() {},
+        persistConversation() {},
+        isEditorDirty() {
+            return false;
+        },
+        getActiveProviderConfig() {
+            return {
+                provider: 'test',
+                temperature: 0.2,
+                maxTokens: 1000,
+                reasoningEnabled: false,
+                reasoningEffort: 'medium',
+            };
+        },
+        createAdapter() {
+            return {
+                async chat(task) {
+                    const userMessage = task.messages.find((message) => message.role === 'user');
+                    firstUserPrompt = String(userMessage?.content || '');
+                    return {
+                        text: '已确认章节数。',
+                        toolCalls: [],
+                    };
+                },
+            };
+        },
+    });
+
+    await runner.runAgent('看一下创作进度。');
+
+    assert.match(firstUserPrompt, /已实际创作章节：1 章/);
+    assert.doesNotMatch(firstUserPrompt, /已实际创作章节：2 章/);
 });
 
 test('Book agent keeps the user message if first snapshot refresh fails', async () => {

@@ -1,5 +1,6 @@
 import Dexie from '../../../libs/dexie.mjs';
 import { normalizeBookDirectoryPath, normalizeBookFilePath } from './book-paths.js';
+import { countDraftedChapterFiles } from './book-progress.js';
 import { DEFAULT_BOOK_FILES } from './book-templates.js';
 
 const db = new Dexie('LittleWhiteBox_Ebook');
@@ -65,19 +66,12 @@ export async function listBooks() {
     const normalizedBooks = books.map(cloneBook).filter((book) => book.id);
     const chapterCounts = await Promise.all(normalizedBooks.map(async (book) => {
         const files = await filesTable.where('bookId').equals(book.id).toArray();
-        return files.filter((file) => isDraftedChapterFile(file)).length;
+        return countDraftedChapterFiles(files);
     }));
     return normalizedBooks.map((book, index) => ({
         ...book,
         chapterCount: chapterCounts[index] || 0,
     }));
-}
-
-function isDraftedChapterFile(file = {}) {
-    if (!/^book\/chapters\/.+\.md$/.test(String(file.path || ''))) return false;
-    const content = String(file.content || '').trim();
-    if (!content) return false;
-    return content !== '从这里开始写正文。';
 }
 
 export async function getSelectedBookId() {

@@ -2119,6 +2119,9 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             width: 100%;
             min-height: 40px;
             height: 40px;
+            line-height: 18px;
+            padding-top: 0;
+            padding-bottom: 0;
         }
         .xb-ebook-settings-body .xb-assistant-preset-tools {
             display: grid;
@@ -3018,6 +3021,28 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             color-scheme: light;
             background: #fffdf8;
             color: var(--xb-text-main);
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button {
+            border-color: rgba(87, 70, 48, 0.16);
+            background: #fffdf8;
+            color: rgba(87, 70, 48, 0.62);
+            box-shadow: 0 1px 3px rgba(87, 70, 48, 0.06);
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button:hover:not(:disabled),
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button:focus-visible {
+            border-color: rgba(87, 70, 48, 0.24);
+            background: rgba(255, 249, 236, 0.98);
+            color: var(--xb-text-main);
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-success {
+            border-color: rgba(34, 139, 72, 0.25);
+            background: rgba(34, 139, 72, 0.08);
+            color: #176b35;
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+            border-color: rgba(159, 35, 61, 0.22);
+            background: rgba(159, 35, 61, 0.07);
+            color: #9f233d;
         }
         .theme-light .xb-ebook-settings-body .xb-assistant-config select option,
         .theme-light .xb-ebook-settings-body .xb-assistant-config select optgroup {

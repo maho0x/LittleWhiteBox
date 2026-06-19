@@ -1,4 +1,5 @@
 import { DEFAULT_BOOK_FILES } from '../shared/book-templates.js';
+import { countDraftedChapterFiles } from '../shared/book-progress.js';
 
 const CORE_BOOK_CONTEXT_FILES = [
     { path: 'book/outline.md', label: '大纲' },
@@ -40,9 +41,9 @@ export const EBOOK_SYSTEM_PROMPT = [
     ' - Stable injection automatically provides `[作品核心设定]`, containing these 4 fixed files: `book/outline.md` for the book skeleton and volume index, `book/style.md` for prose and narrative rules, `book/characters.md` for characters and relationships, and `book/world.md` for world, scenes, and rules.',
     ' - `book/volumes/` is not stably injected. When you need the current volume plan, event groups, pressure fields, user-confirmed current direction, or chapter breath records, use LS / Read to inspect the relevant volume file.',
     ' - Stable injection automatically provides `[审稿规则]` from `book/review-rules.md`; it defines review tiers, rejection standards, revision standards, and book-specific bottom lines.',
-    ' - Before the current user message, `[本轮作品上下文]` may be attached: current book title, `book/state.md`, and writing plan.',
+    ' - Before the current user message, `[本轮作品上下文]` may be attached: current book title, created chapter count, `book/state.md`, and writing plan.',
     ' - Earlier chat turns may be released when the context grows too large. Important decisions must be written into the appropriate `book/...` files instead of relying on chat memory.',
-    ' - UI statistics such as chapter count, source word count, and filled-field count are not automatically injected. Use LS / Grep / Read when you need chapter lists or source details.',
+    ' - Other UI statistics such as source word count and filled-field count are not automatically injected. Use LS / Grep / Read when you need chapter lists or source details.',
     '',
     '# File Discipline',
     ' - Do not create parallel files for fixed responsibilities. Update the canonical files directly: book skeleton in `book/outline.md`, style in `book/style.md`, characters in `book/characters.md`, world in `book/world.md`, state in `book/state.md`, review standards in `book/review-rules.md`, and volume plans in `book/volumes/NNN.md`. Do not create substitutes such as `book/plot.md`, `book/project-state.md`, or `book/review-standard.md`.',
@@ -342,6 +343,13 @@ function buildStoryStateLines(files = [], options = {}) {
     ];
 }
 
+function buildCreativeProgressLines(files = []) {
+    return [
+        '[创作进度]',
+        `已实际创作章节：${countDraftedChapterFiles(files)} 章`,
+    ];
+}
+
 export function buildBookContextPrompt(options = {}) {
     const files = Array.isArray(options.files) ? options.files : [];
     const lines = [
@@ -365,6 +373,7 @@ export function buildBookTurnContextPrompt(options = {}) {
         `bookId: ${book.id || ''}`,
         `title: ${book.title || '未命名书稿'}`,
     ];
+    lines.push('', ...buildCreativeProgressLines(files));
     lines.push('', ...buildStoryStateLines(files));
     if (currentPlansText) {
         lines.push('', currentPlansText);
