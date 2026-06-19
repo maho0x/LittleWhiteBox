@@ -44,19 +44,24 @@ interface MapReplayFrame {
 const props = withDefaults(defineProps<{
     documents?: TavernMapStateDocumentItem[];
     activeDocId?: string;
+    selectedDocId?: string;
     document: TavernStructuredStateDocumentRecord | null;
     patches: TavernStructuredStatePatchRecord[];
     compact?: boolean;
 }>(), {
     documents: () => [],
     activeDocId: 'main',
+    selectedDocId: '',
     compact: false,
 });
+const emit = defineEmits<{
+    (event: 'update:selectedDocId', docId: string): void;
+}>();
 
 const replayKey = ref(0);
 const replayMode = ref<MapReplayMode>('patch');
 const timelineIndex = ref(0);
-const selectedDocId = ref('');
+const localSelectedDocId = ref('');
 const mapSvgRef = ref<SVGSVGElement | null>(null);
 const mapPanOffset = ref<[number, number]>([0, 0]);
 const mapDrag = ref<{
@@ -99,7 +104,7 @@ function normalizeDisplayMap(value: unknown): TavernMapDocument {
 
 const selectedDocumentRecord = computed<TavernMapStateDocumentItem | TavernStructuredStateDocumentRecord | null>(() => {
     const docs = Array.isArray(props.documents) ? props.documents : [];
-    const selected = String(selectedDocId.value || props.activeDocId || props.document?.docId || '').trim();
+    const selected = String(localSelectedDocId.value || props.activeDocId || props.document?.docId || '').trim();
     return docs.find((document) => document.docId === selected)
         || docs.find((document) => document.docId === props.activeDocId)
         || props.document
@@ -212,10 +217,14 @@ watch(() => props.document?.revision, () => {
     resetMapPan();
 });
 
-watch(() => [props.activeDocId, props.document?.docId, props.documents.length] as const, () => {
-    const next = String(selectedDocId.value || props.activeDocId || props.document?.docId || '').trim();
+watch(() => [props.selectedDocId, props.activeDocId, props.document?.docId, props.documents.length] as const, () => {
+    const next = String(props.selectedDocId || localSelectedDocId.value || props.activeDocId || props.document?.docId || '').trim();
     const exists = mapDocuments.value.some((document) => document.docId === next);
-    selectedDocId.value = exists ? next : String(props.activeDocId || props.document?.docId || mapDocuments.value[0]?.docId || '').trim();
+    const resolved = exists ? next : String(props.activeDocId || props.document?.docId || mapDocuments.value[0]?.docId || '').trim();
+    localSelectedDocId.value = resolved;
+    if (resolved && resolved !== props.selectedDocId) {
+        emit('update:selectedDocId', resolved);
+    }
 }, { immediate: true });
 
 watch(() => selectedDocPatches.value.length, () => {
@@ -623,7 +632,8 @@ function collapseMapBadge() {
 
 function handleSelectedDocChange(event: Event) {
     const target = event.target instanceof HTMLSelectElement ? event.target : null;
-    selectedDocId.value = String(target?.value || '').trim();
+    localSelectedDocId.value = String(target?.value || '').trim();
+    emit('update:selectedDocId', localSelectedDocId.value);
     replayMode.value = 'patch';
     clearTimelineTimer();
     replayKey.value += 1;

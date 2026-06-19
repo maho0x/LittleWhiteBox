@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import TavernMapPanel from '../TavernMapPanel.vue';
 import TavernMemoryEditor from '../TavernMemoryEditor.vue';
 import { useTavernMemoryContext, useTavernWorkspaceContext } from '../tavern-app-context';
 import { useMobileSheetDrag } from './useMobileSheetDrag';
+import { createSeedMapDocument } from '../../../shared/map-state-seed';
+import type { TavernMapDocument, TavernMapElement } from '../../../shared/structured-state';
 
 defineProps<{
     mobileMemoryDirectoryOpen: boolean;
@@ -45,7 +47,6 @@ const {
     selectedMemoryFileEntry,
     selectedMemoryFilePath,
     selectMemoryFile,
-    stateMemoryFile,
 } = memory;
 const {
     activeMapDocId,
@@ -54,10 +55,75 @@ const {
     mapStatePatches,
 } = workspace;
 
-const currentStateFile = computed(() => stateMemoryFile.value || null);
-const currentStateContent = computed(() => String(currentStateFile.value?.content || '').trim());
-const currentStatePreviewHtml = computed(() => renderChatMarkdown(currentStateContent.value));
-const currentStatePreviewSignature = computed(() => markdownSignature(currentStateContent.value));
+const selectedMapDocId = ref('');
+const selectedMapRecord = computed(() => {
+    const docs = Array.isArray(mapStateDocuments.value) ? mapStateDocuments.value : [];
+    const selectedId = String(selectedMapDocId.value || activeMapDocId.value || '').trim();
+    return docs.find((document) => document.docId === selectedId)
+        || docs.find((document) => document.docId === activeMapDocId.value)
+        || mapStateDocument.value
+        || null;
+});
+const selectedMapDocument = computed<TavernMapDocument | null>(() => {
+    const data = selectedMapRecord.value?.data;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {return null;}
+    const source = data as Partial<TavernMapDocument>;
+    const fallback = createSeedMapDocument();
+    return {
+        meta: source.meta && typeof source.meta === 'object' && !Array.isArray(source.meta) ? { ...fallback.meta, ...source.meta } : fallback.meta,
+        elements: Array.isArray(source.elements)
+            ? source.elements.filter((element): element is TavernMapElement => !!element && typeof element === 'object' && !Array.isArray(element) && typeof (element as TavernMapElement).id === 'string')
+            : [],
+    };
+});
+const selectedMapElements = computed(() => selectedMapDocument.value?.elements || []);
+const selectedMapTitle = computed(() => String(
+    selectedMapDocument.value?.meta?.name
+    || selectedMapRecord.value?.title
+    || selectedMapRecord.value?.docId
+    || '地图',
+));
+const selectedMapIsActive = computed(() => String(selectedMapRecord.value?.docId || '') === String(activeMapDocId.value || 'main'));
+const mapDigestLines = computed(() => String(selectedMapRecord.value?.digest || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3));
+const mapActorNames = computed(() => selectedMapElements.value
+    .filter((element) => element.cat === 'actor')
+    .map((element) => String(element.text || element.id || '').trim())
+    .filter(Boolean)
+    .slice(0, 6));
+const selectedMapUpdatedLabel = computed(() => formatMapInfoTime(Number(selectedMapRecord.value?.updatedAt) || 0));
+const latestMapPatchSummary = computed(() => selectedMapIsActive.value ? String(mapStatePatches.value.at(-1)?.summary || '').trim() : '');
+const mapInfoStats = computed(() => {
+    const elements = selectedMapElements.value;
+    const countByCat = (cat: string) => elements.filter((element) => element.cat === cat).length;
+    return [
+        { label: '元素', value: String(elements.length) },
+        { label: '人物', value: String(countByCat('actor')) },
+        { label: '出入口', value: String(countByCat('door')) },
+        { label: '标注', value: String(countByCat('label') + countByCat('marker')) },
+    ];
+});
+
+watch([activeMapDocId, mapStateDocuments], ([docId]) => {
+    const docs = Array.isArray(mapStateDocuments.value) ? mapStateDocuments.value : [];
+    const selectedId = String(selectedMapDocId.value || '').trim();
+    const selectedExists = selectedId && docs.some((document) => document.docId === selectedId);
+    if (selectedExists) {return;}
+    selectedMapDocId.value = String(docId || mapStateDocument.value?.docId || docs[0]?.docId || 'main');
+}, { immediate: true });
+
+function formatMapInfoTime(timestamp = 0) {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {return '';}
+    return new Date(timestamp).toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
 
 function closeMobileChatPanel() {
     emit('close');
@@ -101,7 +167,7 @@ function selectMobileMemoryFile(path: string) {
         :class="{ active: chatWorkspacePanel === 'state' }"
         @click="chatWorkspacePanel = 'state'"
       >
-        状态
+        地图
       </button>
       <button
         type="button"
@@ -116,24 +182,72 @@ function selectMobileMemoryFile(path: string) {
       class="tavern-state-panel"
     >
       <TavernMapPanel
+        v-model:selected-doc-id="selectedMapDocId"
         compact
         :documents="mapStateDocuments"
         :active-doc-id="activeMapDocId"
         :document="mapStateDocument"
         :patches="mapStatePatches"
       />
-      <article class="tavern-current-state">
+      <article class="tavern-map-info">
         <div
-          v-if="currentStateContent"
-          class="tavern-current-state-body xb-tavern-markdown"
-          :data-markdown-signature="currentStatePreviewSignature"
-          v-html="currentStatePreviewHtml"
-        />
+          v-if="selectedMapRecord"
+          class="tavern-map-info-body"
+        >
+          <header class="tavern-map-info-head">
+            <div>
+              <strong>{{ selectedMapTitle }}</strong>
+              <span>{{ selectedMapRecord.docId }}</span>
+            </div>
+            <em>{{ selectedMapIsActive ? '当前场景' : '地图档案' }}</em>
+          </header>
+          <dl class="tavern-map-info-grid">
+            <div
+              v-for="item in mapInfoStats"
+              :key="item.label"
+            >
+              <dt>{{ item.label }}</dt>
+              <dd>{{ item.value }}</dd>
+            </div>
+          </dl>
+          <div
+            v-if="mapActorNames.length"
+            class="tavern-map-info-line"
+          >
+            <span>人物</span>
+            <strong>{{ mapActorNames.join('、') }}</strong>
+          </div>
+          <div
+            v-if="selectedMapUpdatedLabel"
+            class="tavern-map-info-line"
+          >
+            <span>最近更新</span>
+            <strong>{{ selectedMapUpdatedLabel }}</strong>
+          </div>
+          <div
+            v-if="latestMapPatchSummary"
+            class="tavern-map-info-line"
+          >
+            <span>变更摘要</span>
+            <strong>{{ latestMapPatchSummary }}</strong>
+          </div>
+          <div
+            v-if="mapDigestLines.length"
+            class="tavern-map-info-digest"
+          >
+            <p
+              v-for="line in mapDigestLines"
+              :key="line"
+            >
+              {{ line }}
+            </p>
+          </div>
+        </div>
         <div
           v-else
-          class="tavern-current-state-empty"
+          class="tavern-map-info-empty"
         >
-          暂无当前状态。
+          暂无地图信息。
         </div>
       </article>
     </section>

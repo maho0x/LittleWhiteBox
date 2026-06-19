@@ -426,11 +426,11 @@ onUpdated(() => {
           type="button"
           class="chat-mobile-context-button"
           :class="{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'state' }"
-          title="状态"
-          aria-label="状态"
+          title="地图"
+          aria-label="地图"
           @click="toggleMobileWorkspacePanel('state')"
         >
-          状态
+          地图
         </button>
         <button
           type="button"

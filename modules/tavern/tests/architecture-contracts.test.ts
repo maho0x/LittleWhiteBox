@@ -632,6 +632,8 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(markdownToolsSource, /xb-tavern:draw-image-delete/);
     assert.match(markdownToolsSource, /xb-tavern:draw-image-refresh/);
     assert.match(markdownToolsSource, /xb-tavern:draw-image-edit/);
+    assert.match(markdownToolsSource, /function removeAdjacentImageLineBreaks/);
+    assert.match(markdownToolsSource, /node instanceof HTMLBRElement/);
     assert.match(markdownToolsSource, /xb-tavern-image-failed-actions/);
     assert.match(markdownToolsSource, /payload: \{ slotId, imgId \}/);
     assert.match(markdownToolsSource, /textarea\[data-type="scene"\]/);
@@ -640,6 +642,10 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(markdownToolsSource, /xb-tavern-image-gallery-overlay/);
     assert.match(markdownToolsSource, /xb-tavern-image-nav/);
     assert.match(markdownToolsSource, /xb-tavern-image-menu/);
+    assert.match(markdownToolsSource, /newerButton\.title = currentIndex === 0 \? '重新生成' : '下一版本';/);
+    assert.match(markdownToolsSource, /newerButton\.disabled = false;/);
+    assert.match(markdownToolsSource, /if \(currentIndex > 0\) \{[\s\S]*void selectIndex\(currentIndex - 1\);[\s\S]*return;[\s\S]*\}[\s\S]*void refreshImage\(\);/);
+    assert.match(markdownToolsSource, /removeAdjacentImageLineBreaks\(figure\)/);
     assert.match(tavernHostSource, /case 'xb-tavern:draw-image-select':/);
     assert.match(tavernHostSource, /case 'xb-tavern:draw-image-gallery':/);
     assert.match(tavernHostSource, /case 'xb-tavern:draw-image-save':/);
@@ -735,6 +741,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     const chatPageSource = readRepoFile('modules/tavern/app-src/components/chat/TavernChatPage.vue');
     const conversationPanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     const managerPanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernManagerPanel.vue');
+    const workspacePanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernWorkspacePanel.vue');
     const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
     const cssSource = readRepoFile('modules/tavern/app-src/styles/chat/messages.css');
     const composeCss = readRepoFile('modules/tavern/app-src/styles/chat/compose.css');
@@ -778,7 +785,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(contextSource, /createNewChatSession: TavernCommand<\[\], Promise<void>>/);
     assert.match(appSource, /async function createNewChatSession\(\) \{[\s\S]*resolveRuntimeContextForSession\(selectedSessionId\.value\)[\s\S]*resetSessionPreviewState\(\);[\s\S]*await createSessionAndOpenChat\(\{ contextSnapshot: snapshotContext \}\);/);
     assert.match(chatPageSource, /function openMobileSessionsPanel\(\) \{[\s\S]*chatSidePanel\.value = 'sessions';[\s\S]*mobileChatPanel\.value = 'directory';/);
-    assert.match(chatPageSource, /class="chat-mobile-context-row"[\s\S]*title="状态"[\s\S]*title="记忆"[\s\S]*title="契约"[\s\S]*title="请求日志"/);
+    assert.match(chatPageSource, /class="chat-mobile-context-row"[\s\S]*title="地图"[\s\S]*title="记忆"[\s\S]*title="契约"[\s\S]*title="请求日志"/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-context-row"[\s\S]*>\s*会话\s*</);
     assert.match(chatPageSource, /:class="\{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'state' \}"/);
     assert.match(chatPageSource, /:class="\{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'memory' \}"/);
@@ -809,6 +816,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(appSource, /if \(selectedSessionId\.value !== sessionId\) \{return;\}[\s\S]*context\.value = nextContext/);
     assert.match(conversationPanelSource, /function openSessionArchiveFromComposeMenu\(\) \{[\s\S]*emit\('open-session-archive'\);/);
     assert.match(managerPanelSource, /v-model="managerInputDraft"[\s\S]*rows="1"/);
+    assert.match(workspacePanelSource, /<button[\s\S]*chatWorkspacePanel === 'state'[\s\S]*>\s*地图\s*<\/button>/);
+    assert.match(workspacePanelSource, /class="tavern-map-info"/);
+    assert.doesNotMatch(workspacePanelSource, /tavern-current-state|stateMemoryFile|renderChatMarkdown\(currentState/);
     assert.match(composeCss, /--xb-compose-safe-space: 44px;/);
     assert.match(composeCss, /--xb-compose-safe-space: 40px;/);
     assert.match(composeCss, /\.tavern-chat\.xb-page \.chat-compose-shell \{[\s\S]*grid-template-columns: 48px minmax\(0, 1fr\);[\s\S]*border: 1px solid var\(--xb-rule\);[\s\S]*border-radius: 14px;[\s\S]*background: var\(--xb-chat-pop-bg\);/);
