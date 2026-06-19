@@ -21,6 +21,7 @@ type AssistantPresetInput = Partial<TavernAssistantPreset> & {
 };
 
 export const DEFAULT_TAVERN_ASSISTANT_PRESET_ID = 'littlewhitebox-assistant-default';
+export const DEFAULT_TAVERN_ASSISTANT_PRESET_VERSION = '2026-06-character-memory-v2';
 
 interface TavernManagerPromptOptions extends Partial<TavernContractManagerPromptOptions> {
     includeMemory?: boolean;
@@ -100,16 +101,18 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
     ];
 
     const injectedContextLines = [
-        includeMemory ? '`[Resident Memory Files]` contains the current `memory/state.md` snapshot.' : '',
-        includeMemory ? 'Automatic after-turn runs receive this turn\'s completed user/assistant source text. Maintain `memory/state.md` only when the assistant reply establishes a real memory change.' : '',
+        includeMemory ? '`[Resident Memory Files]` contains the current global `memory/state.md`. Use MemoryList/MemoryRead for relevant `memory/characters/<角色名>.md` files when needed.' : '',
+        includeMemory ? 'Automatic after-turn runs receive this turn\'s completed user/assistant source text. Maintain memory files only when the assistant reply establishes a real durable change.' : '',
         'Manual manager chat receives the manager\'s own conversation history and the current user question. RP source text is not fully preloaded; use ChatHistory when needed.',
     ];
 
     const fileDisciplineLines = includeMemory ? [
         'You may operate on current-session `memory/...` Markdown files only through Memory tools.',
-        '`memory/state.md` is the single long-term memory file. It carries current hard state, plot context, relationship arcs, unresolved matters, and compressed recent continuous events.',
-        'MemoryWrite and MemoryEdit should target `memory/state.md`.',
-        'This Markdown file is for future reading and retrieval, not a rigid database schema. Preserve useful headings and keep it readable.',
+        '`memory/state.md` is the global controller. It carries current situation, current mainline, long-term pressures, unresolved matters, compressed recent continuous events, and global hard state.',
+        '`memory/characters/<角色名>.md` is one entity memory file. The filename is the entity name and should carry that character\'s long-term state, motivations, secrets, constraints, relationships, arc, promises, debts, risks, and recent relevant events.',
+        'Do not make `memory/state.md` an index and do not write "see another file" directory notes. State files record facts, not file navigation.',
+        'MemoryWrite and MemoryEdit may target `memory/state.md` or `memory/characters/<角色名>.md`. Do not create `memory/session.md`, `memory/turns/*.md`, or other memory paths.',
+        'These Markdown files are for future reading and retrieval, not rigid database schemas. Preserve useful headings and keep them readable.',
     ] : [];
 
     const workLoopLines = [
@@ -121,7 +124,7 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
         ].join(''),
         'Use tools when you need evidence or need to change stored materials. Save only through the tools that are currently available.',
         'Read the current state or the source RP first, then make the smallest necessary change. Do not blindly repeat a failed tool call.',
-        includeMemory ? 'In automatic after-turn runs, update `memory/state.md` only when the completed assistant reply changes durable memory. If nothing materially changed, skip writing.' : '',
+        includeMemory ? 'In automatic after-turn runs, update memory only when the completed assistant reply changes durable memory. Put global facts in `memory/state.md`; move character-specific growth into `memory/characters/<角色名>.md`. If nothing materially changed, skip writing.' : '',
         includeMemory && includeCartography ? 'The map is extra spatial state. It does not replace written memory.' : '',
         includeCartography ? 'For automatic map maintenance, always start with StateRead summary and inspect `meta.status`. If it is still `uninitialized`, initialize as soon as this turn establishes a clear current scene. If it is already `active`, apply incremental map changes only for confirmed spatial changes this turn.' : '',
         'In manual manager chat, answer the user question first. Write memory or state only when the user asks for a change, or when you verified a real error or omission.',
@@ -163,6 +166,7 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
         'Write memory like a case file for your future self: specific, restrained, and easy to carry forward.',
         'Character psychology, secrets, and future plans become facts only after the RP source text clearly establishes them.',
         'Separate what happened, what the user requested, what you inferred, and what is still unconfirmed. Only established facts belong in durable memory.',
+        'When a character section starts to bloat `memory/state.md`, create or update that character\'s `memory/characters/<角色名>.md` instead and keep the global state concise.',
     ] : [];
 
     const outputLines = [
@@ -213,7 +217,7 @@ function buildDefaultAssistantPresetSections() {
 
 export function buildDefaultStoryArcPrompt(): string {
     return joinLines([
-        '职责：维护 `memory/state.md` 中“剧情脉络”和“未解决事项”的长期内容，只记录会影响后续剧情理解的内容。',
+        '职责：维护 `memory/state.md` 中“剧情脉络”和“未解决事项”的全局长期内容；人物专属动机、秘密、关系弧光应沉淀到 `memory/characters/<角色名>.md`。',
         '',
         '推荐格式：',
         '## 剧情脉络',
@@ -223,8 +227,8 @@ export function buildDefaultStoryArcPrompt(): string {
         '- 仍在逼近、尚未解除、会改变后续选择的压力。',
         '### 未解伏笔',
         '- 已经出现但尚未解决的线索、承诺、秘密或隐患。',
-        '### 关系变化',
-        '- 角色之间已经形成的信任、敌意、亏欠、误会或依赖。',
+        '### 关系态势',
+        '- 只写影响主线或当前局面的关系摘要；人物专属细节放入角色文件。',
         '',
         '规则：',
         '- 只在主线方向、核心矛盾、长期伏笔、关键关系发生变化时更新。',
@@ -234,7 +238,7 @@ export function buildDefaultStoryArcPrompt(): string {
 
 export function buildDefaultStatePrompt(): string {
     return joinLines([
-        '职责：维护 `memory/state.md` 中“当前状态”和“人物关系与弧光”，让下一轮对话能自然接上现场。',
+        '职责：维护 `memory/state.md` 中“当前状态”的全局事实，并把人物长期状态写入对应 `memory/characters/<角色名>.md`。',
         '',
         '推荐格式：',
         '## 当前状态',
@@ -243,18 +247,17 @@ export function buildDefaultStatePrompt(): string {
         '- 在场人物：',
         '- 关键物品：',
         '- 身体/情绪/约束状态：',
-        '## 人物关系与弧光',
-        '- 人物A -> 人物B：关系变化、态度变化、长期动机。',
         '',
         '规则：',
         '- 只保留现在仍为真的事实；事实变化时改写旧状态，不在后面追加矛盾说法。',
+        '- 关系摘要交给“剧情脉络/关系态势”，人物专属细节交给角色文件；不要在当前状态下另起关系段。',
         '- 临时事件结束后删除或降级，不让过期状态污染后续判断。',
     ]);
 }
 
 export function buildDefaultTurnPrompt(): string {
     return joinLines([
-        '职责：维护 `memory/state.md` 中“近期连续事件”，把尚未沉淀的大段进行中事件压缩保住。',
+        '职责：维护 `memory/state.md` 中全局“近期连续事件”，并把只和某个人物相关的连续事件沉淀到对应角色文件。',
         '',
         '推荐格式：',
         '## 近期连续事件',
@@ -262,7 +265,7 @@ export function buildDefaultTurnPrompt(): string {
         '',
         '规则：',
         '- 不逐楼流水账，只保留还没沉淀但仍需要携带的连续事件。',
-        '- 连续事件结束后，把它合并进当前状态、剧情脉络、人物关系或未解决事项，再清理近期段落。',
+        '- 连续事件结束后，把它合并进当前状态、剧情脉络、未解决事项或对应角色文件，再清理近期段落。',
     ]);
 }
 

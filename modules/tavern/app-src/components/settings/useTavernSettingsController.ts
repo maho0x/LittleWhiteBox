@@ -151,9 +151,9 @@ const WORLDBOOK_PREVIEW_BATCH_SIZE = 24;
 const REGEX_GROUP_BATCH_SIZE = 60;
 
 const assistantPresetSections: AssistantPresetSectionRow[] = [
-    { key: 'storyArcPrompt', label: '剧情脉络', summary: '长期脉络档案' },
-    { key: 'statePrompt', label: '状态栏', summary: '当前状态档案' },
-    { key: 'turnPrompt', label: '楼层小记', summary: '按楼层轻量记录' },
+    { key: 'storyArcPrompt', label: '剧情脉络', summary: '长期脉络规则' },
+    { key: 'statePrompt', label: '当前状态', summary: '现场状态规则' },
+    { key: 'turnPrompt', label: '近期压缩', summary: '连续事件规则' },
 ];
 
 const placementLabels: Record<string, string> = {
@@ -1820,6 +1820,13 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         ) {
             void syncWorldbooksFromHost({ keepSelection: true });
             void syncGlobalWorldbooksFromHost();
+        }
+        if (
+            view === 'settings'
+            && workspace === 'assistantPreset'
+            && (previousView !== view || previousWorkspace !== workspace)
+        ) {
+            void refreshPresets();
         }
         if (
             view === 'settings'

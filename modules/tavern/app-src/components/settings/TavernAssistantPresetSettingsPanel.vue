@@ -234,7 +234,7 @@ function exportCurrentPreset() {
     <div class="assistant-preset-studio">
       <aside class="assistant-preset-item-list archive-item-list">
         <div class="assistant-preset-nav-head">
-          <strong>记忆档案</strong>
+          <strong>维护规则</strong>
         </div>
         <button
           v-for="item in assistantPresetItems"
@@ -252,7 +252,7 @@ function exportCurrentPreset() {
       <section class="assistant-preset-detail-panel archive-editor-panel">
         <div class="assistant-preset-line-head">
           <div>
-            <strong>{{ selectedAssistantPresetItem?.label || '记忆档案' }}</strong>
+            <strong>{{ selectedAssistantPresetItem?.label || '维护规则' }}</strong>
           </div>
         </div>
         <div
@@ -264,7 +264,7 @@ function exportCurrentPreset() {
             <textarea
               :value="selectedAssistantPresetItem.content"
               rows="12"
-              placeholder="写这个记忆档案应该维护什么、保留什么、避免什么。"
+              placeholder="写这条维护规则应该要求什么、保留什么、避免什么。"
               @input="updateSelectedAssistantPresetItem(($event.target as HTMLTextAreaElement).value)"
             />
           </label>
@@ -275,7 +275,7 @@ function exportCurrentPreset() {
           class="assistant-preset-empty-add"
           disabled
         >
-          没有可编辑条目
+          没有可编辑规则
         </button>
       </section>
     </div>

@@ -47,9 +47,9 @@ import {
 } from '../../shared/session-db';
 import {
     rebuildTavernMemoryDerivedIndex,
-    restoreTavernMemoryStateToFloor,
-    saveTavernMemoryStateSnapshot,
-    trimTavernMemoryStateSnapshotsFromFloor,
+    restoreTavernMemoryToFloor,
+    saveTavernMemorySnapshot,
+    trimTavernMemorySnapshotsFromFloor,
 } from '../../shared/memory-files';
 import { buildXbTavernBrain, buildXbTavernBrainAsync } from '../../shared/brain';
 import {
@@ -250,11 +250,23 @@ function buildMemoryPromptContent(memoryContext: XbTavernMemoryContext = {}): st
     const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
     const structuredStates = Array.isArray(memoryContext.structuredStates) ? memoryContext.structuredStates : [];
     const sections: string[] = [];
-    const fileLines = memoryFiles
-        .map((file) => String(file.content || '').trim())
+    const stateFile = memoryFiles.find((file) => String(file.path || '') === 'memory/state.md');
+    const stateContent = String(stateFile?.content || '').trim();
+    if (stateContent) {
+        sections.push(`## 会话记忆\n${stateContent}`);
+    }
+    const characterLines = memoryFiles
+        .filter((file) => String(file.path || '').startsWith('memory/characters/'))
+        .map((file) => {
+            const path = String(file.path || '');
+            const fallbackTitle = path.slice('memory/characters/'.length).replace(/\.md$/i, '');
+            const title = String(file.title || fallbackTitle || '相关人物').trim();
+            const content = String(file.content || '').trim();
+            return content ? `### ${title}\n${content}` : '';
+        })
         .filter(Boolean);
-    if (fileLines.length) {
-        sections.push(`## 记忆\n${fileLines.join('\n\n')}`);
+    if (characterLines.length) {
+        sections.push(`## 相关人物记忆\n${characterLines.join('\n\n')}`);
     }
     const stateLines = structuredStates
         .map((state) => String(state.digest || '').trim())
@@ -1846,8 +1858,8 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     if (reusedUserMessage) {
         const changedOrder = reusedUserMessage.order + 1;
         await cancelAndRollbackXbTavernManagersForMessageRange(baseSession.id, changedOrder);
-        await restoreTavernMemoryStateToFloor(baseSession.id, changedOrder - 1);
-        await trimTavernMemoryStateSnapshotsFromFloor(baseSession.id, changedOrder);
+        await restoreTavernMemoryToFloor(baseSession.id, changedOrder - 1);
+        await trimTavernMemorySnapshotsFromFloor(baseSession.id, changedOrder);
         await rebuildTavernMemoryDerivedIndex(baseSession.id);
         await deleteTavernMessages(
             baseSession.id,
@@ -1858,7 +1870,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         sessionMessages = await listTavernMessages(baseSession.id);
     }
     if (!reusedUserMessage) {
-        await saveTavernMemoryStateSnapshot(baseSession.id);
+        await saveTavernMemorySnapshot(baseSession.id);
     }
     const historyMessages = reusedUserMessage
         ? sessionMessages.filter((message) => message.order < reusedUserMessage.order)

@@ -236,7 +236,7 @@ function buildAutoManagerUserPrompt(input: {
     const requirements: string[] = [];
     let step = 1;
     if (allowMemory) {
-        requirements.push(`${step}. Read \`memory/state.md\` as needed, then update it only if this completed assistant reply changed durable memory.`);
+        requirements.push(`${step}. Read \`memory/state.md\` and relevant \`memory/characters/<角色名>.md\` files as needed, then update memory only if this completed assistant reply changed durable memory.`);
         step += 1;
     }
     if (allowMap) {
@@ -244,10 +244,10 @@ function buildAutoManagerUserPrompt(input: {
         step += 1;
     }
     if (allowMemory && allowMap) {
-        requirements.push(`${step}. Maintain only \`memory/state.md\` for long-term memory. The map does not replace written memory.`);
+        requirements.push(`${step}. Maintain \`memory/state.md\` for global memory and \`memory/characters/<角色名>.md\` for character memory. The map does not replace written memory.`);
         step += 1;
     } else if (allowMemory) {
-        requirements.push(`${step}. Maintain only \`memory/state.md\` for long-term memory.`);
+        requirements.push(`${step}. Maintain \`memory/state.md\` for global memory and \`memory/characters/<角色名>.md\` for character memory.`);
         step += 1;
     } else if (allowMap) {
         requirements.push(`${step}. This contract authorizes only the map system. Do not write memory Markdown.`);

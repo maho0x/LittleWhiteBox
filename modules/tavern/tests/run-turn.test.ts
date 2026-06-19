@@ -26,7 +26,6 @@ import {
     buildXbTavernMemoryIgnoredTerms,
     buildXbTavernMemoryQuery,
     selectXbTavernMemoryContext,
-    setXbTavernMemoryTokenizerForTest,
 } from '../shared/memory-retrieval';
 import { mergeTavernSessionContract } from '../shared/session-contract';
 import {
@@ -57,20 +56,6 @@ async function resetDb() {
     await db.open();
 }
 
-function tokenizeForMemoryTests(text: string): string[] {
-    const value = String(text || '').normalize('NFKC').toLowerCase();
-    const tokens: string[] = value.match(/[a-z0-9]{3,}/g) || [];
-    const runs = value.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{2,}/gu) || [];
-    runs.forEach((run) => {
-        for (let size = 2; size <= Math.min(6, run.length); size += 1) {
-            for (let index = 0; index <= run.length - size; index += 1) {
-                tokens.push(run.slice(index, index + size));
-            }
-        }
-    });
-    return tokens;
-}
-
 function makeContextWindowMessage(order: number, role: string, content = `message-${order}`) {
     return {
         sessionId: 'window-test',
@@ -80,13 +65,6 @@ function makeContextWindowMessage(order: number, role: string, content = `messag
         createdAt: order + 1,
     };
 }
-
-setXbTavernMemoryTokenizerForTest({
-    jiebaCut: (text) => tokenizeForMemoryTests(text),
-    tinySegmenter: {
-        segment: (text) => tokenizeForMemoryTests(text),
-    },
-});
 
 test('xb tavern run turn saves user and assistant messages and updates session state', async () => {
     await resetDb();
@@ -2245,7 +2223,7 @@ test('xb tavern does not pass empty macro name overrides that would hide SillyTa
     assert.equal((await listTavernMessages(result.sessionId)).find((message) => message.role === 'user')?.content, 'Aster meets GlobalUser.');
 });
 
-test('xb tavern memory recall reuses tokenizer terms while keeping only state memory', () => {
+test('xb tavern memory recall keeps global state and deterministic character hits', () => {
     const context = {
         character: { name: 'Aster' },
         user: { name: 'Player' },
@@ -2263,12 +2241,20 @@ test('xb tavern memory recall reuses tokenizer terms while keeping only state me
         updatedAt: 1,
     }, {
         sessionId: 'session',
-        path: 'memory/notes.md',
-        content: '# 无关闲聊\n\nAster 和 Player 进行无关闲聊。',
+        path: 'memory/characters/Aster.md',
+        content: '# Aster\n\nAster 守着银钥匙。',
         status: 'active' as const,
         source: 'manager',
         createdAt: 2,
         updatedAt: 2,
+    }, {
+        sessionId: 'session',
+        path: 'memory/characters/Mira.md',
+        content: '# Mira\n\nMira 在远方。',
+        status: 'active' as const,
+        source: 'manager',
+        createdAt: 3,
+        updatedAt: 3,
     }];
 
     const memory = selectXbTavernMemoryContext({
@@ -2277,7 +2263,10 @@ test('xb tavern memory recall reuses tokenizer terms while keeping only state me
         ignoredTerms,
     });
 
-    assert.deepEqual(memory.memoryFiles?.map((file) => file.path), ['memory/state.md']);
+    assert.deepEqual(memory.memoryFiles?.map((file) => file.path), [
+        'memory/state.md',
+        'memory/characters/Aster.md',
+    ]);
 });
 
 test('xb tavern memory query uses current input plus the last two history messages', () => {
@@ -2295,29 +2284,38 @@ test('xb tavern memory query uses current input plus the last two history messag
     assert.match(queryText, /继续/);
     assert.match(queryText, /near-1/);
     assert.match(queryText, /near-2/);
+    assert.match(queryText, /Aster/);
     assert.doesNotMatch(queryText, /old-1/);
     assert.doesNotMatch(queryText, /old-2/);
     assert.doesNotMatch(queryText, /Player：/);
 });
 
-test('xb tavern memory recall ignores non-state memory files', () => {
+test('xb tavern memory recall ignores non-memory and unmatched character files', () => {
     const memory = selectXbTavernMemoryContext({
-        memoryFiles: Array.from({ length: 3 }, (_, index) => ({
+        memoryFiles: [{
             sessionId: 'session',
-            path: `memory/notes-${index}.md`,
-            content: `# 普通闲聊 ${index}\n\n普通闲聊 ${index}`,
+            path: 'memory/notes.md',
+            content: '# 普通闲聊\n\n普通闲聊',
             status: 'active' as const,
             source: 'manager',
-            createdAt: index + 1,
-            updatedAt: index + 1,
-        })),
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Mira.md',
+            content: '# Mira\n\nMira 在远方。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }],
         queryText: '银钥匙在哪里？',
     });
 
     assert.deepEqual(memory.memoryFiles, []);
 });
 
-test('xb tavern memory recall keeps state memory even when another file has stronger lexical text', () => {
+test('xb tavern memory recall keeps state memory without treating arbitrary lexical matches as entities', () => {
     const memory = selectXbTavernMemoryContext({
         memoryFiles: [{
             sessionId: 'session',
@@ -2329,7 +2327,7 @@ test('xb tavern memory recall keeps state memory even when another file has stro
             updatedAt: 1,
         }, {
             sessionId: 'session',
-            path: 'memory/notes.md',
+            path: 'memory/characters/Mira.md',
             content: '# 银钥匙码头钟楼\n\n他们换了一个话题。',
             status: 'active' as const,
             source: 'manager',
@@ -2342,21 +2340,239 @@ test('xb tavern memory recall keeps state memory even when another file has stro
     assert.deepEqual(memory.memoryFiles?.map((file) => file.path), ['memory/state.md']);
 });
 
-test('xb tavern memory recall handles Japanese text through the loaded tokenizer path', () => {
+test('xb tavern memory recall matches character filenames with normalized Japanese entity text', () => {
     const memory = selectXbTavernMemoryContext({
         memoryFiles: [{
             sessionId: 'session',
             path: 'memory/state.md',
-            content: '# 赤いお守り\n\n凛は古い神社で赤いお守りを隠した。',
+            content: '# 赤いお守り\n\n凛音は古い神社で赤いお守りを隠した。',
             status: 'active' as const,
             source: 'manager',
             createdAt: 1,
             updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/凛音.md',
+            content: '# 凛音\n\n赤いお守りを持つ。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
         }],
-        queryText: '赤いお守りはどこ？',
+        queryText: '凛音の赤いお守りはどこ？',
+    });
+
+    assert.deepEqual(memory.memoryFiles?.map((file) => file.path), [
+        'memory/state.md',
+        'memory/characters/凛音.md',
+    ]);
+});
+
+test('xb tavern memory recall excludes user names with the same entity normalization as character names', () => {
+    const context = {
+        character: { name: 'Aster' },
+        user: { name: 'John Doe' },
+        history: [] as Array<{ role: 'assistant'; content: string }>,
+    };
+    const memory = selectXbTavernMemoryContext({
+        memoryFiles: [{
+            sessionId: 'session',
+            path: 'memory/state.md',
+            content: '# 会话记忆\n\nJohn Doe 收到了银钥匙。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/John Doe.md',
+            content: '# John Doe\n\n玩家自己的记忆不该作为角色实体注入。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }],
+        queryText: buildXbTavernMemoryQuery(context, 'John Doe：继续调查银钥匙。'),
+        ignoredTerms: buildXbTavernMemoryIgnoredTerms(context),
     });
 
     assert.deepEqual(memory.memoryFiles?.map((file) => file.path), ['memory/state.md']);
+});
+
+test('xb tavern memory recall rejects short latin substring entity hits', () => {
+    const memory = selectXbTavernMemoryContext({
+        memoryFiles: [{
+            sessionId: 'session',
+            path: 'memory/state.md',
+            content: '# 会话记忆\n\nAlice 在档案室。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Al.md',
+            content: '# Al\n\n短名不应该因为 also 被命中。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Alice.md',
+            content: '# Alice\n\nAlice 正在档案室。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 3,
+            updatedAt: 3,
+        }],
+        queryText: 'also ask Alice about the archive',
+    });
+
+    assert.deepEqual(memory.memoryFiles?.map((file) => file.path), [
+        'memory/state.md',
+        'memory/characters/Alice.md',
+    ]);
+});
+
+test('xb tavern memory recall uses token boundaries for latin character names', () => {
+    const memory = selectXbTavernMemoryContext({
+        memoryFiles: [{
+            sessionId: 'session',
+            path: 'memory/state.md',
+            content: '# 会话记忆\n\nTom Hardy 在码头留下过线索。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Tom.md',
+            content: '# Tom\n\nTom 的人物记忆。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Tom Hardy.md',
+            content: '# Tom Hardy\n\nTom Hardy 的人物记忆。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 3,
+            updatedAt: 3,
+        }],
+        queryText: 'tomorrow custom bottom. Tom-Hardy just arrived.',
+    });
+
+    assert.deepEqual(memory.memoryFiles?.map((file) => file.path), [
+        'memory/state.md',
+        'memory/characters/Tom Hardy.md',
+    ]);
+
+    const miss = selectXbTavernMemoryContext({
+        memoryFiles: [{
+            sessionId: 'session',
+            path: 'memory/state.md',
+            content: '# 会话记忆\n\n普通状态。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Tom.md',
+            content: '# Tom\n\nTom 的人物记忆。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }],
+        queryText: 'tomorrow custom bottom',
+    });
+
+    assert.deepEqual(miss.memoryFiles?.map((file) => file.path), ['memory/state.md']);
+
+    const shortNameHit = selectXbTavernMemoryContext({
+        memoryFiles: [{
+            sessionId: 'session',
+            path: 'memory/state.md',
+            content: '# 会话记忆\n\n普通状态。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Tom.md',
+            content: '# Tom\n\nTom 的人物记忆。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }],
+        queryText: 'Tom went home.',
+    });
+    assert.deepEqual(shortNameHit.memoryFiles?.map((file) => file.path), [
+        'memory/state.md',
+        'memory/characters/Tom.md',
+    ]);
+
+    const shortNameInsideFullName = selectXbTavernMemoryContext({
+        memoryFiles: [{
+            sessionId: 'session',
+            path: 'memory/state.md',
+            content: '# 会话记忆\n\n普通状态。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Tom.md',
+            content: '# Tom\n\nTom 的人物记忆。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }],
+        queryText: 'Tom Hardy arrived.',
+    });
+    assert.deepEqual(shortNameInsideFullName.memoryFiles?.map((file) => file.path), ['memory/state.md']);
+});
+
+test('xb tavern memory recall does not remove ignored user keys from unrelated entity names', () => {
+    const context = {
+        character: { name: 'Alice' },
+        user: { name: 'Al' },
+        history: [] as Array<{ role: 'assistant'; content: string }>,
+    };
+    const memory = selectXbTavernMemoryContext({
+        memoryFiles: [{
+            sessionId: 'session',
+            path: 'memory/state.md',
+            content: '# 会话记忆\n\nAlice 在档案室。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Alice.md',
+            content: '# Alice\n\nAlice 正在档案室。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }],
+        queryText: buildXbTavernMemoryQuery(context, 'Alice 还在吗？'),
+        ignoredTerms: buildXbTavernMemoryIgnoredTerms(context),
+    });
+
+    assert.deepEqual(memory.memoryFiles?.map((file) => file.path), [
+        'memory/state.md',
+        'memory/characters/Alice.md',
+    ]);
 });
 
 test('xb tavern memory recall keeps state memory only once', () => {
@@ -2384,48 +2600,8 @@ test('xb tavern memory recall keeps state memory only once', () => {
     assert.deepEqual(memory.memoryFiles?.map((file) => file.path), ['memory/state.md']);
 });
 
-test('xb tavern memory recall keeps jieba calls on bounded Asian text segments', () => {
-    let maxJiebaInputLength = 0;
-    setXbTavernMemoryTokenizerForTest({
-        jiebaCut: (text) => {
-            maxJiebaInputLength = Math.max(maxJiebaInputLength, String(text || '').length);
-            if (String(text || '').length > 512) {throw new Error('unreachable');}
-            return tokenizeForMemoryTests(text);
-        },
-        tinySegmenter: {
-            segment: (text) => tokenizeForMemoryTests(text),
-        },
-    });
-    try {
-        const longContinuousText = `银钥匙${'线索'.repeat(400)}`;
-        const memory = selectXbTavernMemoryContext({
-            memoryFiles: [{
-                sessionId: 'session',
-                path: 'memory/state.md',
-                content: `# 长段线索\n\n${longContinuousText}`,
-                status: 'active' as const,
-                source: 'manager',
-                createdAt: 1,
-                updatedAt: 1,
-            }],
-            queryText: '银钥匙在哪里？',
-        });
-
-        assert.deepEqual(memory.memoryFiles?.map((file) => file.path), ['memory/state.md']);
-        assert.ok(maxJiebaInputLength <= 512);
-    } finally {
-        setXbTavernMemoryTokenizerForTest({
-            jiebaCut: (text) => tokenizeForMemoryTests(text),
-            tinySegmenter: {
-                segment: (text) => tokenizeForMemoryTests(text),
-            },
-        });
-    }
-});
-
-test('xb tavern memory recall does not silently fall back when tokenizer is unavailable', () => {
-    setXbTavernMemoryTokenizerForTest({});
-    assert.throws(() => selectXbTavernMemoryContext({
+test('xb tavern memory recall does not depend on tokenizer availability', () => {
+    const memory = selectXbTavernMemoryContext({
         memoryFiles: [{
             sessionId: 'session',
             path: 'memory/state.md',
@@ -2434,15 +2610,22 @@ test('xb tavern memory recall does not silently fall back when tokenizer is unav
             source: 'manager',
             createdAt: 1,
             updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Aster.md',
+            content: '# Aster\n\nAster 知道银钥匙。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
         }],
-        queryText: '银钥匙在哪里？',
-    }), /memory_tokenizer_not_ready/);
-    setXbTavernMemoryTokenizerForTest({
-        jiebaCut: (text) => tokenizeForMemoryTests(text),
-        tinySegmenter: {
-            segment: (text) => tokenizeForMemoryTests(text),
-        },
+        queryText: 'Aster，银钥匙在哪里？',
     });
+
+    assert.deepEqual(memory.memoryFiles?.map((file) => file.path), [
+        'memory/state.md',
+        'memory/characters/Aster.md',
+    ]);
 });
 
 test('xb tavern provider resolver reports shared API readiness and request audit metadata', () => {

@@ -20,15 +20,11 @@ import {
 } from '../shared/message-assembler';
 import { buildXbTavernBrain } from '../shared/brain';
 import {
-    getXbTavernMemoryTokenizerStatus,
-    preloadXbTavernMemoryTokenizer,
-} from '../shared/memory-retrieval';
-import {
     getTavernMemoryIndex,
     getTavernMemoryFile,
     rebuildTavernMemoryDerivedIndex,
-    restoreTavernMemoryStateToFloor,
-    trimTavernMemoryStateSnapshotsFromFloor,
+    restoreTavernMemoryToFloor,
+    trimTavernMemorySnapshotsFromFloor,
 } from '../shared/memory-files';
 import {
     createTavernSession,
@@ -226,7 +222,6 @@ const sessionMessageCounts = ref<Record<string, number>>({});
 const managerRuns = ref<TavernManagerRunRecord[]>([]);
 const memoryFiles = ref<TavernMemoryIndexFileEntry[]>([]);
 const memoryIndex = ref<TavernMemoryIndexRecord | null>(null);
-const memoryTokenizerStatus = ref(getXbTavernMemoryTokenizerStatus());
 const selectedMemoryFilePath = ref('');
 const selectedMemoryFileRecord = ref<TavernMemoryFileRecord | null>(null);
 const stateMemoryFile = ref<TavernMemoryFileRecord | null>(null);
@@ -434,8 +429,6 @@ let managerCompactionOverlayHideTimer: number | null = null;
 let composeErrorHideTimer: number | null = null;
 let managerRecordsPollTimer: number | null = null;
 let managerRecordsPollRunning = false;
-let memoryTokenizerWarmupPromise: Promise<void> | null = null;
-let memoryTokenizerIdleCancel: (() => void) | null = null;
 let sessionContextSyncSequence = 0;
 let initialConfigApplied = false;
 let postReadyStartupStarted = false;
@@ -781,17 +774,22 @@ const selectedMemoryFile = computed(() => (
 function memoryFileDisplayName(fileOrPath: TavernMemoryFileListEntry | TavernMemoryFileRecord | string | null | undefined) {
     const path = typeof fileOrPath === 'string' ? fileOrPath : String(fileOrPath?.path || '');
     if (path === 'memory/state.md') {return '会话记忆';}
+    if (path.startsWith('memory/characters/') && path.endsWith('.md')) {
+        return path.replace(/^memory\/characters\//, '').replace(/\.md$/i, '') || '人物记忆';
+    }
     return path.replace(/^memory\//, '').replace(/\.md$/i, '') || '记忆档案';
 }
 
 function memoryFileKindLabel(fileOrPath: TavernMemoryFileListEntry | TavernMemoryFileRecord | string | null | undefined) {
     const path = typeof fileOrPath === 'string' ? fileOrPath : String(fileOrPath?.path || '');
     if (path === 'memory/state.md') {return '当前有效记忆状态';}
+    if (path.startsWith('memory/characters/') && path.endsWith('.md')) {return '人物长期记忆';}
     return '记忆档案';
 }
 
 function memoryFileSortWeight(path = '') {
     if (path === 'memory/state.md') {return 0;}
+    if (path.startsWith('memory/characters/')) {return 10;}
     return 30;
 }
 
@@ -830,6 +828,11 @@ const memoryDirectoryGroups = computed(() => {
             title: '会话记忆',
             files: [] as TavernMemoryIndexFileEntry[],
         },
+        {
+            key: 'characters',
+            title: '人物记忆',
+            files: [] as TavernMemoryIndexFileEntry[],
+        },
     ];
     const rest: TavernMemoryIndexFileEntry[] = [];
     [...memoryFiles.value]
@@ -840,6 +843,8 @@ const memoryDirectoryGroups = computed(() => {
         .forEach((file) => {
             if (file.path === 'memory/state.md') {
                 groups[0].files.push(file);
+            } else if (file.path.startsWith('memory/characters/')) {
+                groups[1].files.push(file);
             } else {
                 rest.push(file);
             }
@@ -882,12 +887,6 @@ const memoryEditorDirty = computed(() => (
     && memoryEditorDraft.value !== memoryEditorBaseContent.value
 ));
 const memoryIndexStatusLine = computed(() => {
-    const tokenizer = memoryTokenizerStatus.value;
-    if (tokenizer.status !== 'ready') {
-        if (tokenizer.status === 'failed') {return `记忆检索准备失败：${tokenizer.error || 'memory_tokenizer_failed'}`;}
-        if (tokenizer.status === 'loading') {return '记忆检索准备中';}
-        return '记忆检索尚未准备好';
-    }
     const index = memoryIndex.value;
     if (!index) {return '还没有可检索记忆';}
     if (index.status === 'ready') {return '记忆可检索';}
@@ -1014,16 +1013,6 @@ watch(selectedCharacterGreetingOptions, (options) => {
 
 watch(memoryFileSearchText, () => {
     memoryFileGroupVisibleLimits.value = {};
-});
-
-watch([
-    activeView,
-    chatFocus,
-    chatWorkspacePanel,
-], ([view, focus, workspace]) => {
-    if (view === 'chat' && (focus === 'manager' || workspace === 'memory')) {
-        void promoteMemoryTokenizerWarmup();
-    }
 });
 
 watch([
@@ -2968,9 +2957,15 @@ async function restoreMemoryStateBeforeMessage(sessionId = '', changedOrder = 0)
     const id = String(sessionId || '').trim();
     const order = Number(changedOrder);
     if (!id || !Number.isFinite(order)) {return;}
-    await restoreTavernMemoryStateToFloor(id, order - 1);
-    await trimTavernMemoryStateSnapshotsFromFloor(id, order);
+    await restoreTavernMemoryToFloor(id, order - 1);
+    await trimTavernMemorySnapshotsFromFloor(id, order);
     await rebuildTavernMemoryDerivedIndex(id);
+}
+
+function memoryRollbackNoticeForFloor(floor: number): string {
+    const previousFloor = Math.max(0, floor - 1);
+    const target = previousFloor > 0 ? `第 ${previousFloor} 楼后的状态` : '开局前状态';
+    return `会话记忆 state.md 和人物记忆会回滚到${target}。`;
 }
 
 async function saveEditMessage(message: TavernMessageRecord, options: { rerun?: boolean; content?: string } = {}) {
@@ -2992,6 +2987,8 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rerun?: 
         await rerunFromMessage(message);
         return;
     }
+    const floor = Math.max(1, Number(message.order) + 1);
+    if (!window.confirm(`保存第 ${floor} 楼的编辑？\n\n${memoryRollbackNoticeForFloor(floor)}`)) {return;}
     const substitutedContent = await substituteEditedMessageContent(message, content);
     const regexedContent = await applyEditRegexToMessageContent(message, substitutedContent);
     const updated = await updateTavernMessage(message.sessionId, message.order, {
@@ -3065,8 +3062,8 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
     const ordersToDelete = findDeleteOrders(message);
     const floor = Math.max(1, Number(message.order) + 1);
     const confirmText = ordersToDelete.length > 1
-        ? `从第 ${floor} 楼开始删除后续剧情？将移除 ${ordersToDelete.length} 楼。`
-        : `删除第 ${floor} 楼？`;
+        ? `从第 ${floor} 楼开始删除后续剧情？将移除 ${ordersToDelete.length} 楼。\n\n${memoryRollbackNoticeForFloor(floor)}`
+        : `删除第 ${floor} 楼？\n\n${memoryRollbackNoticeForFloor(floor)}`;
     if (!window.confirm(confirmText)) {return;}
     const fromOrder = Math.min(...ordersToDelete);
     await cancelAndRollbackXbTavernManagersForMessageRange(message.sessionId, fromOrder);
@@ -3698,15 +3695,6 @@ async function handleManagerSubmit() {
     isManagerAssistantRunning.value = true;
     isManagerAssistantCancelling.value = false;
     managerInputStatus.value = '准备中';
-    try {
-        await promoteMemoryTokenizerWarmup();
-    } catch (error) {
-        isManagerAssistantRunning.value = false;
-        isManagerAssistantCancelling.value = false;
-        managerInputDraft.value = text;
-        managerInputStatus.value = describeError(error);
-        return;
-    }
     if (isManagerAssistantCancelling.value) {
         isManagerAssistantRunning.value = false;
         isManagerAssistantCancelling.value = false;
@@ -3729,56 +3717,6 @@ function cancelActiveRun() {
 
 function handleChatSubmit() {
     void runOnce();
-}
-
-async function warmupMemoryTokenizer() {
-    memoryTokenizerStatus.value = getXbTavernMemoryTokenizerStatus();
-    const ok = await preloadXbTavernMemoryTokenizer();
-    memoryTokenizerStatus.value = getXbTavernMemoryTokenizerStatus();
-    if (!ok) {
-        managerActionStatus.value = `记忆检索准备失败：${memoryTokenizerStatus.value.error || 'memory_tokenizer_failed'}`;
-    }
-}
-
-function queueStartupIdleTask(task: () => void) {
-    const idleWindow = window as Window & {
-        requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-        cancelIdleCallback?: (handle: number) => void;
-    };
-    if (idleWindow.requestIdleCallback && idleWindow.cancelIdleCallback) {
-        const handle = idleWindow.requestIdleCallback(task, { timeout: 6000 });
-        return () => idleWindow.cancelIdleCallback?.(handle);
-    }
-    const handle = window.setTimeout(task, 1600);
-    return () => window.clearTimeout(handle);
-}
-
-function startMemoryTokenizerWarmup() {
-    const status = getXbTavernMemoryTokenizerStatus();
-    memoryTokenizerStatus.value = status;
-    if (status.status === 'ready') {return Promise.resolve();}
-    if (memoryTokenizerWarmupPromise) {return memoryTokenizerWarmupPromise;}
-    memoryTokenizerWarmupPromise = warmupMemoryTokenizer().finally(() => {
-        memoryTokenizerWarmupPromise = null;
-    });
-    return memoryTokenizerWarmupPromise;
-}
-
-function scheduleMemoryTokenizerWarmup() {
-    if (memoryTokenizerIdleCancel || memoryTokenizerWarmupPromise) {return;}
-    if (getXbTavernMemoryTokenizerStatus().status === 'ready') {return;}
-    memoryTokenizerIdleCancel = queueStartupIdleTask(() => {
-        memoryTokenizerIdleCancel = null;
-        void startMemoryTokenizerWarmup();
-    });
-}
-
-function promoteMemoryTokenizerWarmup() {
-    if (memoryTokenizerIdleCancel) {
-        memoryTokenizerIdleCancel();
-        memoryTokenizerIdleCancel = null;
-    }
-    return startMemoryTokenizerWarmup();
 }
 
 async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: number; rerollRuntimeEvents?: boolean } = {}) {
@@ -3827,7 +3765,6 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
         scrollChatToBottom(true);
     }
     try {
-        await promoteMemoryTokenizerWarmup();
         if (controller.signal.aborted) {
             const pendingUserMessage = runtimePendingUserMessage.value;
             clearRuntimeAssistantLiveState();
@@ -4289,7 +4226,6 @@ onMounted(async () => {
     syncApiSettingsConfigFromAgentConfig();
     await nextTick();
     postToHost('xb-tavern:frame-ready');
-    scheduleMemoryTokenizerWarmup();
 });
 
 onUnmounted(() => {
@@ -4314,10 +4250,6 @@ onUnmounted(() => {
     if (managerRecordsPollTimer) {
         window.clearInterval(managerRecordsPollTimer);
         managerRecordsPollTimer = null;
-    }
-    if (memoryTokenizerIdleCancel) {
-        memoryTokenizerIdleCancel();
-        memoryTokenizerIdleCancel = null;
     }
     clearDisplayRegexCache();
     clearManagerCompactionOverlayHideTimer();

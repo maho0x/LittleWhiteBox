@@ -11,6 +11,7 @@ import type {
 import {
     createDefaultTavernAssistantPreset,
     DEFAULT_TAVERN_ASSISTANT_PRESET_ID,
+    DEFAULT_TAVERN_ASSISTANT_PRESET_VERSION,
     normalizeTavernAssistantPreset,
     type TavernAssistantPreset,
 } from './assistant-presets';
@@ -147,10 +148,15 @@ export interface TavernMemoryFileRecord {
     staleFromOrder?: number;
 }
 
-export interface TavernMemoryStateSnapshotRecord {
+export interface TavernMemorySnapshotFileEntry {
+    path: string;
+    file: TavernMemoryFileRecord;
+}
+
+export interface TavernMemorySnapshotRecord {
     sessionId: string;
     floor: number;
-    file: TavernMemoryFileRecord;
+    files: TavernMemorySnapshotFileEntry[];
     createdAt: number;
 }
 
@@ -327,7 +333,7 @@ class TavernDatabase extends Dexie {
     presets!: DexieTable<TavernPresetRecord>;
     managerRuns!: DexieTable<TavernManagerRunRecord>;
     memoryFiles!: DexieTable<TavernMemoryFileRecord>;
-    memoryStateSnapshots!: DexieTable<TavernMemoryStateSnapshotRecord>;
+    memorySnapshots!: DexieTable<TavernMemorySnapshotRecord>;
     memoryIndexes!: DexieTable<TavernMemoryIndexRecord>;
     assistantPresets!: DexieTable<TavernAssistantPresetRecord>;
     managerMemorySnapshots!: DexieTable<TavernManagerMemorySnapshotRecord>;
@@ -401,6 +407,23 @@ class TavernDatabase extends Dexie {
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
         });
+        this.version(5).stores({
+            sessions: 'id, updatedAt, characterId, characterName',
+            messages: '[sessionId+order], sessionId, order',
+            managerMessages: '[sessionId+order], sessionId, order',
+            meta: 'key',
+            presets: 'id, updatedAt, sourcePresetId',
+            managerRuns: 'id, sessionId, status, turn, updatedAt',
+            memoryFiles: '[sessionId+path], sessionId, path, status, updatedAt',
+            memoryStateSnapshots: null,
+            memorySnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            memoryIndexes: '[sessionId+kind], sessionId, kind, status, updatedAt',
+            assistantPresets: 'id, updatedAt',
+            managerMemorySnapshots: '[managerRunId+path], managerRunId, sessionId, path, updatedAt',
+            stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
+            statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
+            managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
+        });
     }
 }
 
@@ -413,7 +436,7 @@ export const tavernMetaTable = db.meta;
 export const tavernPresetsTable = db.presets;
 export const tavernManagerRunsTable = db.managerRuns;
 export const tavernMemoryFilesTable = db.memoryFiles;
-export const tavernMemoryStateSnapshotsTable = db.memoryStateSnapshots;
+export const tavernMemorySnapshotsTable = db.memorySnapshots;
 export const tavernMemoryIndexesTable = db.memoryIndexes;
 export const tavernAssistantPresetsTable = db.assistantPresets;
 export const tavernManagerMemorySnapshotsTable = db.managerMemorySnapshots;
@@ -666,20 +689,20 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
         tavernMemoryFilesTable,
-        tavernMemoryStateSnapshotsTable,
+        tavernMemorySnapshotsTable,
         tavernMemoryIndexesTable,
         tavernStateDocumentsTable,
         tavernStatePatchesTable,
         tavernMetaTable,
         async () => {
-            const [messages, managerMessages, runs, snapshots, stateSnapshots, files, memoryStateSnapshots, indexes, stateDocuments, statePatches] = await Promise.all([
+            const [messages, managerMessages, runs, snapshots, stateSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernManagerMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernManagerRunsTable.where('sessionId').equals(id).toArray(),
                 tavernManagerMemorySnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernManagerStateSnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernMemoryFilesTable.where('sessionId').equals(id).toArray(),
-                tavernMemoryStateSnapshotsTable.where('sessionId').equals(id).toArray(),
+                tavernMemorySnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernMemoryIndexesTable.where('sessionId').equals(id).toArray(),
                 tavernStateDocumentsTable.where('sessionId').equals(id).toArray(),
                 tavernStatePatchesTable.where('sessionId').equals(id).toArray(),
@@ -691,7 +714,7 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 snapshots.length ? tavernManagerMemorySnapshotsTable.bulkDelete(snapshots.map((snapshot) => [snapshot.managerRunId, snapshot.path])) : 0,
                 stateSnapshots.length ? tavernManagerStateSnapshotsTable.bulkDelete(stateSnapshots.map((snapshot) => [snapshot.managerRunId, snapshot.docType, snapshot.docId])) : 0,
                 files.length ? tavernMemoryFilesTable.bulkDelete(files.map((file) => [file.sessionId, file.path])) : 0,
-                memoryStateSnapshots.length ? tavernMemoryStateSnapshotsTable.bulkDelete(memoryStateSnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
+                memorySnapshots.length ? tavernMemorySnapshotsTable.bulkDelete(memorySnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
                 indexes.length ? tavernMemoryIndexesTable.bulkDelete(indexes.map((index) => [index.sessionId, index.kind])) : 0,
                 stateDocuments.length ? tavernStateDocumentsTable.bulkDelete(stateDocuments.map((document) => [document.sessionId, document.docType, document.docId])) : 0,
                 statePatches.length ? tavernStatePatchesTable.bulkDelete(statePatches.map((patch) => patch.id)) : 0,
@@ -1681,7 +1704,9 @@ export async function saveTavernAssistantPreset(
         id,
         name: normalized.name,
         description: normalized.description,
-        version: '',
+        version: options.isBuiltIn === true
+            ? DEFAULT_TAVERN_ASSISTANT_PRESET_VERSION
+            : String(existing?.version || ''),
         isBuiltIn: options.isBuiltIn === true,
         createdAt: Number(existing?.createdAt) || timestamp,
         updatedAt: timestamp,
@@ -1706,7 +1731,13 @@ export async function deleteTavernAssistantPreset(
 
 export async function ensureDefaultTavernAssistantPreset(): Promise<TavernAssistantPresetRecord> {
     const existing = await tavernAssistantPresetsTable.get(DEFAULT_TAVERN_ASSISTANT_PRESET_ID);
-    if (existing) {return existing;}
+    const editableText = [
+        existing?.preset?.storyArcPrompt,
+        existing?.preset?.statePrompt,
+        existing?.preset?.turnPrompt,
+    ].map((value) => String(value || '')).join('\n');
+    const hasLegacyMemoryPaths = /memory\/(?:session\.md|turns(?:\/|\*))/i.test(editableText);
+    if (existing?.version === DEFAULT_TAVERN_ASSISTANT_PRESET_VERSION && !hasLegacyMemoryPaths) {return existing;}
     return saveTavernAssistantPreset(createDefaultTavernAssistantPreset(), { isBuiltIn: true });
 }
 

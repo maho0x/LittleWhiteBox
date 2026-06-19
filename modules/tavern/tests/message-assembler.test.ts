@@ -115,7 +115,7 @@ test('xb tavern assembler honors SillyTavern prompt manager marker order', () =>
         return 'other';
     }), ['main', 'description', 'world', 'history', 'memory', 'current', 'runtime-protocol', 'jailbreak']);
     const memoryContent = contents.find((content) => content.includes('Prompt manager memory note.')) || '';
-    assert.match(memoryContent, /## 记忆[\s\S]*Prompt manager memory note/);
+    assert.match(memoryContent, /## 会话记忆[\s\S]*Prompt manager memory note/);
     assert.doesNotMatch(memoryContent, /<session_memory|memory\/session\.md|Session/);
     assert.doesNotMatch(contents.join('\n'), /<world_info_depth/);
     assert.doesNotMatch(contents.join('\n'), /<character_card>/);
@@ -1476,13 +1476,17 @@ test('xb tavern assembler treats memory as D1 system depth injection inside chat
                 path: 'memory/state.md',
                 title: '会话记忆',
                 content: 'Memory D1 note.',
+            }, {
+                path: 'memory/characters/Aster.md',
+                title: 'Aster',
+                content: 'Aster character note.',
             }],
         },
     });
 
     const contents = result.messages.map((message) => message.content);
     const oldIndex = contents.indexOf('Old reply.');
-    const depthIndex = contents.findIndex((content) => content.includes('Memory D1 note.') && content.includes('World D1 lore.'));
+    const depthIndex = contents.findIndex((content) => content.includes('Memory D1 note.') && content.includes('Aster character note.') && content.includes('World D1 lore.'));
     const currentIndex = contents.indexOf('Current turn.');
     const protocolIndex = contents.indexOf('Runtime protocol block.');
     const afterIndex = contents.indexOf('After history rule.');
@@ -1492,7 +1496,8 @@ test('xb tavern assembler treats memory as D1 system depth injection inside chat
     assert.ok(protocolIndex > currentIndex);
     assert.ok(afterIndex > protocolIndex);
     assert.equal(result.messages[depthIndex]?.role, 'system');
-    assert.match(contents[depthIndex] || '', /## 记忆[\s\S]*Memory D1 note\.[\s\S]*World D1 lore\./);
+    assert.match(contents[depthIndex] || '', /## 会话记忆[\s\S]*Memory D1 note\.[\s\S]*World D1 lore\./);
+    assert.match(contents[depthIndex] || '', /## 相关人物记忆[\s\S]*### Aster[\s\S]*Aster character note\./);
     assert.doesNotMatch(contents[depthIndex] || '', /<session_memory|memory\/session\.md|Session/);
     assert.doesNotMatch(contents[depthIndex] || '', /<world_info_depth/);
     assert.equal(result.messageLayers.find((layer) => layer.index === depthIndex)?.layer, 'world-depth');

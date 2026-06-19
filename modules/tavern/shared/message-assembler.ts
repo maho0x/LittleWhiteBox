@@ -1703,14 +1703,22 @@ function buildMemoryBlock(memoryContext: XbTavernMemoryContext = {}): string {
     const structuredStates = Array.isArray(memoryContext.structuredStates) ? memoryContext.structuredStates : [];
     const sections: string[] = [];
 
-    const fileLines = memoryFiles
+    const stateContent = normalizeText(memoryFiles.find((file) => file.path === 'memory/state.md')?.content || '');
+    if (stateContent) {
+        sections.push(`## 会话记忆\n${stateContent}`);
+    }
+
+    const characterLines = memoryFiles
+        .filter((file) => String(file.path || '').startsWith('memory/characters/'))
         .map((file) => {
             const content = normalizeText(file.content);
-            return content;
+            if (!content) {return '';}
+            const title = normalizeText(file.title || String(file.path || '').replace(/^memory\/characters\//, '').replace(/\.md$/i, ''));
+            return `### ${title || '相关人物'}\n${content}`;
         })
         .filter(Boolean);
-    if (fileLines.length) {
-        sections.push(`## 记忆\n${fileLines.join('\n\n')}`);
+    if (characterLines.length) {
+        sections.push(`## 相关人物记忆\n${characterLines.join('\n\n')}`);
     }
 
     const stateLines = structuredStates

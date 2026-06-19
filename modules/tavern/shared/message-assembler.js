@@ -1162,13 +1162,23 @@ function buildMemoryBlock(memoryContext = {}) {
   const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
   const structuredStates = Array.isArray(memoryContext.structuredStates) ? memoryContext.structuredStates : [];
   const sections = [];
-  const fileLines = memoryFiles.map((file) => {
+  const stateContent = normalizeText(memoryFiles.find((file) => file.path === "memory/state.md")?.content || "");
+  if (stateContent) {
+    sections.push(`## \u4F1A\u8BDD\u8BB0\u5FC6
+${stateContent}`);
+  }
+  const characterLines = memoryFiles.filter((file) => String(file.path || "").startsWith("memory/characters/")).map((file) => {
     const content = normalizeText(file.content);
-    return content;
+    if (!content) {
+      return "";
+    }
+    const title = normalizeText(file.title || String(file.path || "").replace(/^memory\/characters\//, "").replace(/\.md$/i, ""));
+    return `### ${title || "\u76F8\u5173\u4EBA\u7269"}
+${content}`;
   }).filter(Boolean);
-  if (fileLines.length) {
-    sections.push(`## \u8BB0\u5FC6
-${fileLines.join("\n\n")}`);
+  if (characterLines.length) {
+    sections.push(`## \u76F8\u5173\u4EBA\u7269\u8BB0\u5FC6
+${characterLines.join("\n\n")}`);
   }
   const stateLines = structuredStates.map((state) => {
     const digest = normalizeText(state.digest);

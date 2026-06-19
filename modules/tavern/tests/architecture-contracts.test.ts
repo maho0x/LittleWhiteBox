@@ -61,15 +61,14 @@ test('tavern startup posts frame-ready before heavy app tasks and prewarms host 
     assert.notEqual(readyIndex, -1);
     const beforeReady = appSource.slice(mountedIndex, readyIndex);
     assert.doesNotMatch(beforeReady, /refreshPresets\(\)|refreshSessions\(\)|warmupMemoryTokenizer\(\)|preloadXbTavernMemoryTokenizer\(\)/);
-    assert.match(appSource, /await nextTick\(\);\s*postToHost\('xb-tavern:frame-ready'\);\s*scheduleMemoryTokenizerWarmup\(\);/);
+    assert.match(appSource, /await nextTick\(\);\s*postToHost\('xb-tavern:frame-ready'\);/);
     assert.doesNotMatch(appSource.slice(readyIndex, appSource.indexOf('onUnmounted', readyIndex)), /void runPostReadyStartupTasks\(\);/);
     assert.match(appSource, /if \(data\.type === 'xb-tavern:config'\) \{[\s\S]*applyHostPayload\(data\.payload \|\| \{\}\);[\s\S]*initialConfigApplied = true;[\s\S]*startPostReadyStartupTasksAfterInitialConfig\(\);/);
     assert.match(appSource, /function startPostReadyStartupTasksAfterInitialConfig\(\) \{[\s\S]*postReadyStartupStarted = true;[\s\S]*void runPostReadyStartupTasks\(\);/);
     assert.match(appSource, /async function runPostReadyStartupTasks\(\) \{[\s\S]*Promise\.allSettled\(\[\s*refreshPresets\(\),\s*refreshSessions\(\),\s*\]\)/);
-    assert.match(appSource, /function scheduleMemoryTokenizerWarmup\(\) \{[\s\S]*queueStartupIdleTask/);
-    assert.match(appSource, /watch\(\[\s*activeView,\s*chatFocus,\s*chatWorkspacePanel,[\s\S]*promoteMemoryTokenizerWarmup\(\)/);
-    assert.match(appSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*isRunning\.value = true;[\s\S]*await promoteMemoryTokenizerWarmup\(\);/);
-    assert.match(appSource, /async function handleManagerSubmit\(\) \{[\s\S]*isManagerAssistantRunning\.value = true;[\s\S]*managerInputStatus\.value = '准备中';[\s\S]*await promoteMemoryTokenizerWarmup\(\);[\s\S]*await sendManagerQuestion\(managerSessionId, text\);/);
+    assert.doesNotMatch(appSource, /scheduleMemoryTokenizerWarmup|promoteMemoryTokenizerWarmup|preloadXbTavernMemoryTokenizer|getXbTavernMemoryTokenizerStatus/);
+    assert.match(appSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*isRunning\.value = true;[\s\S]*const runtimeContext = await resolveRuntimeContextForSession/);
+    assert.match(appSource, /async function handleManagerSubmit\(\) \{[\s\S]*isManagerAssistantRunning\.value = true;[\s\S]*managerInputStatus\.value = '准备中';[\s\S]*await sendManagerQuestion\(managerSessionId, text\);/);
     assert.match(hostSource, /let initialConfigPromise: Promise<Record<string, unknown>> \| null = null;/);
     assert.match(hostSource, /function prepareInitialConfig\(\): void \{[\s\S]*initialConfigPromise = promise;/);
     assert.match(hostSource, /async function sendInitialConfigToFrame\(\): Promise<void> \{[\s\S]*const promise = initialConfigPromise \|\| buildFrameConfigPayload\(\);[\s\S]*postToFrame\('xb-tavern:config', await promise\);/);
@@ -371,6 +370,7 @@ test('tavern chat exposes local settings modals without leaving the session', ()
     const chatLayoutCss = readRepoFile('modules/tavern/app-src/styles/chat/layout.css');
     const chatQuickSettingsCss = readRepoFile('modules/tavern/app-src/styles/chat/quick-settings.css');
     const settingsControllerSource = readRepoFile('modules/tavern/app-src/components/settings/useTavernSettingsController.ts');
+    const assistantPresetPanelSource = readRepoFile('modules/tavern/app-src/components/settings/TavernAssistantPresetSettingsPanel.vue');
     const stylesSource = readRepoFile('modules/tavern/app-src/styles.css');
 
     assert.match(cornerSource, /includeApi\?: boolean/);
@@ -408,6 +408,9 @@ test('tavern chat exposes local settings modals without leaving the session', ()
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-worldbooks-workspace \.worldbook-entry-editor input\[type="text"\],[\s\S]*background-color: var\(--xb-settings-control-bg\);/);
     assert.doesNotMatch(settingsControllerSource, /activeView\.value !== 'settings' \|\| options\.activeSettingsWorkspace\.value !== 'worldbooks'/);
     assert.match(settingsControllerSource, /watch\(selectedWorldbookName, \(name\) => \{[\s\S]*activeSettingsWorkspace\.value !== 'worldbooks'[\s\S]*loadSelectedWorldbookPreview\(name\)/);
+    assert.match(settingsControllerSource, /workspace === 'assistantPreset'[\s\S]*void refreshPresets\(\);/);
+    assert.match(assistantPresetPanelSource, />维护规则</);
+    assert.doesNotMatch(assistantPresetPanelSource, />记忆档案</);
 });
 
 test('tavern map update badge stays collapsed until requested', () => {

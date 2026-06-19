@@ -8,31 +8,7 @@ import {
     createXbTavernWorldSettings,
 } from '../shared/brain';
 import { createDefaultXbTavernPreset } from '../shared/presets';
-import {
-    selectXbTavernMemoryContext,
-    setXbTavernMemoryTokenizerForTest,
-} from '../shared/memory-retrieval';
-
-function tokenizeForMemoryTests(text: string): string[] {
-    const value = String(text || '').normalize('NFKC').toLowerCase();
-    const tokens: string[] = value.match(/[a-z0-9]{3,}/g) || [];
-    const runs = value.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{2,}/gu) || [];
-    runs.forEach((run) => {
-        for (let size = 2; size <= Math.min(6, run.length); size += 1) {
-            for (let index = 0; index <= run.length - size; index += 1) {
-                tokens.push(run.slice(index, index + size));
-            }
-        }
-    });
-    return tokens;
-}
-
-setXbTavernMemoryTokenizerForTest({
-    jiebaCut: (text) => tokenizeForMemoryTests(text),
-    tinySegmenter: {
-        segment: (text) => tokenizeForMemoryTests(text),
-    },
-});
+import { selectXbTavernMemoryContext } from '../shared/memory-retrieval';
 
 test('xb tavern brain applies one shared runtime contract for preview and runs', () => {
     const preset = createDefaultXbTavernPreset();
@@ -143,7 +119,7 @@ test('xb tavern brain injects memory as D1 system before current user message', 
     assert.ok(memoryLayer.index > historyLayer.index);
     assert.ok(memoryLayer.index < currentUserLayer.index);
     assert.equal(brain.buildResult.messages[memoryLayer.index]?.role, 'system');
-    assert.match(brain.buildResult.messages[memoryLayer.index]?.content || '', /## 记忆[\s\S]*信任正在增加/);
+    assert.match(brain.buildResult.messages[memoryLayer.index]?.content || '', /## 会话记忆[\s\S]*信任正在增加/);
     assert.doesNotMatch(brain.buildResult.messages[memoryLayer.index]?.content || '', /<session_memory|memory\/session\.md|剧情脉络/);
     assert.doesNotMatch(brain.rawMessagesJson, /<world_info_depth/);
     assert.match(brain.rawMessagesJson, /信任正在增加/);
