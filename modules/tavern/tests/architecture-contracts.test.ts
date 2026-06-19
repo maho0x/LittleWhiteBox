@@ -796,8 +796,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(conversationPanelSource, /<form\s+class="chat-compose"[\s\S]*class="compose-menu-shell"/);
     assert.match(conversationPanelSource, /class="compose-menu-button"[\s\S]*aria-label="聊天操作"[\s\S]*aria-controls="xb-tavern-compose-menu"[\s\S]*@click\.stop="toggleComposeMenu"/);
     assert.match(conversationPanelSource, /class="compose-menu-button"[\s\S]*<svg[\s\S]*viewBox="0 0 24 24"[\s\S]*<path d="M4 6h16"/);
-    assert.match(conversationPanelSource, /id="xb-tavern-compose-menu"[\s\S]*role="menu"[\s\S]*class="compose-menu-item"[\s\S]*新建会话[\s\S]*class="compose-menu-item"[\s\S]*会话档案[\s\S]*class="compose-menu-item"[\s\S]*玩家便签/);
-    assert.match(conversationPanelSource, /class="compose-author-note-panel"[\s\S]*玩家便签[\s\S]*只对当前会话生效。/);
+    assert.match(conversationPanelSource, /id="xb-tavern-compose-menu"[\s\S]*:role="composeMenuView === 'authorNote' \? 'dialog' : 'menu'"[\s\S]*class="compose-menu-item"[\s\S]*新建会话[\s\S]*class="compose-menu-item"[\s\S]*会话档案[\s\S]*class="compose-menu-item"[\s\S]*玩家便签/);
+    assert.match(conversationPanelSource, /class="compose-author-note-panel"[\s\S]*玩家便签[\s\S]*只对当前会话生效。[\s\S]*class="compose-author-note-body"/);
+    assert.match(conversationPanelSource, /function closeAuthorNotePanel\(\) \{[\s\S]*if \(isMobileActionTrayViewport\.value\) \{[\s\S]*closeComposeMenu\(\);[\s\S]*return;[\s\S]*\}[\s\S]*composeMenuView\.value = 'menu';[\s\S]*\}/);
     assert.match(conversationPanelSource, /便签内容/);
     assert.match(conversationPanelSource, /主提示词后[\s\S]*主提示词前[\s\S]*聊天内 @ Depth/);
     assert.match(conversationPanelSource, /Depth[\s\S]*插入频率[\s\S]*Role/);
@@ -830,9 +831,13 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(composeCss, /\.compose-menu-popover\.is-author-note \{[\s\S]*width: min\(360px, calc\(100vw - 24px\)\);/);
     assert.match(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-menu-popover \{[\s\S]*position: absolute;[\s\S]*right: auto;[\s\S]*bottom: calc\(100% \+ 8px\);[\s\S]*left: 0;[\s\S]*width: min\(280px, calc\(100vw - 20px\)\);[\s\S]*max-height: calc\(100dvh - 82px - env\(safe-area-inset-top, 0px\) - env\(safe-area-inset-bottom, 0px\)\);/);
     assert.match(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-menu-popover\.is-author-note \{[\s\S]*width: min\(360px, calc\(100vw - 20px\)\);[\s\S]*height: min\(560px, calc\(100dvh - 82px - env\(safe-area-inset-top, 0px\) - env\(safe-area-inset-bottom, 0px\)\)\);[\s\S]*overflow: hidden;/);
-    assert.match(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-menu-popover\.is-author-note \.compose-author-note-panel \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: auto;[\s\S]*overscroll-behavior: contain;/);
+    assert.match(composeCss, /\.compose-author-note-panel \{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\) auto;[\s\S]*min-height: 0;/);
+    assert.match(composeCss, /\.compose-author-note-body \{[\s\S]*display: grid;[\s\S]*min-height: 0;/);
+    assert.match(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-menu-popover\.is-author-note \.compose-author-note-body \{[\s\S]*overflow: auto;[\s\S]*overscroll-behavior: contain;/);
     assert.match(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-author-note-field textarea \{[\s\S]*resize: none;[\s\S]*max-height: min\(190px, 34vh\);/);
-    assert.doesNotMatch(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-menu-popover \{[\s\S]*position: fixed;[\s\S]*bottom: calc\(10px \+ env\(safe-area-inset-bottom, 0px\)\);/);
+    assert.match(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-menu-popover\.is-author-note\.is-author-note-mobile \{[\s\S]*position: fixed;[\s\S]*inset: 0;[\s\S]*height: 100dvh;[\s\S]*border-radius: 0;/);
+    assert.match(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-menu-popover\.is-author-note\.is-author-note-mobile \.compose-author-note-panel \{[\s\S]*env\(safe-area-inset-top, 0px\)/);
+    assert.match(composeCss, /@media \(max-width: 980px\) \{[\s\S]*\.compose-menu-popover\.is-author-note\.is-author-note-mobile \.compose-author-note-panel \{[\s\S]*env\(safe-area-inset-bottom, 0px\)/);
     assert.doesNotMatch(composeCss, /left: max\(-8px, calc\(48px - 100vw\)\)/);
     assert.match(composeCss, /\.compose-author-note-segments \{[\s\S]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
     assert.match(composeCss, /\.compose-author-note-actions \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;/);

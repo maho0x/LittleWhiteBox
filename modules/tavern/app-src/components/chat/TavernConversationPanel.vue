@@ -253,6 +253,14 @@ function openAuthorNoteFromComposeMenu() {
     authorNoteStatus.value = '';
 }
 
+function closeAuthorNotePanel() {
+    if (isMobileActionTrayViewport.value) {
+        closeComposeMenu();
+        return;
+    }
+    composeMenuView.value = 'menu';
+}
+
 function patchAuthorNoteDraft(patch: Partial<XbTavernAuthorNote>) {
     authorNoteDraft.value = normalizeXbTavernAuthorNote({
         ...authorNoteDraft.value,
@@ -728,8 +736,14 @@ watch(isMobileActionTrayViewport, (isMobile) => {
             v-if="composeMenuOpen"
             id="xb-tavern-compose-menu"
             class="compose-menu-popover"
-            :class="{ 'is-author-note': composeMenuView === 'authorNote' }"
-            role="menu"
+            :class="{
+              'is-author-note': composeMenuView === 'authorNote',
+              'is-author-note-mobile': composeMenuView === 'authorNote' && isMobileActionTrayViewport,
+            }"
+            :role="composeMenuView === 'authorNote' ? 'dialog' : 'menu'"
+            :aria-modal="composeMenuView === 'authorNote' && isMobileActionTrayViewport ? 'true' : undefined"
+            :aria-label="composeMenuView === 'authorNote' ? '玩家便签' : undefined"
+            @keydown.esc.stop.prevent="closeComposeMenu"
             @click.stop
           >
             <template v-if="composeMenuView === 'menu'">
@@ -771,72 +785,74 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                 <button
                   type="button"
                   class="compose-author-note-back"
-                  aria-label="返回聊天操作"
-                  @click="composeMenuView = 'menu'"
+                  :aria-label="isMobileActionTrayViewport ? '关闭玩家便签' : '返回聊天操作'"
+                  @click="closeAuthorNotePanel"
                 />
               </header>
-              <label class="compose-author-note-field">
-                <span>便签内容</span>
-                <textarea
-                  v-model="authorNoteDraft.prompt"
-                  rows="6"
-                />
-              </label>
-              <div class="compose-author-note-field">
-                <span>插入位置</span>
-                <div class="compose-author-note-segments">
-                  <button
-                    v-for="item in authorNotePositionOptions"
-                    :key="item.value"
-                    type="button"
-                    :class="{ selected: Number(authorNoteDraft.position) === item.value }"
-                    @click="patchAuthorNoteDraft({ position: item.value })"
-                  >
-                    {{ item.label }}
-                  </button>
-                </div>
-              </div>
-              <div class="compose-author-note-grid">
+              <div class="compose-author-note-body">
                 <label class="compose-author-note-field">
-                  <span>Depth</span>
-                  <input
-                    v-model.number="authorNoteDraft.depth"
-                    type="number"
-                    min="0"
-                    max="9999"
-                  >
+                  <span>便签内容</span>
+                  <textarea
+                    v-model="authorNoteDraft.prompt"
+                    rows="6"
+                  />
                 </label>
-                <label class="compose-author-note-field">
-                  <span>插入频率</span>
-                  <input
-                    v-model.number="authorNoteDraft.interval"
-                    type="number"
-                    min="0"
-                    max="9999"
-                  >
-                </label>
-              </div>
-              <div class="compose-author-note-field">
-                <span>Role</span>
-                <div class="compose-author-note-segments">
-                  <button
-                    v-for="item in authorNoteRoleOptions"
-                    :key="item.value"
-                    type="button"
-                    :class="{ selected: Number(authorNoteDraft.role) === item.value }"
-                    @click="patchAuthorNoteDraft({ role: item.value })"
-                  >
-                    {{ item.label }}
-                  </button>
+                <div class="compose-author-note-field">
+                  <span>插入位置</span>
+                  <div class="compose-author-note-segments">
+                    <button
+                      v-for="item in authorNotePositionOptions"
+                      :key="item.value"
+                      type="button"
+                      :class="{ selected: Number(authorNoteDraft.position) === item.value }"
+                      @click="patchAuthorNoteDraft({ position: item.value })"
+                    >
+                      {{ item.label }}
+                    </button>
+                  </div>
                 </div>
+                <div class="compose-author-note-grid">
+                  <label class="compose-author-note-field">
+                    <span>Depth</span>
+                    <input
+                      v-model.number="authorNoteDraft.depth"
+                      type="number"
+                      min="0"
+                      max="9999"
+                    >
+                  </label>
+                  <label class="compose-author-note-field">
+                    <span>插入频率</span>
+                    <input
+                      v-model.number="authorNoteDraft.interval"
+                      type="number"
+                      min="0"
+                      max="9999"
+                    >
+                  </label>
+                </div>
+                <div class="compose-author-note-field">
+                  <span>Role</span>
+                  <div class="compose-author-note-segments">
+                    <button
+                      v-for="item in authorNoteRoleOptions"
+                      :key="item.value"
+                      type="button"
+                      :class="{ selected: Number(authorNoteDraft.role) === item.value }"
+                      @click="patchAuthorNoteDraft({ role: item.value })"
+                    >
+                      {{ item.label }}
+                    </button>
+                  </div>
+                </div>
+                <label class="compose-author-note-check">
+                  <input
+                    v-model="authorNoteDraft.scan"
+                    type="checkbox"
+                  >
+                  <span>参与世界书扫描</span>
+                </label>
               </div>
-              <label class="compose-author-note-check">
-                <input
-                  v-model="authorNoteDraft.scan"
-                  type="checkbox"
-                >
-                <span>参与世界书扫描</span>
-              </label>
               <footer class="compose-author-note-actions">
                 <span>{{ authorNoteStatus || '0 禁用，1 每次，N 每 N 次用户输入' }}</span>
                 <button

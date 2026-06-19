@@ -164,8 +164,16 @@
 
 .compose-author-note-panel {
     display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     gap: 10px;
+    min-height: 0;
     color: var(--xb-ink);
+}
+
+.compose-author-note-body {
+    display: grid;
+    gap: 10px;
+    min-height: 0;
 }
 
 .compose-author-note-head {
@@ -502,6 +510,9 @@
     .compose-menu-popover.is-author-note .compose-author-note-panel {
         height: 100%;
         min-height: 0;
+    }
+
+    .compose-menu-popover.is-author-note .compose-author-note-body {
         overflow: auto;
         overscroll-behavior: contain;
     }
@@ -513,6 +524,47 @@
 
     .compose-author-note-grid {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .compose-menu-popover.is-author-note.is-author-note-mobile {
+        position: fixed;
+        inset: 0;
+        z-index: 140;
+        width: 100vw;
+        width: 100dvw;
+        max-width: none;
+        max-height: none;
+        height: 100vh;
+        height: 100dvh;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 0;
+    }
+
+    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-panel {
+        gap: 12px;
+        padding:
+            calc(14px + env(safe-area-inset-top, 0px))
+            16px
+            calc(16px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-head {
+        padding: 0 0 10px;
+    }
+
+    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-body {
+        padding-bottom: 2px;
+    }
+
+    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-back {
+        width: 32px;
+        height: 32px;
+    }
+
+    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-actions {
+        padding-top: 10px;
     }
 
     .chat-compose>button {
