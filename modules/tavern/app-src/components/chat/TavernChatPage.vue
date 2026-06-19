@@ -21,6 +21,13 @@ import {
     type TavernContractPermissionKey,
     type TavernSessionContract,
 } from '../../../shared/session-contract';
+import {
+    DEFAULT_XB_TAVERN_AUTHOR_NOTE,
+    XBTavernAuthorNotePosition,
+    XBTavernPromptRole,
+    normalizeXbTavernAuthorNote,
+    type XbTavernAuthorNote,
+} from '../../../shared/message-assembler';
 
 const shell = useTavernShellContext();
 const chat = useTavernChatContext();
@@ -37,6 +44,8 @@ const {
     chatAutoScroll,
     chatLayout,
     chatScrollRef,
+    currentAuthorNote,
+    saveCurrentAuthorNote,
     chatSidePanel,
     updateChatScrollButtons,
 } = chat;
@@ -66,10 +75,25 @@ const quickSettingsOpen = ref<'api' | 'chatPreset' | 'worldbooks' | null>(null);
 const contractSaving = ref(false);
 const contractError = ref('');
 const contractDraft = ref<TavernSessionContract>(normalizeTavernSessionContract(sessionContract.value));
+const authorNoteModalOpen = ref(false);
+const authorNoteDraft = ref<XbTavernAuthorNote>(normalizeXbTavernAuthorNote(DEFAULT_XB_TAVERN_AUTHOR_NOTE));
+const authorNoteSaving = ref(false);
+const authorNoteStatus = ref('');
 const mobileChatPanel = ref<'none' | 'directory' | 'workspace'>('none');
 const mobileMemoryDirectoryOpen = ref(false);
 
 const contractDraftDirty = computed(() => JSON.stringify(contractDraft.value) !== JSON.stringify(sessionContract.value));
+
+const authorNotePositionOptions = [
+    { value: XBTavernAuthorNotePosition.AFTER_MAIN, label: '主提示词后' },
+    { value: XBTavernAuthorNotePosition.BEFORE_MAIN, label: '主提示词前' },
+    { value: XBTavernAuthorNotePosition.IN_CHAT, label: '聊天内 @ Depth' },
+];
+const authorNoteRoleOptions = [
+    { value: XBTavernPromptRole.SYSTEM, label: 'System' },
+    { value: XBTavernPromptRole.USER, label: 'User' },
+    { value: XBTavernPromptRole.ASSISTANT, label: 'Assistant' },
+];
 
 function closeMobileChatPanel() {
     mobileChatPanel.value = 'none';
@@ -145,6 +169,42 @@ function closeQuickSettingsModal() {
     quickSettingsOpen.value = null;
 }
 
+function openAuthorNoteModal() {
+    closeMobileChatPanel();
+    quickSettingsOpen.value = null;
+    authorNoteDraft.value = normalizeXbTavernAuthorNote(currentAuthorNote.value);
+    authorNoteStatus.value = '';
+    authorNoteModalOpen.value = true;
+}
+
+function closeAuthorNoteModal() {
+    authorNoteStatus.value = '';
+    authorNoteModalOpen.value = false;
+}
+
+function patchAuthorNoteDraft(patch: Partial<XbTavernAuthorNote>) {
+    authorNoteDraft.value = normalizeXbTavernAuthorNote({
+        ...authorNoteDraft.value,
+        ...patch,
+    });
+}
+
+async function saveAuthorNoteDraft() {
+    if (authorNoteSaving.value) {return;}
+    authorNoteSaving.value = true;
+    authorNoteStatus.value = '';
+    try {
+        const normalized = normalizeXbTavernAuthorNote(authorNoteDraft.value);
+        await saveCurrentAuthorNote(normalized);
+        authorNoteDraft.value = normalized;
+        authorNoteStatus.value = '已保存';
+    } catch (error) {
+        authorNoteStatus.value = error instanceof Error ? error.message : String(error || '保存失败');
+    } finally {
+        authorNoteSaving.value = false;
+    }
+}
+
 function setChatApiSettingsRootRef(element: Element | null) {
     apiSettingsRootRef.value = element instanceof HTMLElement ? element : null;
 }
@@ -191,7 +251,14 @@ watch(() => selectedSessionId.value, () => {
 watch(() => activeView.value, (view) => {
     if (view !== 'chat') {
         quickSettingsOpen.value = null;
+        authorNoteModalOpen.value = false;
     }
+});
+
+watch(() => selectedSessionId.value, () => {
+    authorNoteStatus.value = '';
+    authorNoteModalOpen.value = false;
+    authorNoteDraft.value = normalizeXbTavernAuthorNote(currentAuthorNote.value);
 });
 
 onBeforeUpdate(() => {
@@ -481,6 +548,7 @@ onUpdated(() => {
       <div class="chat-flip-card">
         <TavernConversationPanel
           @open-contract="openContractModal"
+          @open-author-note="openAuthorNoteModal"
           @open-session-archive="openMobileSessionsPanel"
         />
         <TavernManagerPanel @open-contract="openContractModal" />
@@ -504,6 +572,105 @@ onUpdated(() => {
       @toggle="toggleContractDraft"
       @save="sealContract"
     />
+    <div
+      v-if="authorNoteModalOpen"
+      class="compose-author-note-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="compose-author-note-title"
+      @keydown.esc="closeAuthorNoteModal"
+    >
+      <form
+        class="compose-author-note-dialog compose-author-note-panel"
+        @submit.prevent="saveAuthorNoteDraft"
+      >
+        <header class="compose-author-note-head">
+          <div>
+            <strong id="compose-author-note-title">玩家便签</strong>
+            <span>只对当前会话生效。</span>
+          </div>
+          <button
+            type="button"
+            class="compose-author-note-back"
+            aria-label="关闭玩家便签"
+            @click="closeAuthorNoteModal"
+          />
+        </header>
+        <div class="compose-author-note-body">
+          <label class="compose-author-note-field">
+            <span>便签内容</span>
+            <textarea
+              v-model="authorNoteDraft.prompt"
+              rows="6"
+            />
+          </label>
+          <div class="compose-author-note-field">
+            <span>插入位置</span>
+            <div class="compose-author-note-segments">
+              <button
+                v-for="item in authorNotePositionOptions"
+                :key="item.value"
+                type="button"
+                :class="{ selected: Number(authorNoteDraft.position) === item.value }"
+                @click="patchAuthorNoteDraft({ position: item.value })"
+              >
+                {{ item.label }}
+              </button>
+            </div>
+          </div>
+          <div class="compose-author-note-grid">
+            <label class="compose-author-note-field">
+              <span>Depth</span>
+              <input
+                v-model.number="authorNoteDraft.depth"
+                type="number"
+                min="0"
+                max="9999"
+              >
+            </label>
+            <label class="compose-author-note-field">
+              <span>插入频率</span>
+              <input
+                v-model.number="authorNoteDraft.interval"
+                type="number"
+                min="0"
+                max="9999"
+              >
+            </label>
+          </div>
+          <div class="compose-author-note-field">
+            <span>Role</span>
+            <div class="compose-author-note-segments">
+              <button
+                v-for="item in authorNoteRoleOptions"
+                :key="item.value"
+                type="button"
+                :class="{ selected: Number(authorNoteDraft.role) === item.value }"
+                @click="patchAuthorNoteDraft({ role: item.value })"
+              >
+                {{ item.label }}
+              </button>
+            </div>
+          </div>
+          <label class="compose-author-note-check">
+            <input
+              v-model="authorNoteDraft.scan"
+              type="checkbox"
+            >
+            <span>参与世界书扫描</span>
+          </label>
+        </div>
+        <footer class="compose-author-note-actions">
+          <span>{{ authorNoteStatus || '0 禁用，1 每次，N 每 N 次用户输入' }}</span>
+          <button
+            type="submit"
+            :disabled="authorNoteSaving"
+          >
+            {{ authorNoteSaving ? '保存中...' : '保存' }}
+          </button>
+        </footer>
+      </form>
+    </div>
     <div
       v-if="quickSettingsOpen"
       class="chat-quick-settings-overlay"
@@ -529,7 +696,10 @@ onUpdated(() => {
             ×
           </button>
         </header>
-        <div class="chat-quick-settings-body">
+        <div
+          class="chat-quick-settings-body"
+          :class="quickSettingsLayoutClass"
+        >
           <div
             v-if="quickSettingsOpen === 'api'"
             :ref="setChatApiSettingsRootRef"

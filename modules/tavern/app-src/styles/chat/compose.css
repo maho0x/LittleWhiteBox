@@ -123,11 +123,6 @@
     padding: 5px;
 }
 
-.compose-menu-popover.is-author-note {
-    width: min(360px, calc(100vw - 24px));
-    padding: 8px;
-}
-
 .tavern-chat.xb-page .chat-compose {
     position: relative;
     z-index: 1;
@@ -162,6 +157,28 @@
     color: var(--xb-stamp);
 }
 
+.compose-author-note-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 98;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(14px);
+    padding: 28px;
+}
+
+.compose-author-note-dialog {
+    width: min(420px, 100%);
+    max-height: min(86vh, 680px);
+    overflow: hidden;
+    border: 1px solid var(--xb-rule);
+    border-radius: 16px;
+    background: var(--xb-chat-pop-bg);
+    box-shadow: var(--xb-shadow);
+    padding: 12px;
+}
+
 .compose-author-note-panel {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
@@ -174,6 +191,11 @@
     display: grid;
     gap: 10px;
     min-height: 0;
+}
+
+.compose-author-note-dialog .compose-author-note-body {
+    overflow: auto;
+    overscroll-behavior: contain;
 }
 
 .compose-author-note-head {
@@ -500,23 +522,6 @@
         padding: 8px;
     }
 
-    .compose-menu-popover.is-author-note {
-        width: min(360px, calc(100vw - 20px));
-        height: min(560px, calc(100vh - 82px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
-        height: min(560px, calc(100dvh - 82px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
-        overflow: hidden;
-    }
-
-    .compose-menu-popover.is-author-note .compose-author-note-panel {
-        height: 100%;
-        min-height: 0;
-    }
-
-    .compose-menu-popover.is-author-note .compose-author-note-body {
-        overflow: auto;
-        overscroll-behavior: contain;
-    }
-
     .compose-author-note-field textarea {
         resize: none;
         max-height: min(190px, 34vh);
@@ -526,44 +531,46 @@
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .compose-menu-popover.is-author-note.is-author-note-mobile {
-        position: fixed;
+    .compose-author-note-overlay {
         inset: 0;
-        z-index: 140;
-        width: 100vw;
-        width: 100dvw;
-        max-width: none;
-        max-height: none;
-        height: 100vh;
-        height: 100dvh;
-        border: 0;
-        border-radius: 0;
-        box-shadow: none;
         padding: 0;
     }
 
-    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-panel {
+    .compose-author-note-dialog {
+        grid-template-rows: auto minmax(0, 1fr) auto;
         gap: 12px;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        max-height: none;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        overflow: hidden;
+        box-sizing: border-box;
         padding:
             calc(14px + env(safe-area-inset-top, 0px))
             16px
             calc(16px + env(safe-area-inset-bottom, 0px));
     }
 
-    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-head {
+    .compose-author-note-dialog .compose-author-note-head {
         padding: 0 0 10px;
     }
 
-    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-body {
+    .compose-author-note-dialog .compose-author-note-body {
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
         padding-bottom: 2px;
     }
 
-    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-back {
+    .compose-author-note-dialog .compose-author-note-back {
         width: 32px;
         height: 32px;
     }
 
-    .compose-menu-popover.is-author-note.is-author-note-mobile .compose-author-note-actions {
+    .compose-author-note-dialog .compose-author-note-actions {
         padding-top: 10px;
     }
 
