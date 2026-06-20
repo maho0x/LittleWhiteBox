@@ -133,6 +133,7 @@ export interface TavernManagerRunRecord {
     toolTrace?: unknown;
     changedFiles?: string[];
     changedStates?: string[];
+    changedTasks?: string[];
     error?: string;
     createdAt: number;
     updatedAt: number;
@@ -504,6 +505,27 @@ class TavernDatabase extends Dexie {
             managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
             taskFingerprintStates: 'sessionId, updatedAt',
         });
+        this.version(7).stores({
+            sessions: 'id, updatedAt, characterId, characterName',
+            messages: '[sessionId+order], sessionId, order',
+            managerMessages: '[sessionId+order], sessionId, order',
+            meta: 'key',
+            presets: 'id, updatedAt, sourcePresetId',
+            managerRuns: 'id, sessionId, status, turn, updatedAt',
+            memoryFiles: '[sessionId+path], sessionId, path, status, updatedAt',
+            memoryStateSnapshots: null,
+            memorySnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            memoryIndexes: '[sessionId+kind], sessionId, kind, status, updatedAt',
+            assistantPresets: 'id, updatedAt',
+            managerMemorySnapshots: '[managerRunId+path], managerRunId, sessionId, path, updatedAt',
+            stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
+            statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
+            managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
+            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
+            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
+            taskFingerprintStates: 'sessionId, updatedAt',
+        });
     }
 }
 
@@ -818,7 +840,7 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 indexes.length ? tavernMemoryIndexesTable.bulkDelete(indexes.map((index) => [index.sessionId, index.kind])) : 0,
                 stateDocuments.length ? tavernStateDocumentsTable.bulkDelete(stateDocuments.map((document) => [document.sessionId, document.docType, document.docId])) : 0,
                 statePatches.length ? tavernStatePatchesTable.bulkDelete(statePatches.map((patch) => patch.id)) : 0,
-                tasks.length ? tavernTasksTable.bulkDelete(tasks.map((task) => task.id)) : 0,
+                tasks.length ? tavernTasksTable.bulkDelete(tasks.map((task) => [task.sessionId, task.id])) : 0,
                 taskSnapshots.length ? tavernTaskSnapshotsTable.bulkDelete(taskSnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
                 fingerprintStates.length ? tavernTaskFingerprintStatesTable.bulkDelete(fingerprintStates.map((state) => state.sessionId)) : 0,
             ]);
@@ -1159,6 +1181,7 @@ export async function createTavernManagerRun(input: Partial<TavernManagerRunReco
         toolTrace: 'toolTrace' in input ? cloneSerializable(input.toolTrace, undefined) : undefined,
         changedFiles: normalizeStringArray(input.changedFiles, 100),
         changedStates: normalizeStringArray(input.changedStates, 100),
+        changedTasks: normalizeStringArray(input.changedTasks, 100),
         error: String(input.error || ''),
         createdAt: Number(input.createdAt) || timestamp,
         updatedAt: timestamp,
@@ -1188,6 +1211,7 @@ export async function updateTavernManagerRun(
     if ('toolTrace' in patch) {update.toolTrace = cloneSerializable(patch.toolTrace, undefined);}
     if ('changedFiles' in patch) {update.changedFiles = normalizeStringArray(patch.changedFiles, 100);}
     if ('changedStates' in patch) {update.changedStates = normalizeStringArray(patch.changedStates, 100);}
+    if ('changedTasks' in patch) {update.changedTasks = normalizeStringArray(patch.changedTasks, 100);}
     if ('turn' in patch) {update.turn = Math.max(0, Number(patch.turn) || 0);}
     if ('userOrder' in patch) {update.userOrder = Number(patch.userOrder);}
     if ('assistantOrder' in patch) {update.assistantOrder = Number(patch.assistantOrder);}

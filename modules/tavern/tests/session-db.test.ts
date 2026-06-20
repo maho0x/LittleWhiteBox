@@ -2091,6 +2091,37 @@ test('TaskPatch maintains active, completed, and abandoned event tasks', async (
     assert.equal(recreated.error, 'task_fingerprint_abandoned');
 });
 
+test('TaskPatch task ids are scoped by session', async () => {
+    await db.delete();
+    await db.open();
+
+    const left = await createTavernSession({ title: 'Left tasks' });
+    const right = await createTavernSession({ title: 'Right tasks' });
+    const taskArgs = {
+        op: 'upsert-task',
+        taskId: 'dock-name',
+        horizon: '弄清码头名字',
+        current: '找到码头名字',
+        hookForUser: '码头名字仍然含糊。',
+        hookForModel: '码头名字在对话里轻轻擦过。',
+    };
+
+    const leftCreate = await executeTavernTaskTool(left.id, 'TaskPatch', {
+        ...taskArgs,
+        fingerprint: 'left:dock',
+    }, { sourceAssistantOrder: 5 });
+    const rightCreate = await executeTavernTaskTool(right.id, 'TaskPatch', {
+        ...taskArgs,
+        fingerprint: 'right:dock',
+        current: '追问右侧会话的码头名字',
+    }, { sourceAssistantOrder: 5 });
+
+    assert.equal(leftCreate.ok, true);
+    assert.equal(rightCreate.ok, true);
+    assert.deepEqual((await listTavernTasks(left.id)).map((task) => `${task.id}:${task.current}`), ['dock-name:找到码头名字']);
+    assert.deepEqual((await listTavernTasks(right.id)).map((task) => `${task.id}:${task.current}`), ['dock-name:追问右侧会话的码头名字']);
+});
+
 test('TaskPatch enforces auto generation floor, pool cap, and hook wording guards', async () => {
     await db.delete();
     await db.open();
@@ -2285,6 +2316,64 @@ test('manager task snapshot rolls back failed event writes', async () => {
     assert.equal(run?.status, 'rolled_back');
 });
 
+test('manager TaskPatch writes are counted in run summaries', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager task summary' });
+    await appendTavernMessage(session.id, { role: 'user', content: '前情一。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '前情二。' });
+    await appendTavernMessage(session.id, { role: 'user', content: '前情三。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '前情四。' });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '她提到了码头。' });
+    let calls = 0;
+
+    const result = await runXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: {},
+        userMessage,
+        assistantMessage,
+        turn: 6,
+        sessionContract: mergeTavernSessionContract(undefined, {
+            memoryArchiving: false,
+            cartographyEngine: false,
+            questOrchestration: true,
+        }),
+        executeManagerOnce: async () => {
+            calls += 1;
+            if (calls === 1) {
+                return {
+                    provider: 'fake-manager',
+                    model: 'task-model',
+                    text: '创建事件线索。',
+                    toolCalls: [{
+                        id: 'task',
+                        name: 'TaskPatch',
+                        arguments: {
+                            op: 'upsert-task',
+                            taskId: 'counted-task',
+                            fingerprint: 'counted-task',
+                            horizon: '统计远景',
+                            current: '统计当前',
+                            hookForUser: '统计说明。',
+                            hookForModel: '统计软句。',
+                        },
+                    }],
+                };
+            }
+            return { provider: 'fake-manager', model: 'task-model', text: '' };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.changedTasks, ['task/counted-task']);
+    const run = (await listTavernManagerRuns(session.id))[0];
+    assert.deepEqual(run?.changedTasks, ['task/counted-task']);
+    assert.equal(run?.parsedAction, 'manager_state_updated');
+    assert.match(run?.outputText || '', /1 条事件线索/);
+});
+
 test('stale active tasks are abandoned internally with fingerprints', async () => {
     await db.delete();
     await db.open();
@@ -2438,6 +2527,40 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
     assert.doesNotMatch(mapPrompt, /MemoryWrite/);
     assert.doesNotMatch(mapPrompt, /memory\/session\.md/);
     assert.doesNotMatch(mapPrompt, /建议流水路径：/);
+
+    const questSession = await createTavernSession({ title: 'Quest prompt' });
+    await executeTavernTaskTool(questSession.id, 'TaskPatch', {
+        op: 'upsert-task',
+        taskId: 'existing-hook',
+        fingerprint: 'existing-hook',
+        horizon: '弄清旧码头',
+        current: '让旧码头名字自然浮出',
+        hookForUser: '莉娜绕开旧码头名字。',
+        hookForModel: '莉娜听见旧码头时短暂停顿。',
+    }, { sourceAssistantOrder: 5 });
+    const questUser = await appendTavernMessage(questSession.id, { role: 'user', content: '继续。' });
+    const questAssistant = await appendTavernMessage(questSession.id, { role: 'assistant', content: '莉娜没有接码头这个话题。' });
+    let questPrompt = '';
+    await runXbTavernManagerAfterTurn({
+        sessionId: questSession.id,
+        agentConfig: {},
+        userMessage: questUser,
+        assistantMessage: questAssistant,
+        turn: 6,
+        sessionContract: mergeTavernSessionContract(undefined, {
+            memoryArchiving: false,
+            cartographyEngine: false,
+            questOrchestration: true,
+        }),
+        executeManagerOnce: async (options) => {
+            questPrompt = JSON.stringify(options.messages);
+            return { provider: 'fake-manager', model: 'quest-only', text: '已检查。' };
+        },
+    });
+    assert.match(questPrompt, /\[Current Event Pool\]/);
+    assert.match(questPrompt, /id: existing-hook/);
+    assert.match(questPrompt, /Active count: 1\/3/);
+    assert.doesNotMatch(questPrompt, /\[Resident Memory Files\]/);
 });
 
 test('tavern auto manager denies unauthorized MemoryWrite without side effects', async () => {

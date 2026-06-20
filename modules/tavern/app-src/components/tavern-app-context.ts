@@ -328,6 +328,7 @@ export interface TavernManagerContext {
     formatRunMapLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     formatRunMemoryLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     formatRunModelLine: TavernCommand<[run: TavernManagerRunRecord], string>;
+    formatRunTaskLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     handleManagerComposeKeydown: TavernCommand<[event: KeyboardEvent]>;
     handleEditInput: TavernCommand<[event: Event]>;
     handleManagerEditKeydown: TavernCommand<[event: KeyboardEvent, message: TavernManagerMessageRecord]>;

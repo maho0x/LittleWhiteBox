@@ -72,7 +72,7 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
     const injectedContextLines = [
         includeMemory ? '`[Resident Memory Files]` automatically provides the current global memory file, `memory/state.md`. Character memory files are not all resident; use MemoryList / MemoryRead for relevant `memory/characters/<角色名>.md` files when needed.' : '',
         includeMemory ? 'Automatic after-turn maintenance receives this turn\'s completed user message and assistant reply. Update memory only when the assistant reply makes a fact or state actually established.' : '',
-        includeQuestOrchestration ? 'The event pool is not preloaded as prose. Use TaskPatch to maintain it, and rely on the current turn plus established memory/map evidence.' : '',
+        includeQuestOrchestration ? '`[Current Event Pool]` provides the current active and recently completed event directions for backstage maintenance only. Use it to advance, complete, or decide whether the pool is low.' : '',
         'Manual manager chat receives the manager\'s own conversation history and the current user question. RP source text is not fully preloaded; use ChatHistory when evidence is needed.',
     ];
 

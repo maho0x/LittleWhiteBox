@@ -604,6 +604,7 @@ test('tavern manager display projection stays out of the app controller', () => 
         'formatRunMapLine',
         'formatRunMemoryLine',
         'formatRunModelLine',
+        'formatRunTaskLine',
         'managerRunTone',
         'managerToolTraceItems',
         'toolTraceSummary',

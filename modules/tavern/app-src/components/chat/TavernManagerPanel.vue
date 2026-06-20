@@ -43,6 +43,7 @@ const {
     formatRunMapLine,
     formatRunMemoryLine,
     formatRunModelLine,
+    formatRunTaskLine,
     handleEditInput,
     handleManagerComposeKeydown,
     handleManagerEditKeydown,
@@ -503,6 +504,7 @@ watch(
               <div class="manager-work-status-grid">
                 <p>{{ formatRunMemoryLine(currentManagerWorkRun) }}</p>
                 <p>{{ formatRunMapLine(currentManagerWorkRun) }}</p>
+                <p>{{ formatRunTaskLine(currentManagerWorkRun) }}</p>
               </div>
               <p v-if="currentManagerWorkRun.outputText">
                 结果：{{ shortText(currentManagerWorkRun.outputText, 180) }}

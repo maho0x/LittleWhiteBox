@@ -33,6 +33,7 @@ import {
 import { executeTavernStateTool, TAVERN_STATE_TOOL_NAMES, type TavernStateToolResult } from '../../shared/structured-state';
 import {
     abandonStaleTavernTasks,
+    buildTavernTaskPoolPromptBlock,
     executeTavernTaskTool,
     listTavernManagerTaskSnapshots,
     rollbackManagerRunTaskWrites,
@@ -114,6 +115,7 @@ export interface XbTavernManagerRunResult {
     managerRun: TavernManagerRunRecord;
     changedFiles?: string[];
     changedStates?: string[];
+    changedTasks?: string[];
     error?: string;
 }
 
@@ -145,6 +147,7 @@ export interface XbTavernManagerChatResult {
     model: string;
     changedFiles: string[];
     changedStates: string[];
+    changedTasks: string[];
     protocolMessages: XbTavernMessage[];
     error?: string;
 }
@@ -235,6 +238,7 @@ function buildAutoManagerUserPrompt(input: {
     userMessage: TavernMessageRecord;
     assistantMessage: TavernMessageRecord;
     memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>;
+    taskPoolBlock?: string;
     runtime: TavernSessionContractRuntime;
 }): string {
     const allowMemory = input.runtime.managerPromptOptions.includeMemory;
@@ -271,6 +275,7 @@ function buildAutoManagerUserPrompt(input: {
 
     const blocks = [
         ...(allowMemory ? [buildResidentMemoryBlock(input.memoryFiles), ''] : []),
+        ...(allowQuest ? [String(input.taskPoolBlock || '[Current Event Pool]\nActive directions: unknown.').trim(), ''] : []),
         '[本轮 RP 原文]',
         '[用户消息]',
         input.userMessage.content,
@@ -474,6 +479,7 @@ async function runManagerAgentWithTools(input: {
     toolTrace: Array<Record<string, unknown>>;
     changedFiles: string[];
     changedStates: string[];
+    changedTasks: string[];
     protocolMessages: XbTavernMessage[];
 }> {
     const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
@@ -496,6 +502,7 @@ async function runManagerAgentWithTools(input: {
     const protocolMessages: XbTavernMessage[] = [];
     const changedFiles = new Set<string>();
     const changedStates = new Set<string>();
+    const changedTasks = new Set<string>();
     let resultProvider = '';
     let resultModel = '';
     let reminded = false;
@@ -579,6 +586,7 @@ async function runManagerAgentWithTools(input: {
                 toolTrace,
                 changedFiles: [...changedFiles],
                 changedStates: [...changedStates],
+                changedTasks: [...changedTasks],
                 protocolMessages: [
                     ...protocolMessages,
                     finalAssistantMessage,
@@ -656,6 +664,9 @@ async function runManagerAgentWithTools(input: {
             }
             if (toolResult.changed && resultStateKey) {
                 changedStates.add(resultStateKey);
+            }
+            if (toolResult.changed && resultTaskKey) {
+                changedTasks.add(resultTaskKey);
             }
             Object.assign(traceEntry, {
                 status: 'resolved',
@@ -773,6 +784,9 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput): Promise
     const memoryFiles = contractRuntime.includeMemoryFiles
         ? await listTavernMemoryFiles(input.sessionId, { includeStale: true })
         : [];
+    const taskPoolBlock = contractRuntime.includeQuestOrchestration
+        ? await buildTavernTaskPoolPromptBlock(input.sessionId)
+        : '';
     return [
         {
             role: 'system',
@@ -785,6 +799,7 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput): Promise
                 userMessage: input.userMessage,
                 assistantMessage: input.assistantMessage,
                 memoryFiles,
+                taskPoolBlock,
                 runtime: contractRuntime,
             }),
         },
@@ -867,6 +882,7 @@ async function runManagerTask(input: {
     toolTrace: Array<Record<string, unknown>>;
     changedFiles: string[];
     changedStates: string[];
+    changedTasks: string[];
     protocolMessages: XbTavernMessage[];
     error?: string;
 }> {
@@ -887,6 +903,7 @@ async function runManagerTask(input: {
     let toolTrace: Array<Record<string, unknown>> = [];
     let changedFiles: string[] = [];
     let changedStates: string[] = [];
+    let changedTasks: string[] = [];
     let protocolMessages: XbTavernMessage[] = [];
     const stopHeartbeat = startManagerRunHeartbeat(managerRun.id, input.signal);
     try {
@@ -912,6 +929,7 @@ async function runManagerTask(input: {
         toolTrace = result.toolTrace;
         changedFiles = result.changedFiles;
         changedStates = result.changedStates;
+        changedTasks = result.changedTasks;
         protocolMessages = result.protocolMessages;
         if (input.caller !== 'auto' && hasFailedTool(toolTrace)) {
             throw new Error('manager_memory_tool_failed');
@@ -920,15 +938,20 @@ async function runManagerTask(input: {
             throw new Error('manager_memory_tool_required');
         }
         await rebuildTavernMemoryDerivedIndex(input.sessionId);
+        const changedCount = changedFiles.length + changedStates.length + changedTasks.length;
+        const defaultOutput = changedCount
+            ? `已维护 ${changedFiles.length} 个记忆文件、${changedStates.length} 份结构化状态、${changedTasks.length} 条事件线索。`
+            : '已检查并回复。';
         const completed = await finalizeManagerRun(managerRun, {
             status: 'completed',
             provider: resultProvider,
             model: resultModel,
-            outputText: resultText || (changedFiles.length || changedStates.length ? `已维护 ${changedFiles.length} 个记忆文件、${changedStates.length} 份结构化状态。` : '已检查并回复。'),
-            parsedAction: changedFiles.length || changedStates.length ? 'manager_state_updated' : 'memory_checked',
+            outputText: resultText || defaultOutput,
+            parsedAction: changedCount ? 'manager_state_updated' : 'memory_checked',
             toolTrace,
             changedFiles,
             changedStates,
+            changedTasks,
             error: '',
         });
         return {
@@ -940,6 +963,7 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
+            changedTasks,
             protocolMessages,
         };
     } catch (error) {
@@ -953,6 +977,7 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
+            changedTasks,
             error: errorText,
         });
         const rolledBack = input.caller === 'auto' || ['cancelled', 'superseded'].includes(status)
@@ -970,6 +995,7 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
+            changedTasks,
             protocolMessages,
             error: errorText,
         };
@@ -1141,6 +1167,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             managerRun: skipped!,
             changedFiles: [],
             changedStates: [],
+            changedTasks: [],
         };
     }
     const inputSummary = buildInputSummary({
@@ -1209,12 +1236,14 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             });
         }
         const changedFiles = [...(result.changedFiles || [])];
+        const changedTasks = [...(result.changedTasks || [])];
         const completedRun = result.managerRun;
         return {
             ok: true,
             managerRun: completedRun,
             changedFiles,
             changedStates: result.changedStates,
+            changedTasks,
         };
     } catch (error) {
         const errorText = error instanceof Error ? error.message : String(error || 'manager_failed');
@@ -1273,6 +1302,7 @@ export async function runXbTavernManagerChat(input: XbTavernManagerChatInput): P
         model: result.model,
         changedFiles: result.changedFiles,
         changedStates: result.changedStates,
+        changedTasks: result.changedTasks,
         protocolMessages: result.protocolMessages,
         error: result.error,
     };

@@ -153,8 +153,7 @@ export async function getTavernTask(sessionId = '', taskId = ''): Promise<Tavern
     const id = String(sessionId || '').trim();
     const normalizedTaskId = normalizeTaskId(taskId);
     if (!id || !normalizedTaskId) {return null;}
-    const task = await tavernTasksTable.get(normalizedTaskId);
-    return task?.sessionId === id ? task : null;
+    return await tavernTasksTable.get([id, normalizedTaskId]) || null;
 }
 
 export async function getAbandonedTaskFingerprints(sessionId = ''): Promise<string[]> {
@@ -257,7 +256,7 @@ export async function restoreTavernTasksToFloor(sessionId = '', targetFloor = -1
         const snapshot = await getLatestTavernTaskSnapshot(id, targetFloor);
         const currentTasks = await tavernTasksTable.where('sessionId').equals(id).toArray();
         if (currentTasks.length) {
-            await tavernTasksTable.bulkDelete(currentTasks.map((task) => task.id));
+            await tavernTasksTable.bulkDelete(currentTasks.map((task) => [task.sessionId, task.id]));
         }
         if (!snapshot) {
             await putAbandonedTaskFingerprints(id, []);
@@ -351,7 +350,7 @@ export async function rollbackManagerRunTaskWrites(managerRunId = ''): Promise<{
     await db.transaction('rw', tavernTasksTable, tavernTaskFingerprintStatesTable, tavernManagerTaskSnapshotsTable, tavernManagerRunsTable, async () => {
         const currentTasks = await tavernTasksTable.where('sessionId').equals(snapshot.sessionId).toArray();
         if (currentTasks.length) {
-            await tavernTasksTable.bulkDelete(currentTasks.map((task) => task.id));
+            await tavernTasksTable.bulkDelete(currentTasks.map((task) => [task.sessionId, task.id]));
         }
         if (snapshot.beforeTasks.length) {
             await tavernTasksTable.bulkPut(snapshot.beforeTasks.map((task) => cloneJson(task)));
@@ -577,6 +576,31 @@ export async function getLatestQuestHooksForPrompt(sessionId = '', limit = 1): P
         .filter((hook) => !hasTaskHookMetaWords(hook))
         .filter(Boolean)
         .slice(0, Math.max(1, Math.min(3, Math.floor(Number(limit) || 1))));
+}
+
+export async function buildTavernTaskPoolPromptBlock(sessionId = ''): Promise<string> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return '[Current Event Pool]\nNo session.';}
+    const tasks = await listTavernTasks(id, { includeCompleted: true });
+    const active = tasks.filter((task) => task.status === 'active');
+    const completed = tasks.filter((task) => task.status === 'completed').slice(0, 5);
+    const lines = [
+        '[Current Event Pool]',
+        `Active count: ${active.length}/${TAVERN_TASK_MAX_ACTIVE}`,
+        active.length ? 'Active directions:' : 'Active directions: none.',
+        ...active.map((task) => [
+            `- id: ${task.id}`,
+            `  current: ${task.current}`,
+            `  horizon: ${task.horizon}`,
+            `  user hook: ${task.hookForUser}`,
+            `  fingerprint: ${task.fingerprint}`,
+            `  last advanced floor: ${task.lastAdvancedOrder}`,
+        ].join('\n')),
+        completed.length ? 'Recently completed:' : '',
+        ...completed.map((task) => `- id: ${task.id}; current: ${task.current}; completed floor: ${task.completedOrder ?? task.updatedOrder}; fingerprint: ${task.fingerprint}`),
+        'Abandoned directions are hidden; TaskPatch will reject abandoned fingerprints.',
+    ].filter(Boolean);
+    return lines.join('\n');
 }
 
 export function getTavernTaskToolDefinitions(): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
