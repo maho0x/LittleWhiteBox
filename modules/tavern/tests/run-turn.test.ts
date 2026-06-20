@@ -47,6 +47,8 @@ import {
     type XbTavernRunResult,
     type TavernRunOnceOptions,
 } from '../app-src/runtime/run-once';
+import { scheduleXbTavernManagerAfterTurn } from '../app-src/runtime/manager';
+import { executeTavernTaskTool } from '../shared/tasks';
 import { createXbTavernAgentRuntime, EMPTY_XB_TAVERN_CAPABILITY_REGISTRY } from '../app-src/runtime/agent-runtime';
 import { resolveXbTavernProviderConfig } from '../app-src/runtime/provider';
 import type { TavernApplyRegexItem } from '../shared/regex';
@@ -352,6 +354,139 @@ test('xb tavern run turn sends the same ST-native prompt shape used by simulatio
     assert.match(nativeInput?.chancePrompt || '', /Chance Encounter Triggered/);
     assert.match(nativeInput?.actionCheckPrompt || '', /Runtime Protocol: Action Checks/);
     assert.equal(getChanceEncounterEvent(result.userMessage.runtimeEvents)?.label, CHANCE_ENCOUNTER_LABEL);
+});
+
+test('xb tavern run turn sends only the latest quest hook first to ST-native memory prompt', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Native quest hook',
+        characterId: 'char-quest-native',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { id: 'char-quest-native', name: 'Aster', description: 'Pilot.' },
+        },
+        state: {
+            contract: mergeTavernSessionContract(undefined, {
+                questOrchestration: true,
+            }),
+        },
+    });
+    await executeTavernTaskTool(session.id, 'TaskPatch', {
+        op: 'upsert-task',
+        taskId: 'old-hook',
+        fingerprint: 'old-hook',
+        horizon: '旧线索远景',
+        current: '旧线索当前',
+        hookForUser: '旧线索说明。',
+        hookForModel: '旧码头的名字还挂在雨里。',
+    }, { sourceAssistantOrder: 5 });
+    await executeTavernTaskTool(session.id, 'TaskPatch', {
+        op: 'upsert-task',
+        taskId: 'latest-hook',
+        fingerprint: 'latest-hook',
+        horizon: '最新线索远景',
+        current: '最新线索当前',
+        hookForUser: '最新线索说明。',
+        hookForModel: '莉娜听见旧码头时短暂停顿。',
+    }, { sourceAssistantOrder: 7 });
+    let memoryPrompt = '';
+
+    await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '继续。',
+        buildNativeChatPrompt: async (input) => {
+            memoryPrompt = input.memoryPrompt || '';
+            return {
+                source: 'test-native-builder',
+                promptMessageCount: 1,
+                messages: [{ role: 'assistant', content: 'Native answer.' }],
+            };
+        },
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Native answer.',
+            provider: 'fake-provider',
+            model: 'fake-model',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    assert.equal(memoryPrompt.startsWith('莉娜听见旧码头时短暂停顿。'), true);
+    assert.doesNotMatch(memoryPrompt, /^##/);
+    assert.doesNotMatch(memoryPrompt, /旧码头的名字还挂在雨里/);
+});
+
+test('xb tavern run turn continues and records diagnostics when manager settle times out', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Manager settle timeout',
+        characterId: 'char-timeout',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { id: 'char-timeout', name: 'Aster', description: 'Pilot.' },
+        },
+    });
+    const userMessage = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: '上一轮。',
+    });
+    const assistantMessage = await appendTavernMessage(session.id, {
+        role: 'assistant',
+        content: '上一轮回复。',
+    });
+    let releaseManager!: () => void;
+    let markManagerStarted!: () => void;
+    const managerGate = new Promise<void>((resolve) => {
+        releaseManager = resolve;
+    });
+    const managerStarted = new Promise<void>((resolve) => {
+        markManagerStarted = resolve;
+    });
+    const scheduled = await scheduleXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        userMessage,
+        assistantMessage,
+        turn: 1,
+        awaitCompletion: false,
+        executeManagerOnce: async () => {
+            markManagerStarted();
+            await managerGate;
+            return {
+                text: 'Manager eventually settled.',
+                provider: 'fake-provider',
+                model: 'fake-model',
+            };
+        },
+    });
+    await managerStarted;
+
+    const result = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '下一轮继续。',
+        managerSettleTimeoutMs: 5,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'RP turn continued.',
+            provider: 'fake-provider',
+            model: 'fake-model',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    releaseManager();
+    await scheduled.completion;
+    assert.equal(result.error, undefined);
+    assert.equal(result.assistantMessage?.content, 'RP turn continued.');
+    const diagnostics = result.buildSnapshot.diagnostics as { managerSettleTimedOut?: boolean; managerSettleTimeoutMs?: number } | undefined;
+    assert.equal(diagnostics?.managerSettleTimedOut, true);
+    assert.equal(diagnostics?.managerSettleTimeoutMs, 5);
 });
 
 test('xb tavern session author note reaches native prompt for real and simulated requests', async () => {

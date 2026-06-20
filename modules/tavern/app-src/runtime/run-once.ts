@@ -441,6 +441,8 @@ export interface TavernDiagnostics {
     ok?: boolean;
     message?: string;
     worldbookErrors?: Array<{ name: string; error: string }>;
+    managerSettleTimedOut?: boolean;
+    managerSettleTimeoutMs?: number;
 }
 
 export type TavernGetNativeWorldInfoRuntime = (input: {
@@ -486,6 +488,7 @@ export interface XbTavernRunTurnInput {
     reuseUserMessageOrder?: number;
     awaitManager?: boolean;
     runManager?: boolean;
+    managerSettleTimeoutMs?: number;
     generationTrigger?: string;
     executeRunOnce?: TavernRunOnceExecutor;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
@@ -1909,8 +1912,16 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         );
         sessionMessages = await listTavernMessages(baseSession.id);
     }
+    const turnDiagnostics: TavernDiagnostics = {
+        ...(input.diagnostics || {}),
+    };
     if (!reusedUserMessage) {
-        await settleTavernManagersForSession(baseSession.id, 8000);
+        const managerSettleTimeoutMs = Math.max(1, Math.floor(Number(input.managerSettleTimeoutMs) || 8000));
+        const managerSettle = await settleTavernManagersForSession(baseSession.id, managerSettleTimeoutMs);
+        if (managerSettle.timedOut) {
+            turnDiagnostics.managerSettleTimedOut = true;
+            turnDiagnostics.managerSettleTimeoutMs = managerSettleTimeoutMs;
+        }
         await saveAcceptedStateSnapshot(baseSession.id);
     }
     const historyMessages = reusedUserMessage
@@ -1923,7 +1934,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             contextSnapshot: liveContext,
             chatPreset: input.chatPreset,
             historyMode: input.historyMode || 'raw',
-            diagnostics: input.diagnostics,
+            diagnostics: turnDiagnostics,
             applySubstituteParams: input.applySubstituteParams,
             getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
         })
@@ -2034,6 +2045,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         }))
         : undefined;
     const questHooks = sessionContractRuntime.includeQuestOrchestration
+        // RP gets only the freshest one. The event panel may show more, but prompt hooks should stay soft and sparse.
         ? await runTavernStage('turn_quest_hook_retrieval', () => getLatestQuestHooksForPrompt(baseSession.id, 1))
         : [];
     const memoryContext: XbTavernMemoryContext | undefined = retrievedMemoryContext || questHooks.length
@@ -2054,7 +2066,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         memoryContext: filteredMemoryContext,
         runtimeDepthEntries: buildChanceEncounterDepthEntries(chanceEncounterEvent),
         runtimeProtocolMessages,
-        diagnostics: input.diagnostics || {},
+        diagnostics: turnDiagnostics,
         regexApplications,
         transformConversationMessages: async (messages) => {
             const substitutedMessages = await applyPromptSubstitutionToMessages({
@@ -2113,7 +2125,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         memoryContext: filteredMemoryContext,
         chancePrompt: chanceEncounterEvent ? buildChanceEncounterPromptMessage().content : '',
         runtimeProtocolMessages,
-        diagnostics: input.diagnostics,
+        diagnostics: turnDiagnostics,
     });
     const session = await updateTavernSessionSnapshot(baseSession.id, {
         contextSnapshot: liveContext,
