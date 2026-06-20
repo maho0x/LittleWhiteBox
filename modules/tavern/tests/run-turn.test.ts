@@ -3938,6 +3938,18 @@ test('xb tavern context window recovers from tail deletion using the remaining f
     assert.deepEqual(tinyHistory.historyMessages.map((message) => message.order), [0, 1, 2, 3]);
 });
 
+test('xb tavern context window resets stale start order while under the max API window', () => {
+    const sixTurnHistory = resolveTavernContextWindow({
+        messages: Array.from({ length: 12 }, (_, index) => makeContextWindowMessage(index, index % 2 ? 'assistant' : 'user')),
+        contextWindowStartOrder: 8,
+        currentUserMessage: 'message-12',
+    });
+    assert.equal(sixTurnHistory.contextWindowStartOrder, 0);
+    assert.deepEqual(sixTurnHistory.historyMessages.map((message) => message.order), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert.equal(sixTurnHistory.windowHistoryCount, 12);
+    assert.equal(sixTurnHistory.currentUserCount, 1);
+});
+
 test('xb tavern run turn trims only API history and keeps stored messages intact', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();

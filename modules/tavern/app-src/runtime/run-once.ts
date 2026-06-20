@@ -151,6 +151,8 @@ export function resolveTavernContextWindow(input: {
 
     if (!usableMessages.length || usableMessages.length < TAVERN_CONTEXT_WINDOW_MIN_SAFE) {
         startOrder = 0;
+    } else if (usableMessages.length + currentUserCount <= TAVERN_CONTEXT_WINDOW_MAX) {
+        startOrder = 0;
     } else if (startOrder > 0) {
         let windowUsableMessages = usableMessages.filter((message) => message.order >= startOrder);
         const exactStartExists = usableMessages.some((message) => message.order === startOrder);
