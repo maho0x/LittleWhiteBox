@@ -69,9 +69,9 @@ export const TAVERN_SESSION_CONTRACT_KEYS: TavernContractPermissionKey[] = [
 ];
 
 export const TAVERN_CONTRACT_TIER_LABELS: Record<TavernContractTier, string> = {
-    'silent-operations': 'Silent Operations',
-    'fate-arbitration': 'Fate Arbitration',
-    'narrative-orchestration': 'Narrative Orchestration',
+    'silent-operations': '暗中行事',
+    'fate-arbitration': '命运仲裁',
+    'narrative-orchestration': '叙事编排',
 };
 
 export const TAVERN_CONTRACT_MANDATES: TavernContractMandateDefinition[] = [
@@ -79,41 +79,41 @@ export const TAVERN_CONTRACT_MANDATES: TavernContractMandateDefinition[] = [
         key: 'memoryArchiving',
         tier: 'silent-operations',
         icon: '🧠',
-        title: 'Memory Archiving',
+        title: '记忆存档',
         summary: '',
-        description: 'Grant the Agent authority over your session\'s long-term memory. It will silently maintain, compress, and recall context on your behalf — ensuring the story never forgets.',
+        description: '授权代理人管理你的长期记忆。它将默默维护、压缩和召回上下文——确保故事永不遗忘。',
     },
     {
         key: 'cartographyEngine',
         tier: 'silent-operations',
         icon: '🗺️',
-        title: 'Cartography Engine',
+        title: '制图引擎',
         summary: '',
-        description: 'Allow the Agent to generate, update, and render spatial data as you explore. Regions, landmarks, and points of interest will materialize in the Appendix panel as the narrative unfolds.',
+        description: '允许代理人在你探索时生成、更新和渲染空间数据。随着叙事展开，区域、地标和兴趣点将在附录面板中逐渐显现。',
     },
     {
         key: 'actionChecks',
         tier: 'fate-arbitration',
         icon: '🎲',
-        title: 'Action Checks',
+        title: '行动检定',
         summary: '',
-        description: 'When you attempt something uncertain — persuading a stranger, scaling a wall, deciphering a rune — the dice decide, not the AI. A true random roll arbitrates the outcome, and the story bends to fate.',
+        description: '当你尝试不确定的事——说服陌生人、翻越高墙、破译符文——由骰子裁决，而非AI。一次真随机掷骰仲裁结果，故事顺从命运。',
     },
     {
         key: 'randomEncounters',
         tier: 'fate-arbitration',
         icon: '⚔️',
-        title: 'Random Encounters',
+        title: '随机遭遇',
         summary: '',
-        description: 'Permit the world to surprise you. At intervals, an unseen die rolls in the background. When it lands, the unexpected arrives — an ambush on the road, a strange omen in the sky, a letter slipped under your door.',
+        description: '允许世界给你意外。每隔一段时间，一颗无形的骰子在暗中滚动。当它落定，意料之外的事降临——路上的伏击、天空中的异兆、门缝下塞进的一封信。',
     },
     {
         key: 'questOrchestration',
         tier: 'narrative-orchestration',
         icon: '📜',
-        title: 'Quest Orchestration',
+        title: '织线者',
         summary: '',
-        description: 'Allow the Agent to weave structured quest arcs into the narrative. Objectives are tracked, updated, and resolved as the story progresses. A living quest log appears in the Appendix, evolving with your choices.',
+        description: '让代理人感知你故事中的暗流，浮现接下来可能发生的事。当势头停滞，一根线索显现——追随它、忽视它，或任它消散。',
     },
 ];
 

@@ -185,16 +185,6 @@ function selectMobileMemoryFile(path: string) {
     emit('close-memory-directory');
 }
 
-function viewAtlasMap(docId: string) {
-    mapPreviewDocId.value = String(docId || '').trim();
-    mapPreviewPinned.value = !!mapPreviewDocId.value;
-    stateWorkspaceView.value = 'scene';
-}
-
-function followAtlasLocation() {
-    mapPreviewDocId.value = '';
-    mapPreviewPinned.value = false;
-}
 </script>
 
 <template>
@@ -238,59 +228,77 @@ function followAtlasLocation() {
       v-if="chatWorkspacePanel === 'state'"
       class="tavern-state-panel"
     >
-      <div class="tavern-state-view-tabs">
-        <button
-          type="button"
-          :class="{ active: stateWorkspaceView === 'scene' }"
-          @click="stateWorkspaceView = 'scene'"
-        >
-          场景图
-        </button>
-        <button
-          type="button"
-          :class="{ active: stateWorkspaceView === 'world' }"
-          @click="stateWorkspaceView = 'world'"
-        >
-          世界图
-        </button>
-        <button
-          v-if="mapPreviewPinned"
-          type="button"
-          class="tavern-state-follow-button"
-          @click="followAtlasLocation"
-        >
-          回到当前位置
-        </button>
-      </div>
-      <TavernMapPanel
-        v-if="stateWorkspaceView === 'scene' && selectedMapRecord"
-        v-model:selected-doc-id="selectedMapDocId"
-        compact
-        :documents="mapStateDocuments"
-        :active-doc-id="activeMapDocId"
-        :document="selectedMapRecord"
-        :patches="selectedMapPatches"
-      />
       <div
-        v-else-if="stateWorkspaceView === 'scene'"
-        class="tavern-map-current-empty"
+        class="tavern-state-viewport"
+        :class="`is-${stateWorkspaceView}`"
       >
-        <strong>{{ atlasActiveLocation?.name || '当前地点' }}</strong>
-        <p>{{ currentLocationHasNoMap ? '当前地点暂无详细地图。' : '暂无地图信息。' }}</p>
-      </div>
-      <TavernAtlasPanel
-        v-else
-        :document="atlasStateDocument"
-        :patches="atlasStatePatches"
-        :active-location-key="atlasActiveLocationKey"
-        :active-map-doc-id="activeMapDocId"
-        :preview-map-doc-id="selectedMapDocId"
-        :map-documents="mapStateDocuments"
-        @view-map="viewAtlasMap"
-      />
-      <article class="tavern-map-info">
         <div
-          v-if="selectedMapRecord"
+          class="tavern-state-inline-switcher"
+          role="tablist"
+          aria-label="地图视图"
+        >
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="stateWorkspaceView === 'scene'"
+            :class="{ active: stateWorkspaceView === 'scene' }"
+            @click="stateWorkspaceView = 'scene'"
+          >
+            场景图
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="stateWorkspaceView === 'world'"
+            :class="{ active: stateWorkspaceView === 'world' }"
+            @click="stateWorkspaceView = 'world'"
+          >
+            世界图
+          </button>
+        </div>
+        <TavernMapPanel
+          v-if="stateWorkspaceView === 'scene' && selectedMapRecord"
+          v-model:selected-doc-id="selectedMapDocId"
+          compact
+          :documents="mapStateDocuments"
+          :active-doc-id="activeMapDocId"
+          :document="selectedMapRecord"
+          :patches="selectedMapPatches"
+        />
+        <TavernAtlasPanel
+          v-else-if="stateWorkspaceView === 'world'"
+          display-mode="graph"
+          :document="atlasStateDocument"
+          :patches="atlasStatePatches"
+          :active-location-key="atlasActiveLocationKey"
+          :active-map-doc-id="activeMapDocId"
+          :preview-map-doc-id="selectedMapDocId"
+          :map-documents="mapStateDocuments"
+        />
+        <div
+          v-else
+          class="tavern-map-current-empty"
+        >
+          <strong>{{ atlasActiveLocation?.name || '当前地点' }}</strong>
+          <p>{{ currentLocationHasNoMap ? '当前地点暂无详细地图。' : '暂无地图信息。' }}</p>
+        </div>
+      </div>
+      <article
+        class="tavern-map-info"
+        :class="{ 'is-world': stateWorkspaceView === 'world' }"
+      >
+        <TavernAtlasPanel
+          v-if="stateWorkspaceView === 'world'"
+          display-mode="detail"
+          :document="atlasStateDocument"
+          :patches="atlasStatePatches"
+          :active-location-key="atlasActiveLocationKey"
+          :active-map-doc-id="activeMapDocId"
+          :preview-map-doc-id="selectedMapDocId"
+          :map-documents="mapStateDocuments"
+        />
+        <div
+          v-else-if="selectedMapRecord"
           class="tavern-map-info-body"
         >
           <header class="tavern-map-info-head">

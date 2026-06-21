@@ -467,7 +467,10 @@ test('tavern atlas only opens scene maps that actually exist', () => {
     assert.match(atlasPanelSource, /const mapDocIds = computed\(\(\) => new Set\(props\.mapDocuments\.map\(\(document\) => document\.docId\)\)\)/);
     assert.match(atlasPanelSource, /function hasMapDocument\(location: TavernAtlasLocation \| null \| undefined\): boolean/);
     assert.match(atlasPanelSource, /'has-map': hasMapDocument\(location\)/);
-    assert.match(atlasPanelSource, /v-if="hasMapDocument\(selectedLocation\)"/);
+    assert.doesNotMatch(atlasPanelSource, /查看场景图|viewSelectedMap|defineEmits/);
+    assert.match(atlasPanelSource, /displayMode\?: 'full' \| 'graph' \| 'detail'/);
+    assert.match(atlasPanelSource, /const showGraph = computed\(\(\) => props\.displayMode !== 'detail'\)/);
+    assert.match(atlasPanelSource, /const showDetail = computed\(\(\) => props\.displayMode !== 'graph'\)/);
     assert.match(atlasPanelSource, /已关联 \$\{docId\}，地图未创建/);
     assert.match(workspacePanelSource, /if \(atlasDocument\.value\.activeLocationKey\) \{return atlasActiveMapDocId\.value;\}/);
     assert.match(workspacePanelSource, /return String\(activeMapDocId\.value \|\| 'main'\)\.trim\(\)/);
@@ -765,6 +768,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     const managerPanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernManagerPanel.vue');
     const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
     const workspacePanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernWorkspacePanel.vue');
+    const contractModalSource = readRepoFile('modules/tavern/app-src/components/chat/TavernContractModal.vue');
     const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
     const cssSource = readRepoFile('modules/tavern/app-src/styles/chat/messages.css');
     const composeCss = readRepoFile('modules/tavern/app-src/styles/chat/compose.css');
@@ -812,6 +816,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(appSource, /async function createNewChatSession\(\) \{[\s\S]*resolveRuntimeContextForSession\(selectedSessionId\.value\)[\s\S]*resetSessionPreviewState\(\);[\s\S]*await createSessionAndOpenChat\(\{ contextSnapshot: snapshotContext \}\);/);
     assert.match(chatPageSource, /function openMobileSessionsPanel\(\) \{[\s\S]*chatSidePanel\.value = 'sessions';[\s\S]*mobileChatPanel\.value = 'directory';/);
     assert.match(chatPageSource, /class="chat-mobile-context-row"[\s\S]*title="地图"[\s\S]*title="记忆"[\s\S]*title="事件"[\s\S]*title="契约"/);
+    assert.doesNotMatch(conversationPanelSource, /title="事件"/);
+    assert.match(contractModalSource, /契约[\s\S]*玩家 — 代理人誓约[\s\S]*故事开始之前，定义你的代理人被允许做什么。/);
+    assert.match(contractModalSource, /封印中\.\.\.[\s\S]*封存誓约[\s\S]*项授权已启用/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-context-row"[\s\S]*title="请求日志"/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-context-row"[\s\S]*>\s*会话\s*</);
     assert.match(chatPageSource, /:class="\{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'state' \}"/);
@@ -850,6 +857,11 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(conversationPanelSource, /function openSessionArchiveFromComposeMenu\(\) \{[\s\S]*emit\('open-session-archive'\);/);
     assert.match(managerPanelSource, /v-model="managerInputDraft"[\s\S]*rows="1"/);
     assert.match(workspacePanelSource, /<button[\s\S]*chatWorkspacePanel === 'state'[\s\S]*>\s*地图\s*<\/button>/);
+    assert.match(workspacePanelSource, /class="tavern-state-viewport"[\s\S]*class="tavern-state-inline-switcher"[\s\S]*场景图[\s\S]*世界图/);
+    assert.match(workspacePanelSource, /class="tavern-state-viewport"[\s\S]*<TavernAtlasPanel[\s\S]*display-mode="graph"/);
+    assert.match(workspacePanelSource, /class="tavern-map-info"[\s\S]*<TavernAtlasPanel[\s\S]*display-mode="detail"/);
+    assert.doesNotMatch(workspacePanelSource, /class="tavern-state-view-tabs"/);
+    assert.doesNotMatch(workspacePanelSource, /回到当前位置|tavern-state-follow-button/);
     assert.match(workspacePanelSource, /class="tavern-map-info"/);
     assert.doesNotMatch(workspacePanelSource, /tavern-current-state|stateMemoryFile|renderChatMarkdown\(currentState/);
     assert.match(composeCss, /--xb-compose-safe-space: 44px;/);

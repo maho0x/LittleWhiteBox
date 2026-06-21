@@ -11,17 +11,15 @@ const props = withDefaults(defineProps<{
     activeMapDocId?: string;
     previewMapDocId?: string;
     mapDocuments?: TavernMapStateDocumentItem[];
+    displayMode?: 'full' | 'graph' | 'detail';
 }>(), {
     patches: () => [],
     activeLocationKey: '',
     activeMapDocId: 'main',
     previewMapDocId: '',
     mapDocuments: () => [],
+    displayMode: 'full',
 });
-
-const emit = defineEmits<{
-    (event: 'view-map', docId: string): void;
-}>();
 
 const selectedLocationKey = ref('');
 
@@ -54,6 +52,8 @@ const selectedLinks = computed(() => {
     const key = selectedLocation.value?.key || '';
     return atlas.value.links.filter((link) => link.from === key || link.to === key);
 });
+const showGraph = computed(() => props.displayMode !== 'detail');
+const showDetail = computed(() => props.displayMode !== 'graph');
 
 watch([() => atlas.value.activeLocationKey, () => atlas.value.locations.length], ([key]) => {
     if (selectedLocationKey.value && locationMap.value.has(selectedLocationKey.value)) {return;}
@@ -114,14 +114,13 @@ function mapDocumentLabel(location: TavernAtlasLocation | null | undefined): str
     return mapTitleById.value.get(docId) || `已关联 ${docId}，地图未创建`;
 }
 
-function viewSelectedMap() {
-    const docId = String(selectedLocation.value?.mapDocId || '').trim();
-    if (docId && hasMapDocument(selectedLocation.value)) {emit('view-map', docId);}
-}
 </script>
 
 <template>
-  <section class="tavern-atlas-panel">
+  <section
+    class="tavern-atlas-panel"
+    :class="`is-${displayMode}`"
+  >
     <div
       v-if="!atlas.locations.length"
       class="tavern-atlas-empty"
@@ -132,12 +131,15 @@ function viewSelectedMap() {
     </div>
     <template v-else>
       <div
-        v-if="mapMismatchWarning"
+        v-if="showDetail && mapMismatchWarning"
         class="tavern-atlas-warning"
       >
         当前激活的场景图不是世界当前位置的地图。
       </div>
-      <div class="tavern-atlas-graph">
+      <div
+        v-if="showGraph"
+        class="tavern-atlas-graph"
+      >
         <svg
           :viewBox="layout.viewBox.join(' ')"
           preserveAspectRatio="xMidYMid meet"
@@ -186,7 +188,10 @@ function viewSelectedMap() {
           </g>
         </svg>
       </div>
-      <aside class="tavern-atlas-detail">
+      <aside
+        v-if="showDetail"
+        class="tavern-atlas-detail"
+      >
         <header>
           <div>
             <strong>{{ selectedLocation?.name || '地点' }}</strong>
@@ -226,14 +231,6 @@ function viewSelectedMap() {
             {{ link.label || link.kind }} · {{ locationMap.get(link.from)?.name || link.from }} → {{ locationMap.get(link.to)?.name || link.to }}
           </span>
         </div>
-        <button
-          v-if="hasMapDocument(selectedLocation)"
-          type="button"
-          class="tavern-atlas-view-map"
-          @click="viewSelectedMap"
-        >
-          查看场景图
-        </button>
         <small v-if="latestPatchSummary">最近更新：{{ latestPatchSummary }}</small>
       </aside>
     </template>
@@ -249,6 +246,25 @@ function viewSelectedMap() {
     grid-template-rows: minmax(0, 1fr) auto;
     overflow: hidden;
     background: var(--xb-chat-panel-bg);
+}
+
+.tavern-atlas-panel.is-graph,
+.tavern-atlas-panel.is-detail {
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.tavern-atlas-panel.is-graph .tavern-atlas-graph {
+    height: 100%;
+}
+
+.tavern-atlas-panel.is-graph .tavern-atlas-graph svg {
+    min-height: 0;
+}
+
+.tavern-atlas-panel.is-detail .tavern-atlas-detail {
+    min-height: 0;
+    overflow: auto;
+    border-top: 0;
 }
 
 .tavern-atlas-empty,
@@ -441,14 +457,4 @@ function viewSelectedMap() {
     padding: 4px 7px;
 }
 
-.tavern-atlas-view-map {
-    height: 30px;
-    margin-top: 14px;
-    border: 1px solid var(--xb-rule);
-    border-radius: 6px;
-    background: var(--xb-chat-panel-bg);
-    color: var(--xb-ink);
-    font: 12px/1 var(--xb-font-ui);
-    padding: 0 12px;
-}
 </style>

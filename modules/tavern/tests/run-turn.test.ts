@@ -2437,6 +2437,36 @@ test('xb tavern memory query uses current input plus the last two history messag
     assert.doesNotMatch(queryText, /Player：/);
 });
 
+test('xb tavern memory query applies story-summary text filter rules before entity recall', () => {
+    const host = globalThis as unknown as {
+        localStorage?: { getItem: (key: string) => string | null };
+    };
+    const previousStorage = host.localStorage;
+    host.localStorage = {
+        getItem: (key: string) => key === 'summary_panel_config'
+            ? JSON.stringify({ textFilterRules: [{ start: '<status>', end: '</status>' }] })
+            : null,
+    };
+    try {
+        const queryText = buildXbTavernMemoryQuery({
+            character: { name: 'Aster' },
+            user: { name: 'Player' },
+            history: [
+                { role: 'assistant', content: '<status>莉娜 真昼 铁壁 都在状态栏里但不在场</status> Aster 看向门口。' },
+            ],
+        }, '<status>Mira 莉娜 真昼 铁壁</status> Aster 继续调查。');
+
+        assert.match(queryText, /Aster 继续调查/);
+        assert.doesNotMatch(queryText, /莉娜|真昼|铁壁|Mira|状态栏/);
+    } finally {
+        if (previousStorage) {
+            host.localStorage = previousStorage;
+        } else {
+            delete host.localStorage;
+        }
+    }
+});
+
 test('xb tavern memory recall ignores non-memory and unmatched character files', () => {
     const memory = selectXbTavernMemoryContext({
         memoryFiles: [{
@@ -2485,6 +2515,50 @@ test('xb tavern memory recall keeps state memory without treating arbitrary lexi
     });
 
     assert.deepEqual(memory.memoryFiles?.map((file) => file.path), ['memory/state.md']);
+});
+
+test('xb tavern memory recall excludes generic user/player character files', () => {
+    const memory = selectXbTavernMemoryContext({
+        memoryFiles: [{
+            sessionId: 'session',
+            path: 'memory/state.md',
+            content: '# 会话记忆\n\n玩家和 Aster 正在档案室。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 1,
+            updatedAt: 1,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/User.md',
+            content: '# User\n\n不应作为人物实体注入。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 2,
+            updatedAt: 2,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/玩家.md',
+            content: '# 玩家\n\n不应作为人物实体注入。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 3,
+            updatedAt: 3,
+        }, {
+            sessionId: 'session',
+            path: 'memory/characters/Aster.md',
+            content: '# Aster\n\nAster 正在档案室。',
+            status: 'active' as const,
+            source: 'manager',
+            createdAt: 4,
+            updatedAt: 4,
+        }],
+        queryText: 'User 玩家 Aster 都被提到了。',
+    });
+
+    assert.deepEqual(memory.memoryFiles?.map((file) => file.path), [
+        'memory/state.md',
+        'memory/characters/Aster.md',
+    ]);
 });
 
 test('xb tavern memory recall matches character filenames with normalized Japanese entity text', () => {

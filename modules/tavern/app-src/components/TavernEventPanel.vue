@@ -25,7 +25,7 @@ const emptyTitle = computed(() => {
     return '当前没有足够新鲜的方向';
 });
 const emptyText = computed(() => {
-    if (!props.enabled) {return '开启契约里的 Quest Orchestration 后，后台会维护可回滚的事件线索池。';}
+    if (!props.enabled) {return '开启契约里的织线者后，后台会维护可回滚的事件线索池。';}
     if (Number(props.assistantFloor) < 5) {return '先让人物、地点和关系沉淀几轮，系统不会过早生成方向。';}
     return '后台没有找到对味的新钩子时会保持空白。';
 });

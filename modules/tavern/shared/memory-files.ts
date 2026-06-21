@@ -155,6 +155,30 @@ function normalizeMemoryCharacterName(value: unknown = ''): string {
     return name;
 }
 
+export function isReservedUserMemoryCharacterName(value: unknown = ''): boolean {
+    const key = String(value || '')
+        .normalize('NFKC')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .toLowerCase()
+        .replace(/[\s_-]+/g, '')
+        .trim();
+    return new Set([
+        'user',
+        'users',
+        'player',
+        'players',
+        'pc',
+        'you',
+        'me',
+        'myself',
+        '用户',
+        '玩家',
+        '主控',
+        '我',
+        '你',
+    ]).has(key);
+}
+
 export function normalizeCharacterMemoryPath(characterName: unknown = ''): string {
     return `memory/characters/${normalizeMemoryCharacterName(characterName)}.md`;
 }
@@ -643,7 +667,12 @@ function getToolPath(args: Record<string, unknown>): string {
 }
 
 function validateWritableMemoryPath(path = ''): string {
-    return normalizeTavernMemoryPath(path);
+    const normalized = normalizeTavernMemoryPath(path);
+    const characterName = getCharacterNameFromMemoryPath(normalized);
+    if (characterName && isReservedUserMemoryCharacterName(characterName)) {
+        throw new Error('memory_character_user_reserved');
+    }
+    return normalized;
 }
 
 export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
@@ -653,7 +682,7 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
             function: {
                 name: TAVERN_MEMORY_TOOL_NAMES.LIST,
                 description: [
-                    'List memory Markdown files in the current session.',
+                    'List memory Markdown files in the current RP session.',
                     'Returns paths, status, and timestamps only; it does not read file bodies.',
                     'Best for discovering which memory files exist before choosing MemoryRead, MemoryGrep, MemoryWrite, or MemoryEdit.',
                     'Scope is fixed to the current session and `memory/...`; it cannot inspect RP chat history, character cards, world books, settings, or plugin source code.',
@@ -666,7 +695,7 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
             function: {
                 name: TAVERN_MEMORY_TOOL_NAMES.READ,
                 description: [
-                    'Read a current-session memory Markdown file.',
+                    'Read a memory Markdown file in the current RP session.',
                     'Returns raw `content` plus line-numbered `numberedContent`. Large files include continuation hints.',
                     'Use `tail` by itself when you need the end of a file. Do not combine `tail` with `offset` or `limit`.',
                     'The argument name is `filePath`, not `path`. Use `memory/state.md` for global state and `memory/characters/<角色名>.md` for entity memory.',
@@ -690,10 +719,11 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
             function: {
                 name: TAVERN_MEMORY_TOOL_NAMES.WRITE,
                 description: [
-                    'Write a complete current-session memory Markdown file.',
+                    'Write a complete memory Markdown file in the current RP session.',
                     'Use `memory/state.md` for global state and `memory/characters/<角色名>.md` for one character/entity.',
                     'Character filenames are entity names. Do not create index files or turn/session files.',
-                    'Use for whole-file rewrites where most of the target memory file is new.',
+                    'Do not create or maintain a character file for the message author or generic user/player labels such as User, Player, 用户, or 玩家; put player-side durable state in `memory/state.md` when needed.',
+                    'Use for creating a real character memory file, complete file rewrites, or rewrites where most of the target memory file is new.',
                     'Read the target file first when it already exists. Write overwrites the entire file, so include all original content you want to keep.',
                     'The argument names are `filePath` and `content`. Write replaces the complete target file content.',
                     'Use MemoryEdit instead for small corrections inside an existing file.',
@@ -715,7 +745,7 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
             function: {
                 name: TAVERN_MEMORY_TOOL_NAMES.EDIT,
                 description: [
-                    'Edit an existing current-session memory Markdown file by replacing original text fragments, replacing inclusive line ranges, inserting text at line positions, or removing text with empty replacements.',
+                    'Edit one existing memory Markdown file in the current RP session by replacing original text fragments, replacing inclusive line ranges, inserting text at line positions, or removing text with empty replacements.',
                     'One call edits one file.',
                     'Use oldString/newString for in-sentence, small-paragraph, or multi-spot local revisions. Use startLine/endLine/newString for contiguous section replacement where copying oldString would be fragile. Use insertAtLine/newString to add new text before a line or at the end without replacing existing text. Use MemoryWrite instead for creating files or whole-file rewrites where most content is new.',
                     'Read the target file first unless the exact current text is already available in the conversation or a recent tool result. Line-range and insertion edits must use line numbers from the latest MemoryRead result.',
@@ -744,6 +774,7 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
                     'If two changes overlap, merge them into one replacement for the larger fragment instead of splitting them into separate edits.',
                     'Use MemoryWrite for complete file rewrites, or when most of the file should be replaced.',
                     'Editable paths are exactly `memory/state.md` and `memory/characters/<角色名>.md`.',
+                    'Do not edit character files for the message author or generic user/player labels such as User, Player, 用户, or 玩家; keep player-side durable state in `memory/state.md`.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
@@ -777,7 +808,7 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
             function: {
                 name: TAVERN_MEMORY_TOOL_NAMES.GREP,
                 description: [
-                    'Search text inside current-session memory Markdown files.',
+                    'Search text inside memory Markdown files for the current RP session.',
                     'Uses literal text search by default and returns matching files plus line-level snippets.',
                     'Use before reading many files to locate facts, hooks, character state, unresolved items, or summaries.',
                     '`path` can be a search directory or one exact file like `memory/state.md` or `memory/characters/<角色名>.md`; `filePath` is an alias for exact-file scope. For regex search, explicitly pass `regex: true` or `useRegex: true`.',
@@ -818,6 +849,7 @@ export function getTavernManagerToolDefinitions(): Array<{ type: 'function'; fun
                     'Read original RP chat history for the current session.',
                     'This is read-only and returns message order, role, and snippet or full content.',
                     'Best for checking what actually happened in the RP before correcting memory files.',
+                    'Message order is an evidence coordinate, not in-world story time.',
                     'Use recent for current continuity, range when you know message order, and grep when you only know a keyword.',
                     'recent reads the latest messages; offset pages backward from the newest messages.',
                     'range reads message order ascending; if startOrder is provided and endOrder is omitted, the range continues through the latest message.',

@@ -9,6 +9,7 @@ import {
     isStateMemoryPath,
     getTavernMemoryIndex,
     rebuildTavernMemoryDerivedIndex,
+    isReservedUserMemoryCharacterName,
 } from './memory-files';
 import { buildTavernSpatialStateDigest, listTavernStructuredStateDigests } from './structured-state';
 import {
@@ -23,6 +24,12 @@ export interface XbTavernMemorySelectionInput {
 }
 
 const MEMORY_QUERY_CONTEXT_MESSAGE_COUNT = 2;
+
+const DEFAULT_MEMORY_TEXT_FILTER_RULES = [
+    { start: '<think>', end: '</think>' },
+    { start: '<thinking>', end: '</thinking>' },
+    { start: '```', end: '```' },
+];
 
 function normalizeEntityKey(value: unknown = ''): string {
     return String(value || '')
@@ -48,6 +55,43 @@ function normalizeEntitySourceText(value: unknown = ''): string {
 
 function escapeRegex(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function applyMemoryTextFilterRules(text: string, rules: Array<{ start?: unknown; end?: unknown }> = []): string {
+    if (!text || !rules.length) {return text;}
+    let result = text;
+    for (const rule of rules) {
+        const start = String(rule?.start ?? '');
+        const end = String(rule?.end ?? '');
+        if (!start && !end) {continue;}
+        if (start && end) {
+            result = result.replace(new RegExp(`${escapeRegex(start)}[\\s\\S]*?${escapeRegex(end)}`, 'gi'), '');
+        } else if (start) {
+            const index = result.toLowerCase().indexOf(start.toLowerCase());
+            if (index >= 0) {result = result.slice(0, index);}
+        } else if (end) {
+            const index = result.toLowerCase().indexOf(end.toLowerCase());
+            if (index >= 0) {result = result.slice(index + end.length);}
+        }
+    }
+    return result.trim();
+}
+
+function getConfiguredMemoryTextFilterRules(): Array<{ start?: unknown; end?: unknown }> {
+    try {
+        const storage = (globalThis as unknown as { localStorage?: { getItem?: (key: string) => string | null } }).localStorage;
+        const raw = storage?.getItem?.('summary_panel_config');
+        if (!raw) {return DEFAULT_MEMORY_TEXT_FILTER_RULES;}
+        const parsed = JSON.parse(raw) as { textFilterRules?: unknown; vector?: { textFilterRules?: unknown } };
+        const rules = Array.isArray(parsed?.textFilterRules)
+            ? parsed.textFilterRules
+            : Array.isArray(parsed?.vector?.textFilterRules)
+                ? parsed.vector.textFilterRules
+                : DEFAULT_MEMORY_TEXT_FILTER_RULES;
+        return rules.filter((rule): rule is { start?: unknown; end?: unknown } => !!rule && typeof rule === 'object');
+    } catch {
+        return DEFAULT_MEMORY_TEXT_FILTER_RULES;
+    }
 }
 
 function normalizeIgnoredTerms(values: unknown[] = []): Set<string> {
@@ -151,7 +195,7 @@ function stripSpeakerPrefixes(text: string, names: string[] = []): string {
 }
 
 function cleanMemoryText(value: unknown = ''): string {
-    return String(value || '')
+    return applyMemoryTextFilterRules(String(value || ''), getConfiguredMemoryTextFilterRules())
         .replace(/\[tts:[^\]]*]/gi, ' ')
         .replace(/<state>[\s\S]*?<\/state>/gi, ' ')
         .replace(/\s+/g, ' ')
@@ -175,6 +219,8 @@ function memoryFilePromptContent(file: TavernMemoryIndexFileEntry | TavernMemory
 function isRecallMemoryFile(file: Pick<TavernMemoryIndexFileEntry, 'path' | 'status'> | Pick<TavernMemoryFileRecord, 'path' | 'status'>): boolean {
     const path = String(file.path || '');
     if (file.status === 'stale') {return false;}
+    const characterName = getCharacterNameFromMemoryPath(path);
+    if (characterName && isReservedUserMemoryCharacterName(characterName)) {return false;}
     return isStateMemoryPath(path) || isCharacterMemoryPath(path);
 }
 

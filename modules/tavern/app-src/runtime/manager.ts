@@ -249,6 +249,8 @@ function buildAutoManagerUserPrompt(input: {
     if (allowMemory) {
         requirements.push(`${step}. Read \`memory/state.md\` and relevant \`memory/characters/<角色名>.md\` files as needed, then update memory only if this completed assistant reply changed durable memory.`);
         step += 1;
+        requirements.push(`${step}. Do not create or maintain user/player character files such as \`memory/characters/User.md\`, \`Player.md\`, \`用户.md\`, or \`玩家.md\`. Treat user messages as source evidence, not as a user persona sheet; ignore status-bar/UI/meta text unless the assistant reply establishes it inside RP.`);
+        step += 1;
     }
     if (allowMap) {
         requirements.push(`${step}. Spatial maintenance has two layers: update \`tavern.atlas/main\` only when a location, connection, or actor location changed; update \`tavern.map/<docId>\` only when the current place layout or actor coordinates changed. Player location changes must use atlas \`move-actor\` with \`actorKey:"player"\`; map \`activate:true\` only switches the map tool doc and does not move the player.`);

@@ -632,6 +632,21 @@ test('tavern memory files are scoped markdown sources with derived index', async
     assert.equal(oldPath.ok, false);
     assert.equal(oldPath.error, 'memory_path_invalid');
 
+    const userFileWrite = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
+        filePath: 'memory/characters/User.md',
+        content: '# User\n\n不应创建用户侧人物档案。',
+    });
+    assert.equal(userFileWrite.ok, false);
+    assert.equal(userFileWrite.error, 'memory_character_user_reserved');
+
+    await writeTavernMemoryFile(session.id, 'memory/characters/玩家.md', '# 玩家\n\n旧数据或测试直写仍可能存在。', { source: 'manager' });
+    const userFileEdit = await executeTavernMemoryTool(session.id, 'MemoryEdit', {
+        filePath: 'memory/characters/玩家.md',
+        edits: [{ oldString: '旧数据', newString: '新数据' }],
+    });
+    assert.equal(userFileEdit.ok, false);
+    assert.equal(userFileEdit.error, 'memory_character_user_reserved');
+
     const characterPath = 'memory/characters/椎名真昼.md';
     const characterWrite = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
         filePath: characterPath,
@@ -2639,7 +2654,7 @@ test('tavern auto manager denies unauthorized MemoryWrite without side effects',
             };
         }
         assert.equal(options.toolResponses?.[0]?.name, 'MemoryWrite');
-        assert.match(JSON.stringify(options.toolResponses?.[0]?.response || {}), /契约未授权 Memory Archiving/);
+        assert.match(JSON.stringify(options.toolResponses?.[0]?.response || {}), /契约未授权 记忆存档/);
         return {
             provider: 'fake-manager',
             model: 'map-only',
@@ -2666,7 +2681,7 @@ test('tavern auto manager denies unauthorized MemoryWrite without side effects',
     assert.deepEqual(result.changedFiles, []);
     assert.equal((await listTavernMemoryFiles(session.id)).some((file) => file.path !== 'memory/state.md'), false);
     const run = (await listTavernManagerRuns(session.id))[0];
-    assert.match(JSON.stringify(run?.toolTrace || []), /契约未授权 Memory Archiving/);
+    assert.match(JSON.stringify(run?.toolTrace || []), /契约未授权 记忆存档/);
 });
 
 test('tavern auto manager denies unauthorized StatePatch without side effects', async () => {
@@ -2698,7 +2713,7 @@ test('tavern auto manager denies unauthorized StatePatch without side effects', 
             };
         }
         assert.equal(options.toolResponses?.[0]?.name, 'StatePatch');
-        assert.match(JSON.stringify(options.toolResponses?.[0]?.response || {}), /契约未授权 Cartography Engine/);
+        assert.match(JSON.stringify(options.toolResponses?.[0]?.response || {}), /契约未授权 制图引擎/);
         return {
             provider: 'fake-manager',
             model: 'memory-only',
@@ -2725,7 +2740,7 @@ test('tavern auto manager denies unauthorized StatePatch without side effects', 
     assert.deepEqual(result.changedStates, []);
     assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 0);
     const run = (await listTavernManagerRuns(session.id))[0];
-    assert.match(JSON.stringify(run?.toolTrace || []), /契约未授权 Cartography Engine/);
+    assert.match(JSON.stringify(run?.toolTrace || []), /契约未授权 制图引擎/);
 });
 
 test('tavern manager chat keeps full tool access even when the stored contract disables auto work', async () => {

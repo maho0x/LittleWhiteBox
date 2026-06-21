@@ -609,10 +609,14 @@ export function getTavernTaskToolDefinitions(): Array<{ type: 'function'; functi
         function: {
             name: TAVERN_TASK_TOOL_NAMES.PATCH,
             description: [
-                'Maintain the current session quest/event suggestion pool. This is not memory and not a map.',
+                'Maintain the current RP session event direction pool. This is not memory, not a map, and not a random encounter.',
+                'Use this only for forward-looking directions that could give the user something fresh to play when the story needs a hook.',
                 'Use only established people, places, relationships, world facts, and current tone.',
-                'Create fresh possible directions only after the story has enough material; if no good hook exists, do not call this tool.',
-                'Do not record old events. Do not force surprises. hookForModel must be a soft in-world sentence, without meta words like task, goal, objective, or completed.',
+                'Create fresh possible directions only after the story has enough material. Recombine established material into an unplayed situation that can open a new interaction space.',
+                'Match the current tone and the user\'s demonstrated tastes. Do not create generic hooks, obvious continuations, repeated memory, or outside random events.',
+                'If no good hook exists, do not call this tool.',
+                'Do not record old events, close existing memory, or force surprises. Advance or complete only when the completed assistant reply actually moved or resolved that direction.',
+                '`hookForUser` is direct UI text. `hookForModel` is a soft in-world sentence for RP injection, without meta words like task, goal, objective, or completed.',
                 'Allowed ops: upsert-task, advance-task, complete-task, abandon-task.',
             ].join('\n'),
             parameters: {

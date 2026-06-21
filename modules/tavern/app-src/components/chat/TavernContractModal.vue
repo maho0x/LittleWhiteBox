@@ -53,10 +53,10 @@ const activeCount = computed(() => countActiveTavernSessionContract(props.draftC
       <header class="tavern-contract-head">
         <div class="tavern-contract-heading">
           <h2 id="tavern-contract-title">
-            THE PACT
+            契约
           </h2>
           <p class="eyebrow">
-            PLAYER — AGENT COVENANT
+            玩家 — 代理人誓约
           </p>
         </div>
         <button
@@ -71,9 +71,9 @@ const activeCount = computed(() => countActiveTavernSessionContract(props.draftC
 
       <div class="tavern-contract-body">
         <p class="tavern-contract-preamble">
-          Before the story begins, define what your Agent is allowed to do.
-          Each sealed mandate grants a specific authority.
-          Amend freely at any time.
+          故事开始之前，定义你的代理人被允许做什么。
+          每一条封印的授权赋予一项特定权限。
+          你可以随时修改。
         </p>
 
         <section
@@ -118,10 +118,10 @@ const activeCount = computed(() => countActiveTavernSessionContract(props.draftC
           :disabled="saving || !canSave"
           @click="$emit('save')"
         >
-          {{ saving ? 'SEALING...' : 'SEAL THE COVENANT' }}
+          {{ saving ? '封印中...' : '封存誓约' }}
         </button>
         <p class="tavern-contract-note">
-          {{ activeCount }} OF {{ TAVERN_CONTRACT_MANDATES.length }} MANDATES ACTIVE
+          {{ activeCount }} / {{ TAVERN_CONTRACT_MANDATES.length }} 项授权已启用
         </p>
         <p
           v-if="errorText"

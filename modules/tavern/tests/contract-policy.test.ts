@@ -119,13 +119,13 @@ test('tavern auto manager tool policy keeps ChatHistory and module-specific tool
 
     const memoryDenied = buildDeniedAutoManagerToolResult('MemoryWrite', disabled.runtime.contract);
     assert.equal(memoryDenied.ok, false);
-    assert.match(memoryDenied.summary, /契约未授权 Memory Archiving/);
+    assert.match(memoryDenied.summary, /契约未授权 记忆存档/);
 
     const stateDenied = buildDeniedAutoManagerToolResult('StatePatch', disabled.runtime.contract);
     assert.equal(stateDenied.ok, false);
-    assert.match(stateDenied.summary, /契约未授权 Cartography Engine/);
+    assert.match(stateDenied.summary, /契约未授权 制图引擎/);
 
     const taskDenied = buildDeniedAutoManagerToolResult('TaskPatch', disabled.runtime.contract);
     assert.equal(taskDenied.ok, false);
-    assert.match(taskDenied.summary, /契约未授权 Quest Orchestration/);
+    assert.match(taskDenied.summary, /契约未授权 织线者/);
 });

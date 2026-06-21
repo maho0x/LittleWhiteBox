@@ -1924,9 +1924,10 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
             function: {
                 name: TAVERN_STATE_TOOL_NAMES.LIST,
                 description: [
-                    'List structured state documents in the current session.',
+                    'List structured state documents in the current RP session.',
                     'Returns document entries only. It does not read full state, elements, or patch history.',
                     'Use before StateRead when you need available map documents, or when you need the atlas world index.',
+                    'Structured state scope is fixed to this tavern session; it cannot inspect memory Markdown, RP chat history, character cards, world books, settings, or plugin source code.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
@@ -1942,9 +1943,11 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
             function: {
                 name: TAVERN_STATE_TOOL_NAMES.READ,
                 description: [
-                    'Read a structured state document in the current session.',
+                    'Read a structured state document in the current RP session.',
+                    'Use `summary` first when choosing what to patch, checking revision, or deciding whether a map/atlas update is needed.',
                     'For `tavern.map`, use `summary` first, `elements` to browse map elements, `element` for one id, `document` for the full map, and `history` for saved map patch transactions.',
                     'For `tavern.atlas`, use `summary`, `document`, `locations`, `location`, `links`, `actors`, or `history`. Atlas does not have map elements.',
+                    'This reads structured spatial state only. Use ChatHistory for RP source evidence and MemoryRead/MemoryGrep for written memory.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
@@ -1976,7 +1979,9 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
             function: {
                 name: TAVERN_STATE_TOOL_NAMES.PATCH,
                 description: [
-                    'Apply structured state patch transactions to the current session.',
+                    'Apply one structured state patch transaction to the current RP session.',
+                    'Use this only for confirmed spatial changes from RP source text or a user-requested correction. If nothing spatial changed, do not patch.',
+                    'Read StateRead summary first unless you already have the current doc, ids, and revision from this turn. Use `baseRevision` when you are protecting against concurrent changes.',
                     'For `tavern.map`, canonical ops are `meta`, `add`, `modify`, and `remove`. One StatePatch call is one atomic transaction and becomes exactly one revision when it saves.',
                     'Use `meta` to update document fields such as name, viewBox, theme, status, or hint. Use `add` to create elements, `modify` to change existing ids, and `remove` to delete ids.',
                     'Each element has `id` and `cat`, plus exactly one shape field: `rect`, `circle`, `path`, `curve`, `icon`, or `text`. Most elements use `at:[x,y]`; `path` and `curve` may omit `at` and use the first point as the anchor.',
@@ -1984,9 +1989,11 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'With `at`, `path` and `curve` points are relative offsets. Without `at`, the points are treated as absolute coordinates and the stored result becomes relative to the first point.',
                     'If one add element contains geometry plus text, the runtime splits the text into a system label element automatically.',
                     'For `tavern.atlas/main`, use only `upsert-location`, `remove-location`, `upsert-link`, `remove-link`, and `move-actor`. There is no set-active-location op.',
+                    'Atlas links may omit `id`. The default link id is `link:${sorted(from,to).join(":")}:${kind}` for bidirectional links and `link:${from}:${to}:${kind}` for `bidirectional:false`. Use an explicit id only when two locations need multiple same-kind links.',
                     'Move the player between places with `move-actor` and `actorKey:"player"`. That updates atlas.activeLocationKey, marks the location visited, and syncs activeMapDocId when the location has mapDocId. Non-player actors do not change the current location.',
                     'Pass `activate:true` only for `tavern.map` to make that map document active for map tools. Do not use map activate to represent player movement.',
                     '`meta.viewBox` is the camera. Changing it does not move elements. Move actors by changing their `at`, then adjust `viewBox` only if the camera should follow.',
+                    'The `ops` argument must be a real JSON array, not a quoted JSON string. With `dryRun:true`, validate without saving or incrementing revision.',
                     'Legacy `init`, `reset`, and `replace` input is still absorbed at runtime, but do not rely on it in new calls.',
                 ].join('\n'),
                 parameters: {
@@ -2005,7 +2012,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                                 type: 'object',
                                 properties: {
                                     op: { type: 'string', enum: ['meta', 'add', 'modify', 'remove', 'upsert-location', 'remove-location', 'upsert-link', 'remove-link', 'move-actor'], description: 'Operation type. Map ops and atlas ops are selected by docType.' },
-                                    id: { type: 'string', description: 'Exact element id for `modify` or `remove`.' },
+                                    id: { type: 'string', description: 'Map element id for `modify`/`remove`, or atlas link id for `upsert-link`/`remove-link`. Atlas links may omit it and use the default id rule.' },
                                     key: { type: 'string', description: 'Atlas location key for upsert-location/remove-location.' },
                                     locationKey: { type: 'string', description: 'Atlas target location key for move-actor.' },
                                     actorKey: { type: 'string', description: 'Atlas actor key for move-actor. Use actorKey:"player" for the player.' },
