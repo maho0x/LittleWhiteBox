@@ -19,9 +19,9 @@ import {
 import {
     createTavernManagerRun,
     deleteTavernManagerMessages,
+    getTavernMessage,
     listTavernManagerMemorySnapshots,
     listTavernManagerMessages,
-    listTavernMessages,
     rollbackManagerRunMemoryWrites,
     rollbackManagerRunsForMessageRange,
     touchRunningTavernManagerRun,
@@ -253,7 +253,7 @@ function buildAutoManagerUserPrompt(input: {
         step += 1;
     }
     if (allowMap) {
-        requirements.push(`${step}. Spatial maintenance has two layers: update \`tavern.atlas/main\` only when a location, connection, or actor location changed; update \`tavern.map/<docId>\` only when the current place layout or actor coordinates changed. Player location changes must use atlas \`move-actor\` with \`actorKey:"player"\`; map \`activate:true\` only switches the map tool doc and does not move the player.`);
+        requirements.push(`${step}. Spatial maintenance has two layers: \`tavern.atlas/main\` is the single world index, and each local scene map lives in its own place-named \`tavern.map/<docId>\`. Move the player in atlas only when the story reaches a new named or trackable place; small movement inside the same place belongs in the scene map actor coordinates. Map \`activate:true\` only switches the map tool doc and does not move the player.`);
         step += 1;
     }
     if (allowMemory && allowMap) {
@@ -270,7 +270,7 @@ function buildAutoManagerUserPrompt(input: {
         step += 1;
     }
     if (allowQuest) {
-        requirements.push(`${step}. Maintain the event pool with TaskPatch only when useful: advance or complete active directions that the reply actually addressed; after floor ${TAVERN_TASK_MIN_GENERATION_FLOOR}, create fresh active directions only when the pool is low and the hook uses established people, places, relationships, world facts, and current tone. Do not use TaskPatch for old facts, and do not generate if no good hook exists.`);
+        requirements.push(`${step}. Maintain the event pool with TaskPatch only when useful: advance or complete active directions that the reply actually addressed; after floor ${TAVERN_TASK_MIN_GENERATION_FLOOR}, create fresh active directions only when the active pool has 0-1 items and the hook uses established people, places, relationships, world facts, and current tone. Do not use TaskPatch for old facts, and do not generate if no good hook exists.`);
         step += 1;
     }
     requirements.push(`${step}. Close with a short result: say what you wrote, skipped, or left pending.`);
@@ -708,9 +708,10 @@ async function runManagerAgentWithTools(input: {
 }
 
 async function assertManagerSourceMessagesCurrent(input: XbTavernManagerRunInput): Promise<void> {
-    const messages = await listTavernMessages(input.sessionId);
-    const userMessage = messages.find((message) => message.order === input.userMessage.order);
-    const assistantMessage = messages.find((message) => message.order === input.assistantMessage.order);
+    const [userMessage, assistantMessage] = await Promise.all([
+        getTavernMessage(input.sessionId, input.userMessage.order),
+        getTavernMessage(input.sessionId, input.assistantMessage.order),
+    ]);
     const userMatches = userMessage?.role === 'user'
         && userMessage.error !== true
         && userMessage.content === input.userMessage.content;

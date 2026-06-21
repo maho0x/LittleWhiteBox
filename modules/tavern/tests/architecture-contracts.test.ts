@@ -402,7 +402,8 @@ test('tavern chat exposes local settings modals without leaving the session', ()
     assert.match(chatPageSource, /const quickSettingsOpen = ref<'api' \| 'chatPreset' \| 'worldbooks' \| null>\(null\)/);
     assert.match(chatPageSource, /function openQuickSettingsModal\(workspace: 'api' \| 'chatPreset' \| 'worldbooks'\)[\s\S]*activeSettingsWorkspace\.value = workspace;[\s\S]*syncChatPresetFromHost\(\)[\s\S]*syncWorldbooksForCurrentCharacter\(\)[\s\S]*syncGlobalWorldbooksFromHost\(\)/);
     assert.doesNotMatch(chatPageSource, /syncWorldbooksFromHost\(\{ keepSelection: true \}\)/);
-    assert.match(chatPageSource, /class="chat-quick-settings-overlay"[\s\S]*class="tavern-api-settings chat-quick-api-root"[\s\S]*class="settings-layout chat-quick-settings-layout"[\s\S]*<TavernChatPresetSettingsPanel \/>[\s\S]*<TavernWorldbooksSettingsPanel \/>/);
+    assert.match(chatPageSource, /class="chat-quick-settings-overlay"[\s\S]*v-if="quickSettingsOpen === 'api'"[\s\S]*class="tavern-api-settings chat-quick-api-root"[\s\S]*v-else[\s\S]*class="settings-layout chat-quick-settings-layout"/);
+    assert.match(chatPageSource, /<TavernChatPresetSettingsPanel[\s\S]*v-if="quickSettingsOpen === 'chatPreset'"[\s\S]*\/>[\s\S]*<TavernWorldbooksSettingsPanel[\s\S]*v-else-if="quickSettingsOpen === 'worldbooks'"[\s\S]*\/>/);
     assert.match(chatPageSource, /class="chat-quick-settings-body"[\s\S]*:class="quickSettingsLayoutClass"/);
     assert.doesNotMatch(chatPageSource, /class="chat-quick-settings-overlay"[\s\S]*@click\.self="closeQuickSettingsModal"/);
     assert.match(chatPageSource, /class="chat-quick-settings-close"[\s\S]*@click="closeQuickSettingsModal"/);

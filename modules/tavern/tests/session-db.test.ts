@@ -6,18 +6,27 @@ import db, {
     appendTavernMessage,
     appendTavernManagerMessage,
     createTavernSession,
+    countTavernMessagesInRange,
     deleteTavernSession,
     deleteTavernMessages,
     deriveAndActivateDefaultTavernPreset,
     ensureDefaultTavernAssistantPreset,
     getActiveTavernPresetId,
     getSelectedTavernSessionId,
+    getLatestTavernAssistantOrder,
+    getLatestTavernManagerMessage,
+    getLatestTavernMessage,
     getTavernSession,
+    getTavernMessage,
     listTavernManagerMessages,
     listTavernManagerMemorySnapshots,
+    listLatestTavernMessages,
+    listLatestTavernMessagesWithCount,
     listTavernManagerRuns,
     listUserTavernPresets,
     listTavernMessages,
+    listTavernMessagesInRange,
+    listTavernMessagesInRangeWithCount,
     loadActiveTavernAssistantPreset,
     loadActiveTavernPreset,
     mergeWorldEntryStates,
@@ -139,6 +148,77 @@ test('tavern session db stores independent sessions and messages', async () => {
     assert.deepEqual(messages.map((message) => message.role), ['user', 'assistant']);
     assert.equal(messages[0]?.buildSnapshot?.presetId, 'preset-1');
     assert.deepEqual(messages[1]?.requestSnapshot, { messageCount: buildResult.messages.length });
+});
+
+test('tavern message indexed helpers read latest, direct, recent, and range windows', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Message windows' });
+    for (let index = 0; index < 6; index += 1) {
+        await appendTavernMessage(session.id, {
+            role: index % 2 === 0 ? 'user' : 'assistant',
+            content: `消息 ${index}`,
+        });
+    }
+
+    assert.equal((await getTavernMessage(session.id, 3))?.content, '消息 3');
+    assert.equal(await getTavernMessage(session.id, 99), null);
+    assert.equal((await getLatestTavernMessage(session.id))?.order, 5);
+    assert.deepEqual((await listLatestTavernMessages(session.id, 3)).map((message) => message.order), [3, 4, 5]);
+    assert.deepEqual((await listLatestTavernMessages(session.id, 2, 2)).map((message) => message.order), [2, 3]);
+    const latestWithCount = await listLatestTavernMessagesWithCount(session.id, 2, 2);
+    assert.deepEqual(latestWithCount.messages.map((message) => message.order), [2, 3]);
+    assert.equal(latestWithCount.total, 6);
+    assert.deepEqual((await listTavernMessagesInRange(session.id, 1, 4, 2, 1)).map((message) => message.order), [2, 3]);
+    assert.equal(await countTavernMessagesInRange(session.id, 1, 4), 4);
+    const rangeWithCount = await listTavernMessagesInRangeWithCount(session.id, 1, 4, 2, 1);
+    assert.deepEqual(rangeWithCount.messages.map((message) => message.order), [2, 3]);
+    assert.equal(rangeWithCount.total, 4);
+    assert.deepEqual((await listTavernMessagesInRange(session.id, 4, Number.POSITIVE_INFINITY)).map((message) => message.order), [4, 5]);
+});
+
+test('tavern latest assistant order ignores non-assistant and error messages', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Latest assistant floor' });
+    await appendTavernMessage(session.id, { role: 'user', content: '用户 0。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '助手 1。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '错误助手。', error: true });
+    await appendTavernMessage(session.id, { role: 'user', content: '用户 3。' });
+
+    assert.equal(await getLatestTavernAssistantOrder(session.id), assistant.order);
+});
+
+test('tavern append uses latest indexed order without scanning the full session', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Append latest order' });
+    await appendTavernMessage(session.id, { role: 'user', content: '0' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '1' });
+    await appendTavernMessage(session.id, { role: 'user', content: '2' });
+    await deleteTavernMessages(session.id, [2]);
+
+    const appended = await appendTavernMessage(session.id, { role: 'assistant', content: 'tail' });
+
+    assert.equal(appended.order, 2);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), ['0', '1', 'tail']);
+});
+
+test('tavern manager append uses latest indexed order per session', async () => {
+    await db.delete();
+    await db.open();
+
+    const first = await createTavernSession({ title: 'Manager latest A' });
+    const second = await createTavernSession({ title: 'Manager latest B' });
+    await appendTavernManagerMessage(first.id, { role: 'user', content: 'A0' });
+    await appendTavernManagerMessage(first.id, { role: 'assistant', content: 'A1' });
+    await appendTavernManagerMessage(second.id, { role: 'user', content: 'B0' });
+
+    assert.equal((await getLatestTavernManagerMessage(first.id))?.content, 'A1');
+    assert.equal((await getLatestTavernManagerMessage(second.id))?.order, 0);
 });
 
 test('tavern session db keeps session display names clean', async () => {
@@ -944,6 +1024,36 @@ test('ChatHistory range mode treats missing endOrder as open-ended', async () =>
         limit: 1,
     });
     assert.equal(preview.messages?.[0]?.reasoningSnippet, '第 1 条思考。');
+});
+
+test('ChatHistory recent mode reads an indexed latest window in chronological order', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'ChatHistory recent' });
+    for (let index = 0; index < 5; index += 1) {
+        await appendTavernMessage(session.id, {
+            role: index % 2 === 0 ? 'user' : 'assistant',
+            content: `第 ${index} 条。`,
+        });
+    }
+
+    const firstPage = await executeTavernMemoryTool(session.id, 'ChatHistory', {
+        mode: 'recent',
+        limit: 2,
+    });
+    assert.equal(firstPage.ok, true);
+    assert.equal(firstPage.count, 5);
+    assert.equal(firstPage.truncated, true);
+    assert.equal(firstPage.nextOffset, 2);
+    assert.deepEqual(firstPage.messages?.map((message) => message.order), [3, 4]);
+
+    const secondPage = await executeTavernMemoryTool(session.id, 'ChatHistory', {
+        mode: 'recent',
+        limit: 2,
+        offset: 2,
+    });
+    assert.deepEqual(secondPage.messages?.map((message) => message.order), [1, 2]);
 });
 
 test('MemoryRead returns raw content, line numbers, and pagination hints', async () => {

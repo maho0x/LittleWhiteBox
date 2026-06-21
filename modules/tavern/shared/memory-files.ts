@@ -1,10 +1,13 @@
 import { applyTextEdits } from '../../agent-core/tools/text-edit.js';
-import Dexie from '../../../libs/dexie.mjs';
 
 import { getTavernStateToolDefinitions } from './structured-state';
 import { getTavernTaskToolDefinitions } from './tasks';
 import db, {
+    getLatestTavernAssistantOrder,
+    getLatestTavernMessage,
     listTavernMessages,
+    listLatestTavernMessagesWithCount,
+    listTavernMessagesInRangeWithCount,
     tavernMemoryFilesTable,
     tavernMemorySnapshotsTable,
     tavernMemoryIndexesTable,
@@ -71,20 +74,6 @@ const DEFAULT_MEMORY_READ_LIMIT = 1200;
 const MAX_MEMORY_READ_LIMIT = 2000;
 const DEFAULT_MEMORY_GREP_LIMIT = 100;
 const MAX_MEMORY_GREP_LIMIT = 100;
-
-type DexieRangeCollection<T> = {
-    reverse(): DexieRangeCollection<T>;
-    filter(predicate: (value: T) => boolean): DexieRangeCollection<T>;
-    first(): Promise<T | undefined>;
-};
-
-type DexieRangeTable<T> = {
-    where(index: string): {
-        between(lower: unknown, upper: unknown): DexieRangeCollection<T>;
-    };
-};
-
-const DexieRangeKeys = Dexie as unknown as { minKey: unknown; maxKey: unknown };
 
 function now(): number {
     return Date.now();
@@ -342,22 +331,10 @@ export async function getTavernMemoryFile(sessionId = '', pathInput = ''): Promi
     return await tavernMemoryFilesTable.get([id, path]) || null;
 }
 
-async function getLatestAssistantFloor(sessionId = ''): Promise<number> {
-    const id = String(sessionId || '').trim();
-    if (!id) {return MEMORY_BASELINE_FLOOR;}
-    const latest = await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
-        .where('[sessionId+order]')
-        .between([id, DexieRangeKeys.minKey], [id, DexieRangeKeys.maxKey])
-        .reverse()
-        .filter((message) => message.role === 'assistant' && message.error !== true)
-        .first();
-    return latest ? Math.floor(Number(latest.order)) : MEMORY_BASELINE_FLOOR;
-}
-
 async function resolveMemorySnapshotFloor(sessionId = '', floorInput?: number): Promise<number> {
     const explicit = Number(floorInput);
     if (Number.isFinite(explicit)) {return Math.floor(explicit);}
-    return getLatestAssistantFloor(sessionId);
+    return await getLatestTavernAssistantOrder(sessionId) ?? MEMORY_BASELINE_FLOOR;
 }
 
 function isDefaultMemoryFileCollection(files: TavernMemoryFileRecord[] = [], characterName = ''): boolean {
@@ -890,18 +867,6 @@ function isManagerControlError(error: unknown): boolean {
         || message === 'manager_aborted';
 }
 
-function sliceRecentMessages(
-    messages: TavernMessageRecord[],
-    offset = 0,
-    limit = 12,
-): TavernMessageRecord[] {
-    const safeOffset = Math.max(0, Number(offset) || 0);
-    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 12));
-    const end = Math.max(0, messages.length - safeOffset);
-    const start = Math.max(0, end - safeLimit);
-    return messages.slice(start, end);
-}
-
 function buildChatHistoryEntry(message: TavernMessageRecord, options: { full?: boolean } = {}) {
     const full = options.full === true;
     const content = normalizeBody(message.content, 8000);
@@ -1140,14 +1105,14 @@ export async function executeTavernMemoryTool(
             const limit = Math.max(1, Math.min(100, Number(args.limit) || 12));
             const offset = Math.max(0, Number(args.offset) || 0);
             const full = args.full === true;
-            const messages = await listTavernMessages(id);
             if (mode === 'recent') {
-                const rows = sliceRecentMessages(messages, offset, limit).map((message) => buildChatHistoryEntry(message, { full }));
-                const truncated = offset + limit < messages.length;
+                const { messages, total } = await listLatestTavernMessagesWithCount(id, limit, offset);
+                const rows = messages.map((message) => buildChatHistoryEntry(message, { full }));
+                const truncated = offset + limit < total;
                 return {
                     ok: true,
-                    summary: `共有 ${messages.length} 条原文，读取最近窗口 ${rows.length} 条。`,
-                    count: messages.length,
+                    summary: `共有 ${total} 条原文，读取最近窗口 ${rows.length} 条。`,
+                    count: total,
                     truncated,
                     nextOffset: truncated ? offset + limit : 0,
                     messages: rows,
@@ -1157,25 +1122,24 @@ export async function executeTavernMemoryTool(
                 const startOrder = Math.max(0, Number(args.startOrder) || 0);
                 const hasExplicitEndOrder = Object.prototype.hasOwnProperty.call(args, 'endOrder')
                     && Number.isFinite(Number(args.endOrder));
+                const latestMessage = hasExplicitEndOrder ? null : await getLatestTavernMessage(id);
                 const endOrder = hasExplicitEndOrder
                     ? Math.max(startOrder, Number(args.endOrder) || startOrder)
-                    : Math.max(startOrder, Number(messages[messages.length - 1]?.order) || startOrder);
-                const rowsInRange = messages
-                    .filter((message) => message.order >= startOrder && message.order <= endOrder);
-                const rows = rowsInRange
-                    .slice(offset, offset + limit)
-                    .map((message) => buildChatHistoryEntry(message, { full }));
-                const truncated = offset + limit < rowsInRange.length;
+                    : Math.max(startOrder, Number(latestMessage?.order) || startOrder);
+                const { messages: rowsInRange, total } = await listTavernMessagesInRangeWithCount(id, startOrder, endOrder, limit, offset);
+                const rows = rowsInRange.map((message) => buildChatHistoryEntry(message, { full }));
+                const truncated = offset + limit < total;
                 return {
                     ok: true,
-                    summary: `order ${startOrder}-${endOrder} 共 ${rowsInRange.length} 条原文，返回 ${rows.length} 条。`,
-                    count: rowsInRange.length,
+                    summary: `order ${startOrder}-${endOrder} 共 ${total} 条原文，返回 ${rows.length} 条。`,
+                    count: total,
                     truncated,
                     nextOffset: truncated ? offset + limit : 0,
                     messages: rows,
                 };
             }
             if (mode === 'grep') {
+                const messages = await listTavernMessages(id);
                 const pattern = String(args.pattern || '').trim();
                 if (!pattern) {return { ok: false, summary: '缺少搜索词。', error: 'chat_history_pattern_required' };}
                 const matcher = args.regex === true || args.useRegex === true ? new RegExp(pattern, 'iu') : null;

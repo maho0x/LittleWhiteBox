@@ -550,6 +550,24 @@ export const tavernTaskSnapshotsTable = db.taskSnapshots;
 export const tavernManagerTaskSnapshotsTable = db.managerTaskSnapshots;
 export const tavernTaskFingerprintStatesTable = db.taskFingerprintStates;
 
+type DexieRangeCollection<T> = {
+    reverse(): DexieRangeCollection<T>;
+    filter(predicate: (value: T) => boolean): DexieRangeCollection<T>;
+    offset(count: number): DexieRangeCollection<T>;
+    limit(count: number): DexieRangeCollection<T>;
+    first(): Promise<T | undefined>;
+    count(): Promise<number>;
+    toArray(): Promise<T[]>;
+};
+
+type DexieRangeTable<T> = {
+    where(index: string): {
+        between(lower: unknown, upper: unknown, includeLower?: boolean, includeUpper?: boolean): DexieRangeCollection<T>;
+    };
+};
+
+const DexieRangeKeys = Dexie as unknown as { minKey: unknown; maxKey: unknown };
+
 function now(): number {
     return Date.now();
 }
@@ -952,35 +970,37 @@ export async function updateTavernSessionSnapshot(sessionId = '', patch: {
 export async function appendTavernMessage(sessionId: string, message: TavernAppendMessageInput): Promise<TavernMessageRecord> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('session_required');}
-    const existing = await tavernMessagesTable.where('sessionId').equals(id).toArray();
-    const order = Math.max(-1, ...existing.map((item) => Number(item.order) || 0)) + 1;
     const timestamp = now();
-    const record: TavernMessageRecord = {
-        sessionId: id,
-        order,
-        role: String(message.role || ''),
-        content: String(message.content || ''),
-        name: message.name ? String(message.name) : undefined,
-        error: message.error === true,
-        createdAt: timestamp,
-        provider: 'provider' in message ? String(message.provider || '') : undefined,
-        model: 'model' in message ? String(message.model || '') : undefined,
-        finishReason: 'finishReason' in message ? String(message.finishReason || '') : undefined,
-        thoughts: 'thoughts' in message ? cloneSerializable(message.thoughts, undefined) : undefined,
-        providerPayload: 'providerPayload' in message ? cloneSerializable(message.providerPayload, undefined) : undefined,
-        contextSnapshot: 'contextSnapshot' in message ? cloneSerializable(message.contextSnapshot, undefined) : undefined,
-        buildSnapshot: 'buildSnapshot' in message ? cloneSerializable(message.buildSnapshot, undefined) : undefined,
-        chatPresetId: 'chatPresetId' in message ? String(message.chatPresetId || '') : String(message.presetId || ''),
-        chatPresetName: 'chatPresetName' in message ? String(message.chatPresetName || '') : String(message.presetName || ''),
-        presetId: 'presetId' in message ? String(message.presetId || '') : undefined,
-        presetName: 'presetName' in message ? String(message.presetName || '') : undefined,
-        requestSnapshot: 'requestSnapshot' in message ? cloneSerializable(message.requestSnapshot, undefined) : undefined,
-        runtimeEvents: 'runtimeEvents' in message ? normalizeMessageRuntimeEvents(message.runtimeEvents) : [],
-    };
+    let record: TavernMessageRecord | null = null;
     await db.transaction('rw', tavernMessagesTable, tavernSessionsTable, async () => {
+        const latest = await getLatestTavernMessage(id);
+        const order = (latest ? Math.floor(Number(latest.order)) : -1) + 1;
+        record = {
+            sessionId: id,
+            order,
+            role: String(message.role || ''),
+            content: String(message.content || ''),
+            name: message.name ? String(message.name) : undefined,
+            error: message.error === true,
+            createdAt: timestamp,
+            provider: 'provider' in message ? String(message.provider || '') : undefined,
+            model: 'model' in message ? String(message.model || '') : undefined,
+            finishReason: 'finishReason' in message ? String(message.finishReason || '') : undefined,
+            thoughts: 'thoughts' in message ? cloneSerializable(message.thoughts, undefined) : undefined,
+            providerPayload: 'providerPayload' in message ? cloneSerializable(message.providerPayload, undefined) : undefined,
+            contextSnapshot: 'contextSnapshot' in message ? cloneSerializable(message.contextSnapshot, undefined) : undefined,
+            buildSnapshot: 'buildSnapshot' in message ? cloneSerializable(message.buildSnapshot, undefined) : undefined,
+            chatPresetId: 'chatPresetId' in message ? String(message.chatPresetId || '') : String(message.presetId || ''),
+            chatPresetName: 'chatPresetName' in message ? String(message.chatPresetName || '') : String(message.presetName || ''),
+            presetId: 'presetId' in message ? String(message.presetId || '') : undefined,
+            presetName: 'presetName' in message ? String(message.presetName || '') : undefined,
+            requestSnapshot: 'requestSnapshot' in message ? cloneSerializable(message.requestSnapshot, undefined) : undefined,
+            runtimeEvents: 'runtimeEvents' in message ? normalizeMessageRuntimeEvents(message.runtimeEvents) : [],
+        };
         await tavernMessagesTable.put(record);
         await tavernSessionsTable.update(id, { updatedAt: timestamp });
     });
+    if (!record) {throw new Error('message_append_failed');}
     return normalizeStoredTavernMessageRecord(record);
 }
 
@@ -1056,10 +1076,173 @@ export async function listTavernMessages(sessionId = ''): Promise<TavernMessageR
         .map(normalizeStoredTavernMessageRecord);
 }
 
+export async function getTavernMessage(sessionId = '', order = -1): Promise<TavernMessageRecord | null> {
+    const id = String(sessionId || '').trim();
+    const messageOrder = Number(order);
+    if (!id || !Number.isInteger(messageOrder) || messageOrder < 0) {return null;}
+    const message = await tavernMessagesTable.get([id, messageOrder]);
+    return message ? normalizeStoredTavernMessageRecord(message) : null;
+}
+
+export async function getLatestTavernMessage(sessionId = ''): Promise<TavernMessageRecord | null> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return null;}
+    const latest = await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, DexieRangeKeys.maxKey])
+        .reverse()
+        .first();
+    return latest ? normalizeStoredTavernMessageRecord(latest) : null;
+}
+
+export async function getLatestTavernAssistantOrder(sessionId = ''): Promise<number | null> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return null;}
+    const latest = await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, DexieRangeKeys.maxKey])
+        .reverse()
+        .filter((message) => message.role === 'assistant' && message.error !== true)
+        .first();
+    return latest ? Math.floor(Number(latest.order)) : null;
+}
+
+export async function listLatestTavernMessages(
+    sessionId = '',
+    limit = 12,
+    offset = 0,
+): Promise<TavernMessageRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 12)));
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    const rows = await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, DexieRangeKeys.maxKey])
+        .reverse()
+        .offset(safeOffset)
+        .limit(safeLimit)
+        .toArray();
+    return rows
+        .reverse()
+        .map(normalizeStoredTavernMessageRecord);
+}
+
+export async function listLatestTavernMessagesWithCount(
+    sessionId = '',
+    limit = 12,
+    offset = 0,
+): Promise<{ messages: TavernMessageRecord[]; total: number }> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return { messages: [], total: 0 };}
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 12)));
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    return await db.transaction('r', tavernMessagesTable, async () => {
+        const [rows, total] = await Promise.all([
+            (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+                .where('[sessionId+order]')
+                .between([id, DexieRangeKeys.minKey], [id, DexieRangeKeys.maxKey])
+                .reverse()
+                .offset(safeOffset)
+                .limit(safeLimit)
+                .toArray(),
+            tavernMessagesTable.where('sessionId').equals(id).count(),
+        ]);
+        return {
+            messages: rows.reverse().map(normalizeStoredTavernMessageRecord),
+            total,
+        };
+    });
+}
+
+export async function listTavernMessagesInRange(
+    sessionId = '',
+    startOrder = 0,
+    endOrder = Number.POSITIVE_INFINITY,
+    limit = 1000,
+    offset = 0,
+): Promise<TavernMessageRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const start = Math.max(0, Math.floor(Number(startOrder) || 0));
+    const finiteEnd = Number.isFinite(Number(endOrder));
+    const end = finiteEnd ? Math.max(start, Math.floor(Number(endOrder) || start)) : Number.POSITIVE_INFINITY;
+    const upperOrder = finiteEnd ? end : DexieRangeKeys.maxKey;
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 1000)));
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    return (await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, start], [id, upperOrder], true, true)
+        .offset(safeOffset)
+        .limit(safeLimit)
+        .toArray())
+        .map(normalizeStoredTavernMessageRecord);
+}
+
+export async function listTavernMessagesInRangeWithCount(
+    sessionId = '',
+    startOrder = 0,
+    endOrder = Number.POSITIVE_INFINITY,
+    limit = 1000,
+    offset = 0,
+): Promise<{ messages: TavernMessageRecord[]; total: number }> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return { messages: [], total: 0 };}
+    const start = Math.max(0, Math.floor(Number(startOrder) || 0));
+    const finiteEnd = Number.isFinite(Number(endOrder));
+    const end = finiteEnd ? Math.max(start, Math.floor(Number(endOrder) || start)) : Number.POSITIVE_INFINITY;
+    const upperOrder = finiteEnd ? end : DexieRangeKeys.maxKey;
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 1000)));
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    return await db.transaction('r', tavernMessagesTable, async () => {
+        const range = () => (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+            .where('[sessionId+order]')
+            .between([id, start], [id, upperOrder], true, true);
+        const [rows, total] = await Promise.all([
+            range()
+                .offset(safeOffset)
+                .limit(safeLimit)
+                .toArray(),
+            range().count(),
+        ]);
+        return {
+            messages: rows.map(normalizeStoredTavernMessageRecord),
+            total,
+        };
+    });
+}
+
+export async function countTavernMessagesInRange(
+    sessionId = '',
+    startOrder = 0,
+    endOrder = Number.POSITIVE_INFINITY,
+): Promise<number> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return 0;}
+    const start = Math.max(0, Math.floor(Number(startOrder) || 0));
+    const finiteEnd = Number.isFinite(Number(endOrder));
+    const end = finiteEnd ? Math.max(start, Math.floor(Number(endOrder) || start)) : Number.POSITIVE_INFINITY;
+    const upperOrder = finiteEnd ? end : DexieRangeKeys.maxKey;
+    return (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, start], [id, upperOrder], true, true)
+        .count();
+}
+
 export async function countTavernMessages(sessionId = ''): Promise<number> {
     const id = String(sessionId || '').trim();
     if (!id) {return 0;}
     return tavernMessagesTable.where('sessionId').equals(id).count();
+}
+
+export async function getLatestTavernManagerMessage(sessionId = ''): Promise<TavernManagerMessageRecord | null> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return null;}
+    return await (tavernManagerMessagesTable as unknown as DexieRangeTable<TavernManagerMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, DexieRangeKeys.maxKey])
+        .reverse()
+        .first() || null;
 }
 
 export async function appendTavernManagerMessage(
@@ -1068,32 +1251,34 @@ export async function appendTavernManagerMessage(
 ): Promise<TavernManagerMessageRecord> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('session_required');}
-    const existing = await tavernManagerMessagesTable.where('sessionId').equals(id).toArray();
-    const order = Math.max(-1, ...existing.map((item) => Number(item.order) || 0)) + 1;
     const timestamp = now();
-    const record: TavernManagerMessageRecord = {
-        sessionId: id,
-        order,
-        role: normalizeManagerMessageRole(message.role),
-        content: String(message.content || ''),
-        name: message.name ? String(message.name) : undefined,
-        error: message.error === true,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        provider: 'provider' in message ? String(message.provider || '') : undefined,
-        model: 'model' in message ? String(message.model || '') : undefined,
-        finishReason: 'finishReason' in message ? String(message.finishReason || '') : undefined,
-        thoughts: 'thoughts' in message ? cloneSerializable(message.thoughts, undefined) : undefined,
-        providerPayload: 'providerPayload' in message ? cloneSerializable(message.providerPayload, undefined) : undefined,
-        toolCalls: normalizeManagerToolCalls(message),
-        toolCallId: String(message.toolCallId || message.tool_call_id || '').trim() || undefined,
-        toolName: String(message.toolName || '').trim() || undefined,
-        toolDisplay: 'toolDisplay' in message ? cloneSerializable(message.toolDisplay, undefined) : undefined,
-    };
+    let record: TavernManagerMessageRecord | null = null;
     await db.transaction('rw', tavernManagerMessagesTable, tavernSessionsTable, async () => {
+        const latest = await getLatestTavernManagerMessage(id);
+        const order = (latest ? Math.floor(Number(latest.order)) : -1) + 1;
+        record = {
+            sessionId: id,
+            order,
+            role: normalizeManagerMessageRole(message.role),
+            content: String(message.content || ''),
+            name: message.name ? String(message.name) : undefined,
+            error: message.error === true,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            provider: 'provider' in message ? String(message.provider || '') : undefined,
+            model: 'model' in message ? String(message.model || '') : undefined,
+            finishReason: 'finishReason' in message ? String(message.finishReason || '') : undefined,
+            thoughts: 'thoughts' in message ? cloneSerializable(message.thoughts, undefined) : undefined,
+            providerPayload: 'providerPayload' in message ? cloneSerializable(message.providerPayload, undefined) : undefined,
+            toolCalls: normalizeManagerToolCalls(message),
+            toolCallId: String(message.toolCallId || message.tool_call_id || '').trim() || undefined,
+            toolName: String(message.toolName || '').trim() || undefined,
+            toolDisplay: 'toolDisplay' in message ? cloneSerializable(message.toolDisplay, undefined) : undefined,
+        };
         await tavernManagerMessagesTable.put(record);
         await tavernSessionsTable.update(id, { updatedAt: timestamp });
     });
+    if (!record) {throw new Error('manager_message_append_failed');}
     return record;
 }
 

@@ -1,5 +1,5 @@
 import db, {
-    listTavernMessages,
+    getLatestTavernAssistantOrder,
     tavernManagerRunsTable,
     tavernManagerTaskSnapshotsTable,
     tavernTaskFingerprintStatesTable,
@@ -124,12 +124,8 @@ async function taskPoolHash(sessionId = ''): Promise<string> {
 async function resolveTaskSnapshotFloor(sessionId = '', floorInput?: number): Promise<number> {
     const explicit = Number(floorInput);
     if (Number.isFinite(explicit)) {return Math.floor(explicit);}
-    const messages = await listTavernMessages(sessionId);
-    const assistantOrders = messages
-        .filter((message) => message.role === 'assistant' && message.error !== true)
-        .map((message) => Number(message.order))
-        .filter((order) => Number.isFinite(order));
-    return assistantOrders.length ? Math.max(...assistantOrders) : TAVERN_TASK_BASELINE_FLOOR;
+    const latestOrder = await getLatestTavernAssistantOrder(sessionId);
+    return latestOrder ?? TAVERN_TASK_BASELINE_FLOOR;
 }
 
 function snapshotFingerprint(snapshot: TavernTaskSnapshotRecord | null | undefined): string {

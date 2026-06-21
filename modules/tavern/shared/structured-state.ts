@@ -2000,7 +2000,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     type: 'object',
                     properties: {
                         docType: { type: 'string', enum: [MAP_DOC_TYPE, ATLAS_DOC_TYPE], description: 'Structured document type. Use `tavern.map` for scene maps or `tavern.atlas` for the world index.' },
-                        docId: { type: 'string', description: 'Structured document id. Omit to patch the active current-scene map; atlas always uses `main`.' },
+                        docId: { type: 'string', description: 'Structured document id. For scene maps, prefer an explicit stable place-named docId; omit only when intentionally maintaining the currently active scene-map doc. Atlas always uses `main`.' },
                         baseRevision: { type: 'number', description: 'Optional optimistic revision check from StateRead summary/document.' },
                         dryRun: { type: 'boolean', description: 'Validate and simulate the transaction without saving or incrementing the revision.' },
                         activate: { type: 'boolean', description: 'Set this map document as the current scene after the transaction. With `ops:[]`, this only switches the active map.' },
