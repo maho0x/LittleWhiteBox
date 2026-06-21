@@ -19,9 +19,10 @@ export const TAVERN_TASK_TOOL_NAMES = {
 export const TAVERN_TASK_BASELINE_FLOOR = -1;
 export const TAVERN_TASK_MIN_GENERATION_FLOOR = 5;
 export const TAVERN_TASK_MAX_ACTIVE = 3;
+export const TAVERN_TASK_AUTO_CREATE_MAX_ACTIVE = 1;
 export const TAVERN_TASK_STALE_FLOOR_THRESHOLD = 8;
 const MAX_ABANDONED_FINGERPRINTS = 200;
-const TASK_HOOK_META_WORD_PATTERN = /(?:任务|目标|子目标|远景|完成|已完成|\bquest\b|\btask\b|\bgoal\b|\bobjective\b|\bcomplete(?:d|s|ion)?\b)/i;
+const TASK_HOOK_META_WORD_PATTERN = /(?:任务|目标|子目标|远景|已完成|\bquest\b|\btask\b|\bgoal\b|\bobjective\b|\bcomplete(?:d|s|ion)?\b)|(?:完成|完成剧情)(?=任务|目标|子目标|远景)|完成任务|任务完成|目标完成|子目标完成|任务已完成|目标已完成|子目标已完成/i;
 
 export interface TavernTaskToolResult {
     ok: boolean;
@@ -460,6 +461,12 @@ export async function executeTavernTaskTool(
             return { ok: false, summary: 'hookForModel 必须是无元叙事词的软句。', changed: false, error: 'task_hook_meta_words' };
         }
         if (options.caller === 'auto' && isNew) {
+            const activeCount = (await listTavernTasks(id)).filter((task) => task.status === 'active').length;
+            if (activeCount > TAVERN_TASK_AUTO_CREATE_MAX_ACTIVE) {
+                return { ok: false, summary: `自动新建仅允许 active 池有 ${TAVERN_TASK_AUTO_CREATE_MAX_ACTIVE} 条或以下时创建新线索，当前已有 ${activeCount} 条。`, changed: false, error: 'task_auto_create_pool_busy' };
+            }
+        }
+        if (isNew) {
             const activeCount = (await listTavernTasks(id)).filter((task) => task.status === 'active').length;
             if (activeCount >= TAVERN_TASK_MAX_ACTIVE) {
                 return { ok: false, summary: `事件线索池已满（最多 ${TAVERN_TASK_MAX_ACTIVE} 条 active）。`, changed: false, error: 'task_active_pool_full' };

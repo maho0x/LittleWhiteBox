@@ -198,7 +198,18 @@ function cleanMemoryText(value: unknown = ''): string {
     return applyMemoryTextFilterRules(String(value || ''), getConfiguredMemoryTextFilterRules())
         .replace(/\[tts:[^\]]*]/gi, ' ')
         .replace(/<state>[\s\S]*?<\/state>/gi, ' ')
+        .replace(/<status[^>]*>[\s\S]*?<\/status>/gi, ' ')
         .replace(/\s+/g, ' ')
+        .trim();
+}
+
+export function cleanSourceTextForManager(value: unknown = ''): string {
+    return applyMemoryTextFilterRules(String(value || ''), getConfiguredMemoryTextFilterRules())
+        .replace(/\[tts:[^\]]*]/gi, ' ')
+        .replace(/<state>[\s\S]*?<\/state>/gi, ' ')
+        .replace(/<status>[\s\S]*?<\/status>/gi, ' ')
+        .replace(/<status[^>]*>[\s\S]*?<\/status>/gi, ' ')
+        .replace(/\r\n/g, '\n')
         .trim();
 }
 
@@ -209,11 +220,7 @@ function memoryFileTitle(file: TavernMemoryIndexFileEntry | TavernMemoryFileReco
 }
 
 function memoryFilePromptContent(file: TavernMemoryIndexFileEntry | TavernMemoryFileRecord): string {
-    const path = String(file.path || '');
-    if (isStateMemoryPath(path) || isCharacterMemoryPath(path)) {
-        return String(('content' in file ? file.content : '') || ('preview' in file ? file.preview : '') || '');
-    }
-    return String(('preview' in file && file.preview) || ('content' in file ? file.content : '') || '').slice(0, 2400);
+    return String(('content' in file ? file.content : '') || ('preview' in file ? file.preview : '') || '');
 }
 
 function isRecallMemoryFile(file: Pick<TavernMemoryIndexFileEntry, 'path' | 'status'> | Pick<TavernMemoryFileRecord, 'path' | 'status'>): boolean {

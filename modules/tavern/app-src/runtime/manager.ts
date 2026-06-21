@@ -16,6 +16,7 @@ import {
     rebuildTavernMemoryDerivedIndex,
     type TavernMemoryToolResult,
 } from '../../shared/memory-files';
+import { cleanSourceTextForManager } from '../../shared/memory-retrieval';
 import {
     advanceTavernAutoManagerEpoch,
     createTavernManagerRun,
@@ -283,10 +284,10 @@ function buildAutoManagerUserPrompt(input: {
         ...(allowQuest ? [String(input.taskPoolBlock || '[Current Event Pool]\nActive directions: unknown.').trim(), ''] : []),
         '[本轮 RP 原文]',
         '[用户消息]',
-        input.userMessage.content,
+        cleanSourceTextForManager(input.userMessage.content),
         '',
         '[角色回复]',
-        input.assistantMessage.content,
+        cleanSourceTextForManager(input.assistantMessage.content),
         '',
         '[本轮要求]',
         ...requirements,
@@ -533,9 +534,20 @@ async function runManagerAgentWithTools(input: {
     let reminded = false;
     let pendingToolResponses: TavernToolLoopResponse[] | null = null;
     let pendingFinalAnswerReminderText = '';
+    let lastFailedToolSignature = '';
+    let failedToolRepeatCount = 0;
+    let toolCircuitBreakerTripped = false;
     const emitProtocolEvent = (event: TavernManagerProtocolEvent) => {
         input.onProtocolEvent?.(event);
     };
+
+    function buildToolFailureSignature(name: string, args: Record<string, unknown>, error: string): string {
+        try {
+            return `${String(name || '').trim()}|${safeJson(args)}|${String(error || '').trim()}`;
+        } catch {
+            return `${String(name || '').trim()}|${String(error || '').trim()}`;
+        }
+    }
 
     for (let round = 1; round <= MAX_MANAGER_TOOL_ROUNDS; round += 1) {
         throwIfManagerAborted(input.signal);
@@ -721,6 +733,36 @@ async function runManagerAgentWithTools(input: {
                 name: toolCall.name,
                 response: toolResult,
             });
+            if (!toolResult.ok) {
+                const signature = buildToolFailureSignature(String(toolCall.name || ''), args, String(toolResult.error || ''));
+                if (signature === lastFailedToolSignature) {
+                    failedToolRepeatCount += 1;
+                } else {
+                    lastFailedToolSignature = signature;
+                    failedToolRepeatCount = 1;
+                }
+            } else {
+                lastFailedToolSignature = '';
+                failedToolRepeatCount = 0;
+            }
+        }
+        if (failedToolRepeatCount >= 3) {
+            if (toolCircuitBreakerTripped) {
+                throw new Error('manager_tool_repeat_loop');
+            }
+            reminded = true;
+            toolCircuitBreakerTripped = true;
+            const reminder = 'A tool keeps failing with the same arguments and error. Stop repeating it. Either adjust the arguments and strategy, or finish with a summary of what you verified, skipped, or left pending.';
+            if (supportsSessionToolLoop) {
+                pendingFinalAnswerReminderText = reminder;
+            } else {
+                input.messages.push({
+                    role: 'system',
+                    content: reminder,
+                });
+            }
+            lastFailedToolSignature = '';
+            failedToolRepeatCount = 0;
         }
         if (supportsSessionToolLoop) {
             pendingToolResponses = toolResponses;

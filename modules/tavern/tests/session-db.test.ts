@@ -727,6 +727,15 @@ test('tavern memory files are scoped markdown sources with derived index', async
     assert.equal(userFileEdit.ok, false);
     assert.equal(userFileEdit.error, 'memory_character_user_reserved');
 
+    for (const reservedName of ['自己', '本人', 'host', 'DM', 'GM', 'narrator', '叙述者', '主持人', 'protagonist', 'operator', '我方', '主人翁']) {
+        const blockedWrite = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
+            filePath: `memory/characters/${reservedName}.md`,
+            content: `# ${reservedName}\n\n不应绕过保留词。`,
+        });
+        assert.equal(blockedWrite.ok, false, `expected ${reservedName} to be reserved`);
+        assert.equal(blockedWrite.error, 'memory_character_user_reserved', `expected ${reservedName} to be reserved`);
+    }
+
     const characterPath = 'memory/characters/椎名真昼.md';
     const characterWrite = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
         filePath: characterPath,
@@ -2297,7 +2306,7 @@ test('TaskPatch enforces auto generation floor, pool cap, and hook wording guard
     assert.equal(metaHook.ok, false);
     assert.equal(metaHook.error, 'task_hook_meta_words');
 
-    for (let index = 1; index <= 3; index += 1) {
+    for (let index = 1; index <= 2; index += 1) {
         const created = await executeTavernTaskTool(session.id, 'TaskPatch', {
             op: 'upsert-task',
             taskId: `pool-${index}`,
@@ -2310,18 +2319,18 @@ test('TaskPatch enforces auto generation floor, pool cap, and hook wording guard
         }, { caller: 'auto', sourceAssistantOrder: 5 + index });
         assert.equal(created.ok, true);
     }
-    const overflow = await executeTavernTaskTool(session.id, 'TaskPatch', {
+    const autoBlocked = await executeTavernTaskTool(session.id, 'TaskPatch', {
         op: 'upsert-task',
-        taskId: 'pool-4',
-        fingerprint: 'pool-4',
-        horizon: '第四条远景',
-        current: '第四条当前',
+        taskId: 'pool-3-auto',
+        fingerprint: 'pool-3-auto',
+        horizon: '第三条远景',
+        current: '第三条当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '第四条说明。',
-        hookForModel: '第四条暗线在远处亮了一下。',
-    }, { caller: 'auto', sourceAssistantOrder: 10 });
-    assert.equal(overflow.ok, false);
-    assert.equal(overflow.error, 'task_active_pool_full');
+        hookForUser: '第三条说明。',
+        hookForModel: '第三条暗线在远处亮了一下。',
+    }, { caller: 'auto', sourceAssistantOrder: 8 });
+    assert.equal(autoBlocked.ok, false);
+    assert.equal(autoBlocked.error, 'task_auto_create_pool_busy');
 
     const manual = await executeTavernTaskTool(session.id, 'TaskPatch', {
         op: 'upsert-task',
@@ -2334,6 +2343,19 @@ test('TaskPatch enforces auto generation floor, pool cap, and hook wording guard
         hookForModel: '额外暗线贴着墙根延伸。',
     }, { caller: 'chat', sourceAssistantOrder: 10 });
     assert.equal(manual.ok, true);
+
+    const overflow = await executeTavernTaskTool(session.id, 'TaskPatch', {
+        op: 'upsert-task',
+        taskId: 'pool-4',
+        fingerprint: 'pool-4',
+        horizon: '第四条远景',
+        current: '第四条当前',
+        doneWhen: '角色当场说出答案。',
+        hookForUser: '第四条说明。',
+        hookForModel: '第四条暗线在远处亮了一下。',
+    }, { caller: 'chat', sourceAssistantOrder: 10 });
+    assert.equal(overflow.ok, false);
+    assert.equal(overflow.error, 'task_active_pool_full');
 
     const badAdvance = await executeTavernTaskTool(session.id, 'TaskPatch', {
         op: 'advance-task',
@@ -2976,6 +2998,69 @@ test('tavern auto manager denies unauthorized StatePatch without side effects', 
     assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 0);
     const run = (await listTavernManagerRuns(session.id))[0];
     assert.match(JSON.stringify(run?.toolTrace || []), /契约未授权 制图引擎/);
+});
+
+test('tavern auto manager denies unauthorized TaskPatch without side effects', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Blocked task patch' });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '别动事件线索。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '好的，我只整理记忆。' });
+    let calls = 0;
+
+    const executeManagerOnce = (async (options) => {
+        calls += 1;
+        if (calls === 1) {
+            return {
+                provider: 'fake-manager',
+                model: 'memory-only',
+                text: '我先试着建一个事件线索。',
+                toolCalls: [{
+                    id: 'blocked-task',
+                    name: 'TaskPatch',
+                    arguments: {
+                        op: 'upsert-task',
+                        fingerprint: 'blocked-hook',
+                        horizon: '某个方向',
+                        current: '某个入口',
+                        doneWhen: '某件事发生',
+                        hookForUser: 'UI 提示',
+                        hookForModel: '莉娜提过她母亲一个人住在城东。',
+                    },
+                }],
+            };
+        }
+        assert.equal(options.toolResponses?.[0]?.name, 'TaskPatch');
+        assert.match(JSON.stringify(options.toolResponses?.[0]?.response || {}), /契约未授权 织线者/);
+        return {
+            provider: 'fake-manager',
+            model: 'memory-only',
+            text: '已跳过未授权事件线索。',
+        };
+    }) as Parameters<typeof runXbTavernManagerAfterTurn>[0]['executeManagerOnce'] & { supportsSessionToolLoop?: boolean };
+    executeManagerOnce.supportsSessionToolLoop = true;
+
+    const result = await runXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: {},
+        userMessage,
+        assistantMessage,
+        turn: 1,
+        sessionContract: mergeTavernSessionContract(undefined, {
+            memoryArchiving: true,
+            cartographyEngine: false,
+            questOrchestration: false,
+        }),
+        executeManagerOnce,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls, 2);
+    assert.deepEqual(result.changedTasks, []);
+    assert.equal((await listTavernTasks(session.id, { includeCompleted: true, includeAbandoned: true })).length, 0);
+    const run = (await listTavernManagerRuns(session.id))[0];
+    assert.match(JSON.stringify(run?.toolTrace || []), /契约未授权 织线者/);
 });
 
 test('tavern manager chat keeps full tool access even when the stored contract disables auto work', async () => {

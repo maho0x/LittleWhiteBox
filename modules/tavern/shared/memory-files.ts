@@ -92,9 +92,9 @@ function normalizeInline(value: unknown = '', limit = 400): string {
     return text.length > limit ? text.slice(0, limit) : text;
 }
 
-function normalizeBody(value: unknown = '', limit = 20000): string {
+function normalizeBody(value: unknown = '', limit?: number): string {
     const text = String(value || '').replace(/\r\n/g, '\n').trim();
-    return text.length > limit ? text.slice(0, limit) : text;
+    return typeof limit === 'number' && limit > 0 && text.length > limit ? text.slice(0, limit) : text;
 }
 
 function splitLines(text = ''): string[] {
@@ -161,11 +161,24 @@ export function isReservedUserMemoryCharacterName(value: unknown = ''): boolean 
         'you',
         'me',
         'myself',
+        'self',
+        'host',
+        'dm',
+        'gm',
+        'narrator',
+        'operator',
+        'protagonist',
         '用户',
         '玩家',
         '主控',
         '我',
         '你',
+        '自己',
+        '本人',
+        '我方',
+        '主人翁',
+        '叙述者',
+        '主持人',
     ]).has(key);
 }
 
@@ -832,7 +845,7 @@ export function getTavernManagerToolDefinitions(): Array<{ type: 'function'; fun
                     'recent reads the latest messages; offset pages backward from the newest messages.',
                     'range reads message order ascending; if startOrder is provided and endOrder is omitted, the range continues through the latest message.',
                     'grep searches message content and returns ascending earliest matches; offset/limit continue through later matches.',
-                    'Results include count/truncated/nextOffset for pagination. Set full:true when exact wording or evidence matters.',
+                    'Results include count/truncated/nextOffset for pagination. Set full:true to return the complete single-message content and thoughts without truncation, when exact wording or evidence matters.',
                     'This does not search memory Markdown files. Use MemoryGrep for memory files.',
                 ].join('\n'),
                 parameters: {
@@ -871,12 +884,14 @@ function isManagerControlError(error: unknown): boolean {
 
 function buildChatHistoryEntry(message: TavernMessageRecord, options: { full?: boolean } = {}) {
     const full = options.full === true;
-    const content = normalizeBody(message.content, 8000);
+    const content = full
+        ? normalizeBody(message.content)
+        : normalizeBody(message.content, 8000);
     const thoughts = Array.isArray(message.thoughts)
         ? message.thoughts
             .map((thought, index) => ({
                 label: normalizeInline(thought?.label || `思考 ${index + 1}`, 80),
-                text: normalizeBody(thought?.text || '', 8000),
+                text: normalizeBody(thought?.text || '', full ? undefined : 8000),
             }))
             .filter((thought) => thought.text)
         : [];

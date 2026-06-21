@@ -168,7 +168,7 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
         'Each task needs `horizon`, `current`, and `doneWhen`: `horizon` is the larger not-yet-happened pull, `current` is the immediate playable entrance, and `doneWhen` is the objective completion condition. Write `doneWhen` as a concrete observable event that happens in the story, not an abstract state such as "influence grows" or "the relationship deepens".',
         'Do not create a task when the hook is generic, disconnected from the current story, a repeat of memory, an existing foreshadowing, an unresolved thread already recorded in memory, a continuation of the current relationship/scene, or a random event tossed in from outside.',
         'Good hookForModel examples: "莉娜提过她母亲一个人住在城东，最近似乎想找人帮忙修房子。", "码头那个走私头子最近缺人手——他不知道你是谁。", or "莉娜的妹妹下周从外地来，听说性格和她完全相反。" Bad examples: "莉娜似乎在刻意避开某个码头名字。", "那枚旧钥匙上的纹路，和办公室门后的标记对得上。", "继续发展和莉娜的关系。", or "发生一个随机袭击。"',
-        '`hookForUser` is direct UI text. `hookForModel` is a soft in-world sentence for the RP model; it surfaces the current playable entrance and must not use meta words such as task, goal, objective, completed, or quest.',
+        '`hookForUser` is direct UI text. `hookForModel` is a soft in-world sentence for the RP model; it surfaces the current playable entrance and must not use meta words such as quest, task, goal, objective, completed, or Chinese 任务/目标/子目标/远景/已完成, nor phrases like "完成任务"/"任务已完成".',
         'Stale active tasks are abandoned by the system after your tool work. Do not use TaskPatch merely to clean up stale items.',
     ] : [];
 
