@@ -47,6 +47,9 @@ function orderLabel(task: TavernTaskRecord): string {
       <p class="tavern-event-horizon">
         远景：{{ primaryTask.horizon }}
       </p>
+      <p class="tavern-event-done">
+        完成条件：{{ primaryTask.doneWhen }}
+      </p>
       <p class="tavern-event-hook">
         {{ primaryTask.hookForUser }}
       </p>
@@ -77,6 +80,9 @@ function orderLabel(task: TavernTaskRecord): string {
           <strong>{{ task.current }}</strong>
           <small>{{ orderLabel(task) }}</small>
         </div>
+        <p class="tavern-event-done">
+          完成条件：{{ task.doneWhen }}
+        </p>
         <p>{{ task.hookForUser }}</p>
       </article>
     </div>
@@ -98,6 +104,9 @@ function orderLabel(task: TavernTaskRecord): string {
           <strong>{{ task.current }}</strong>
           <small>{{ orderLabel(task) }}</small>
         </div>
+        <p class="tavern-event-done">
+          完成条件：{{ task.doneWhen }}
+        </p>
         <p>{{ task.horizon }}</p>
       </article>
     </div>

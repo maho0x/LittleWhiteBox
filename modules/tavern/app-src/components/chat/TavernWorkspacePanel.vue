@@ -130,8 +130,6 @@ const mapActorNames = computed(() => selectedMapElements.value
     .map((element) => String(element.text || element.id || '').trim())
     .filter(Boolean)
     .slice(0, 6));
-const selectedMapUpdatedLabel = computed(() => formatMapInfoTime(Number(selectedMapRecord.value?.updatedAt) || 0));
-const latestMapPatchSummary = computed(() => selectedMapIsActive.value ? String(mapStatePatches.value.at(-1)?.summary || '').trim() : '');
 const mapInfoStats = computed(() => {
     const elements = selectedMapElements.value;
     const countByCat = (cat: string) => elements.filter((element) => element.cat === cat).length;
@@ -153,16 +151,6 @@ watch([atlasActiveMapDocId, mapStateDocuments], () => {
         mapPreviewDocId.value = '';
     }
 }, { immediate: true });
-
-function formatMapInfoTime(timestamp = 0) {
-    if (!Number.isFinite(timestamp) || timestamp <= 0) {return '';}
-    return new Date(timestamp).toLocaleString('zh-CN', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-}
 
 function closeMobileChatPanel() {
     emit('close');
@@ -323,20 +311,6 @@ function selectMobileMemoryFile(path: string) {
           >
             <span>人物</span>
             <strong>{{ mapActorNames.join('、') }}</strong>
-          </div>
-          <div
-            v-if="selectedMapUpdatedLabel"
-            class="tavern-map-info-line"
-          >
-            <span>最近更新</span>
-            <strong>{{ selectedMapUpdatedLabel }}</strong>
-          </div>
-          <div
-            v-if="latestMapPatchSummary"
-            class="tavern-map-info-line"
-          >
-            <span>变更摘要</span>
-            <strong>{{ latestMapPatchSummary }}</strong>
           </div>
           <div
             v-if="mapDigestLines.length"

@@ -312,6 +312,7 @@
 }
 
 .tavern-chat.xb-page .tavern-event-horizon,
+.tavern-chat.xb-page .tavern-event-done,
 .tavern-chat.xb-page .tavern-event-hook,
 .tavern-chat.xb-page .tavern-event-card p,
 .tavern-chat.xb-page .tavern-event-empty p {
@@ -319,6 +320,11 @@
     color: var(--xb-text-muted);
     font-size: 12px;
     line-height: 1.55;
+}
+
+.tavern-chat.xb-page .tavern-event-done {
+    margin-top: 6px;
+    color: var(--xb-text-main);
 }
 
 .tavern-chat.xb-page .tavern-event-hook {

@@ -158,15 +158,16 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
     ] : [];
 
     const questLines = includeQuestOrchestration ? [
-        'TaskPatch maintains a rollbackable event pool. It proposes what could happen next; it does not record what already happened.',
+        'TaskPatch maintains a rollbackable event engine. It proposes what could happen next; it does not record what already happened and does not merely surface existing foreshadowing.',
         'Allowed TaskPatch ops are only `upsert-task`, `advance-task`, `complete-task`, and `abandon-task`.',
         'Advance or complete active tasks only when the completed assistant reply actually moved, resolved, or invalidated that direction.',
         'Create new active tasks only when the active pool has 0-1 active directions, the story has reached at least floor 5, and the direction uses already established people, places, relationships, world facts, and current tone.',
-        'A good new task recombines established material into an unplayed situation that can open a new interaction space. It should not merely say to deepen an existing relationship or continue the obvious current scene.',
-        'Match the story tone and the user\'s demonstrated tastes. Fresh but off-tone directions are worse than no direction.',
-        'Do not create a task when the hook is generic, disconnected from the current story, a repeat of memory, an obvious unresolved thread the user is already pursuing, or a random event tossed in from outside.',
-        'Good hookForModel examples: "莉娜似乎在刻意避开某个码头名字。" or "那枚旧钥匙上的纹路，和办公室门后的标记对得上。" Bad examples: "继续发展和莉娜的关系。" or "发生一个随机袭击。"',
-        '`hookForUser` is direct UI text. `hookForModel` is a soft in-world sentence for the RP model; it must not use meta words such as task, goal, objective, completed, or quest.',
+        'A good new task recombines established material into an unplayed situation that opens a new interaction space. It MUST introduce a person, place, faction, or situation that has not yet appeared on screen, reached by extending a known character relationship, adjacent place, faction branch, social obligation, secret pressure, or user taste.',
+        'Use the story tone and the user\'s demonstrated tastes as the engine for boldness, not just a filter. In erotic, violent, political, horror, or domestic tones, propose directions with the same appetite and edge the user has been driving; do not sanitize the hook into safe generic mystery.',
+        'Each task needs `horizon`, `current`, and `doneWhen`: `horizon` is the larger not-yet-happened pull, `current` is the immediate playable entrance, and `doneWhen` is the objective completion condition. Write `doneWhen` as a concrete observable event that happens in the story, not an abstract state such as "influence grows" or "the relationship deepens".',
+        'Do not create a task when the hook is generic, disconnected from the current story, a repeat of memory, an existing foreshadowing, an unresolved thread already recorded in memory, a continuation of the current relationship/scene, or a random event tossed in from outside.',
+        'Good hookForModel examples: "莉娜提过她母亲一个人住在城东，最近似乎想找人帮忙修房子。", "码头那个走私头子最近缺人手——他不知道你是谁。", or "莉娜的妹妹下周从外地来，听说性格和她完全相反。" Bad examples: "莉娜似乎在刻意避开某个码头名字。", "那枚旧钥匙上的纹路，和办公室门后的标记对得上。", "继续发展和莉娜的关系。", or "发生一个随机袭击。"',
+        '`hookForUser` is direct UI text. `hookForModel` is a soft in-world sentence for the RP model; it surfaces the current playable entrance and must not use meta words such as task, goal, objective, completed, or quest.',
         'Stale active tasks are abandoned by the system after your tool work. Do not use TaskPatch merely to clean up stale items.',
     ] : [];
 

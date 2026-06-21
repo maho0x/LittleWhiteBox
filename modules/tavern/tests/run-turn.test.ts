@@ -378,6 +378,7 @@ test('xb tavern run turn sends only the latest quest hook first to ST-native mem
         fingerprint: 'old-hook',
         horizon: '旧线索远景',
         current: '旧线索当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '旧线索说明。',
         hookForModel: '旧码头的名字还挂在雨里。',
     }, { sourceAssistantOrder: 5 });
@@ -387,6 +388,7 @@ test('xb tavern run turn sends only the latest quest hook first to ST-native mem
         fingerprint: 'latest-hook',
         horizon: '最新线索远景',
         current: '最新线索当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '最新线索说明。',
         hookForModel: '莉娜听见旧码头时短暂停顿。',
     }, { sourceAssistantOrder: 7 });
@@ -1798,6 +1800,24 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
     assert.doesNotMatch(mapOnly, /MemoryWrite/);
     assert.doesNotMatch(mapOnly, /memory\/session\.md/);
     assert.doesNotMatch(mapOnly, /校正记忆/);
+
+    const questOnly = buildTavernManagerSystemPrompt({}, {
+        includeMemory: false,
+        includeCartography: false,
+        includeQuestOrchestration: true,
+    });
+    assert.match(questOnly, /rollbackable event engine/i);
+    assert.match(questOnly, /not merely surface existing foreshadowing/i);
+    assert.match(questOnly, /MUST introduce a person, place, faction, or situation that has not yet appeared on screen/i);
+    assert.match(questOnly, /user's demonstrated tastes as the engine for boldness/i);
+    assert.match(questOnly, /`horizon` is the larger not-yet-happened pull/i);
+    assert.match(questOnly, /`doneWhen` is the objective completion condition/i);
+    assert.match(questOnly, /concrete observable event that happens in the story/i);
+    assert.match(questOnly, /not an abstract state/i);
+    assert.match(questOnly, /莉娜提过她母亲一个人住在城东/i);
+    assert.match(questOnly, /Bad examples: "莉娜似乎在刻意避开某个码头名字。"/i);
+    assert.doesNotMatch(questOnly, /MemoryWrite/);
+    assert.doesNotMatch(questOnly, /## Structured State/);
 });
 
 test('xb tavern run turn retrieves relevant old memory beyond recent summaries', async () => {

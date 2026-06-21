@@ -29,7 +29,7 @@ export interface TavernTaskToolResult {
     op?: string;
     error?: string;
     warnings?: string[];
-    tasks?: Array<Pick<TavernTaskRecord, 'id' | 'status' | 'horizon' | 'current' | 'hookForUser' | 'updatedOrder'>>;
+    tasks?: Array<Pick<TavernTaskRecord, 'id' | 'status' | 'horizon' | 'current' | 'doneWhen' | 'hookForUser' | 'updatedOrder'>>;
 }
 
 export interface TavernTaskPatchOptions {
@@ -85,6 +85,7 @@ function taskHashPayload(tasks: TavernTaskRecord[] = [], fingerprints: string[] 
                 status: task.status,
                 horizon: task.horizon,
                 current: task.current,
+                doneWhen: task.doneWhen,
                 hookForUser: task.hookForUser,
                 hookForModel: task.hookForModel,
                 fingerprint: task.fingerprint,
@@ -375,12 +376,13 @@ async function findTaskForPatch(sessionId = '', args: Record<string, unknown> = 
     return rows.find((task) => task.fingerprint === fingerprint) || null;
 }
 
-function summarizeTask(task: TavernTaskRecord): Pick<TavernTaskRecord, 'id' | 'status' | 'horizon' | 'current' | 'hookForUser' | 'updatedOrder'> {
+function summarizeTask(task: TavernTaskRecord): Pick<TavernTaskRecord, 'id' | 'status' | 'horizon' | 'current' | 'doneWhen' | 'hookForUser' | 'updatedOrder'> {
     return {
         id: task.id,
         status: task.status,
         horizon: task.horizon,
         current: task.current,
+        doneWhen: task.doneWhen,
         hookForUser: task.hookForUser,
         updatedOrder: task.updatedOrder,
     };
@@ -429,10 +431,11 @@ export async function executeTavernTaskTool(
         }
         const horizon = normalizeText(args.horizon ?? existing?.horizon, 500);
         const current = normalizeText(args.current ?? existing?.current, 500);
+        const doneWhen = normalizeText(args.doneWhen ?? existing?.doneWhen, 500);
         const hookForUser = normalizeText(args.hookForUser ?? existing?.hookForUser, 500);
         const hookForModel = normalizeText(args.hookForModel ?? existing?.hookForModel, 500);
-        if (!horizon || !current || !hookForUser || !hookForModel) {
-            return { ok: false, summary: 'upsert-task 需要 horizon、current、hookForUser、hookForModel。', changed: false, error: 'task_fields_required' };
+        if (!horizon || !current || !doneWhen || !hookForUser || !hookForModel) {
+            return { ok: false, summary: 'upsert-task 需要 horizon、current、doneWhen、hookForUser、hookForModel。', changed: false, error: 'task_fields_required' };
         }
         if (hasTaskHookMetaWords(hookForModel)) {
             return { ok: false, summary: 'hookForModel 必须是无元叙事词的软句。', changed: false, error: 'task_hook_meta_words' };
@@ -451,6 +454,7 @@ export async function executeTavernTaskTool(
                 status: 'active',
                 horizon,
                 current,
+                doneWhen,
                 hookForUser,
                 hookForModel,
                 fingerprint,
@@ -473,8 +477,12 @@ export async function executeTavernTaskTool(
     if (op === 'advance-task') {
         const current = normalizeText(args.current ?? existing.current, 500);
         const horizon = normalizeText(args.horizon ?? existing.horizon, 500);
+        const doneWhen = normalizeText(args.doneWhen ?? existing.doneWhen, 500);
         const hookForUser = normalizeText(args.hookForUser ?? existing.hookForUser, 500);
         const hookForModel = normalizeText(args.hookForModel ?? existing.hookForModel, 500);
+        if (!horizon || !current || !doneWhen || !hookForUser || !hookForModel) {
+            return { ok: false, summary: 'advance-task 需要保留 horizon、current、doneWhen、hookForUser、hookForModel。', changed: false, error: 'task_fields_required' };
+        }
         if (hasTaskHookMetaWords(hookForModel)) {
             return { ok: false, summary: 'hookForModel 必须是无元叙事词的软句。', changed: false, error: 'task_hook_meta_words' };
         }
@@ -484,6 +492,7 @@ export async function executeTavernTaskTool(
                 status: 'active',
                 horizon,
                 current,
+                doneWhen,
                 hookForUser,
                 hookForModel,
                 updatedOrder: order,
@@ -588,12 +597,13 @@ export async function buildTavernTaskPoolPromptBlock(sessionId = ''): Promise<st
             `- id: ${task.id}`,
             `  current: ${task.current}`,
             `  horizon: ${task.horizon}`,
+            `  done when: ${task.doneWhen}`,
             `  user hook: ${task.hookForUser}`,
             `  fingerprint: ${task.fingerprint}`,
             `  last advanced floor: ${task.lastAdvancedOrder}`,
         ].join('\n')),
         completed.length ? 'Recently completed:' : '',
-        ...completed.map((task) => `- id: ${task.id}; current: ${task.current}; completed floor: ${task.completedOrder ?? task.updatedOrder}; fingerprint: ${task.fingerprint}`),
+        ...completed.map((task) => `- id: ${task.id}; current: ${task.current}; done when: ${task.doneWhen}; completed floor: ${task.completedOrder ?? task.updatedOrder}; fingerprint: ${task.fingerprint}`),
         'Abandoned directions are hidden; TaskPatch will reject abandoned fingerprints.',
     ].filter(Boolean);
     return lines.join('\n');
@@ -605,13 +615,15 @@ export function getTavernTaskToolDefinitions(): Array<{ type: 'function'; functi
         function: {
             name: TAVERN_TASK_TOOL_NAMES.PATCH,
             description: [
-                'Maintain the current RP session event direction pool. This is not memory, not a map, and not a random encounter.',
-                'Use this only for forward-looking directions that could give the user something fresh to play when the story needs a hook.',
+                'Maintain the current RP session event direction engine. This is not memory, not a map, and not a random encounter.',
+                'Use this only for forward-looking directions that could give the user something fresh to play when the story needs a hook. Do not use it to surface existing foreshadowing.',
                 'Use only established people, places, relationships, world facts, and current tone.',
-                'Create fresh possible directions only after the story has enough material. Recombine established material into an unplayed situation that can open a new interaction space.',
-                'Match the current tone and the user\'s demonstrated tastes. Do not create generic hooks, obvious continuations, repeated memory, or outside random events.',
+                'Create fresh possible directions only after the story has enough material. Recombine established material into an unplayed person, place, faction, or situation that opens a new interaction space.',
+                'Reach new directions by extending a known character relationship, adjacent place, faction branch, social obligation, secret pressure, or user taste.',
+                'Use the current tone and the user\'s demonstrated tastes as the engine for boldness. Do not create generic hooks, obvious continuations, repeated memory, existing foreshadowing, or outside random events.',
                 'If no good hook exists, do not call this tool.',
                 'Do not record old events, close existing memory, or force surprises. Advance or complete only when the completed assistant reply actually moved or resolved that direction.',
+                '`horizon` is the larger not-yet-happened pull. `current` is the immediate playable entrance the user can act on now. `doneWhen` is the objective completion condition: a concrete observable event that happens in the story, not an abstract state.',
                 '`hookForUser` is direct UI text. `hookForModel` is a soft in-world sentence for RP injection, without meta words like task, goal, objective, or completed.',
                 'Allowed ops: upsert-task, advance-task, complete-task, abandon-task.',
             ].join('\n'),
@@ -622,8 +634,9 @@ export function getTavernTaskToolDefinitions(): Array<{ type: 'function'; functi
                     taskId: { type: 'string', description: 'Existing task id. Optional for upsert; required for advance/complete/abandon unless fingerprint uniquely matches.' },
                     id: { type: 'string', description: 'Alias for taskId.' },
                     fingerprint: { type: 'string', description: 'Stable short fingerprint of this narrative direction. Required for upsert.' },
-                    horizon: { type: 'string', description: 'User-facing long horizon.' },
-                    current: { type: 'string', description: 'User-facing current sub-goal.' },
+                    horizon: { type: 'string', description: 'User-facing larger not-yet-happened direction.' },
+                    current: { type: 'string', description: 'User-facing immediate playable entrance.' },
+                    doneWhen: { type: 'string', description: 'Objective completion condition, written as a concrete observable event in the story, not an abstract state.' },
                     hookForUser: { type: 'string', description: 'Plain UI explanation.' },
                     hookForModel: { type: 'string', description: 'Soft in-world prompt sentence for RP injection; no task/goal/completed meta language.' },
                 },

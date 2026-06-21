@@ -270,7 +270,7 @@ function buildAutoManagerUserPrompt(input: {
         step += 1;
     }
     if (allowQuest) {
-        requirements.push(`${step}. Maintain the event pool with TaskPatch only when useful: advance or complete active directions that the reply actually addressed; after floor ${TAVERN_TASK_MIN_GENERATION_FLOOR}, create fresh active directions only when the active pool has 0-1 items and the hook uses established people, places, relationships, world facts, and current tone. Do not use TaskPatch for old facts, and do not generate if no good hook exists.`);
+        requirements.push(`${step}. Maintain the event pool with TaskPatch only when useful: advance or complete active directions that the reply actually addressed; after floor ${TAVERN_TASK_MIN_GENERATION_FLOOR}, create fresh active directions only when the active pool has 0-1 items. A fresh direction must recombine established material into a not-yet-played person, place, faction, or situation, with a larger horizon, an immediate current entrance, and a doneWhen completion condition written as a concrete observable event in the story, not an abstract state. Use the user’s demonstrated tastes as the engine for boldness; do not use TaskPatch for old facts, existing foreshadowing, obvious continuations, or generic random events.`);
         step += 1;
     }
     requirements.push(`${step}. Close with a short result: say what you wrote, skipped, or left pending.`);

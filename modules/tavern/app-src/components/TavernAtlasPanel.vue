@@ -333,7 +333,7 @@ function mapDocumentLabel(location: TavernAtlasLocation | null | undefined): str
 }
 
 .tavern-atlas-node rect {
-    fill: var(--xb-chat-editor-bg);
+    fill: var(--xb-chat-panel-bg);
     stroke: var(--xb-rule);
     stroke-width: 1.4;
 }
@@ -350,7 +350,7 @@ function mapDocumentLabel(location: TavernAtlasLocation | null | undefined): str
 }
 
 .tavern-atlas-node.is-mentioned rect {
-    fill: color-mix(in srgb, var(--xb-chat-editor-bg) 70%, transparent);
+    fill: color-mix(in srgb, var(--xb-chat-panel-bg) 70%, transparent);
     stroke-dasharray: 4 4;
 }
 

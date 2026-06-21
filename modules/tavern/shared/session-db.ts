@@ -257,6 +257,7 @@ export interface TavernTaskRecord {
     status: TavernTaskStatus;
     horizon: string;
     current: string;
+    doneWhen: string;
     hookForUser: string;
     hookForModel: string;
     fingerprint: string;

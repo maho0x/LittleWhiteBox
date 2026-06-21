@@ -2149,6 +2149,16 @@ test('State tools are in the unified manager tool schema', () => {
     assert.match(statePatch?.function.description || '', /one atomic transaction/);
     assert.match(statePatch?.function.description || '', /at:\[x,y\]/);
     assert.match(statePatch?.function.description || '', /Legacy .*init.*reset.*replace.*still absorbed/i);
+
+    const taskPatch = getTavernManagerToolDefinitions().find((tool) => tool.function.name === 'TaskPatch');
+    assert.match(taskPatch?.function.description || '', /event direction engine/i);
+    assert.match(taskPatch?.function.description || '', /Do not use it to surface existing foreshadowing/i);
+    assert.match(taskPatch?.function.description || '', /unplayed person, place, faction, or situation/i);
+    assert.match(taskPatch?.function.description || '', /user's demonstrated tastes as the engine for boldness/i);
+    assert.match(taskPatch?.function.description || '', /`horizon` is the larger not-yet-happened pull/i);
+    assert.match(taskPatch?.function.description || '', /`doneWhen` is the objective completion condition/i);
+    assert.match(taskPatch?.function.description || '', /concrete observable event that happens in the story/i);
+    assert.match(taskPatch?.function.description || '', /not an abstract state/i);
 });
 
 test('TaskPatch maintains active, completed, and abandoned event tasks', async () => {
@@ -2162,6 +2172,7 @@ test('TaskPatch maintains active, completed, and abandoned event tasks', async (
         fingerprint: 'lina:dock-name',
         horizon: '弄清莉娜避开的码头名字',
         current: '让码头名字自然浮出水面',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '莉娜一直绕开码头的名字。',
         hookForModel: '莉娜似乎在刻意避开某个码头名字。',
     }, { sourceAssistantOrder: 5 });
@@ -2174,6 +2185,7 @@ test('TaskPatch maintains active, completed, and abandoned event tasks', async (
         op: 'advance-task',
         taskId: 'dock-name',
         current: '找到知道旧码头名字的人',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '旧码头名字可能藏在熟人嘴里。',
         hookForModel: '有人提到旧码头时，莉娜的手指短暂收紧。',
     }, { sourceAssistantOrder: 7 });
@@ -2195,6 +2207,7 @@ test('TaskPatch maintains active, completed, and abandoned event tasks', async (
         fingerprint: 'repeat:fingerprint',
         horizon: '重复方向',
         current: '重复方向',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '重复方向。',
         hookForModel: '重复方向仍在阴影里。',
     }, { sourceAssistantOrder: 10 });
@@ -2209,6 +2222,7 @@ test('TaskPatch maintains active, completed, and abandoned event tasks', async (
         fingerprint: 'repeat:fingerprint',
         horizon: '重复方向',
         current: '重复方向',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '重复方向。',
         hookForModel: '重复方向仍在阴影里。',
     }, { sourceAssistantOrder: 12 });
@@ -2227,6 +2241,7 @@ test('TaskPatch task ids are scoped by session', async () => {
         taskId: 'dock-name',
         horizon: '弄清码头名字',
         current: '找到码头名字',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '码头名字仍然含糊。',
         hookForModel: '码头名字在对话里轻轻擦过。',
     };
@@ -2258,6 +2273,7 @@ test('TaskPatch enforces auto generation floor, pool cap, and hook wording guard
         fingerprint: 'too-early',
         horizon: '过早远景',
         current: '过早当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '过早说明。',
         hookForModel: '窗外的雾还没有散。',
     }, { caller: 'auto', sourceAssistantOrder: 4 });
@@ -2270,6 +2286,7 @@ test('TaskPatch enforces auto generation floor, pool cap, and hook wording guard
         fingerprint: 'meta-hook',
         horizon: '元词远景',
         current: '元词当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '元词说明。',
         hookForModel: '这是下一个任务目标。',
     }, { caller: 'auto', sourceAssistantOrder: 5 });
@@ -2283,6 +2300,7 @@ test('TaskPatch enforces auto generation floor, pool cap, and hook wording guard
             fingerprint: `pool-${index}`,
             horizon: `池子远景 ${index}`,
             current: `池子当前 ${index}`,
+            doneWhen: '角色当场说出答案。',
             hookForUser: `池子说明 ${index}。`,
             hookForModel: `第 ${index} 条暗线在门后轻轻晃动。`,
         }, { caller: 'auto', sourceAssistantOrder: 5 + index });
@@ -2294,6 +2312,7 @@ test('TaskPatch enforces auto generation floor, pool cap, and hook wording guard
         fingerprint: 'pool-4',
         horizon: '第四条远景',
         current: '第四条当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '第四条说明。',
         hookForModel: '第四条暗线在远处亮了一下。',
     }, { caller: 'auto', sourceAssistantOrder: 10 });
@@ -2306,6 +2325,7 @@ test('TaskPatch enforces auto generation floor, pool cap, and hook wording guard
         fingerprint: 'manual-extra',
         horizon: '手动远景',
         current: '手动当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '手动说明。',
         hookForModel: '额外暗线贴着墙根延伸。',
     }, { caller: 'chat', sourceAssistantOrder: 10 });
@@ -2331,6 +2351,7 @@ test('task snapshots restore covering task pool and trim future snapshots', asyn
         fingerprint: 'first',
         horizon: '第一条远景',
         current: '第一条当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '第一条说明。',
         hookForModel: '第一条软句。',
     }, { sourceAssistantOrder: 5 });
@@ -2341,6 +2362,7 @@ test('task snapshots restore covering task pool and trim future snapshots', asyn
         fingerprint: 'future',
         horizon: '未来远景',
         current: '未来当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '未来说明。',
         hookForModel: '未来软句。',
     }, { sourceAssistantOrder: 7 });
@@ -2373,6 +2395,7 @@ test('accepted state snapshot saves memory and tasks on the same floor', async (
         fingerprint: 'same-floor',
         horizon: '同楼层远景',
         current: '同楼层当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '同楼层说明。',
         hookForModel: '同楼层软句。',
     }, { sourceAssistantOrder: 1 });
@@ -2425,6 +2448,7 @@ test('manager task snapshot rolls back failed event writes', async () => {
                             fingerprint: 'rollback-task',
                             horizon: '回滚远景',
                             current: '回滚当前',
+                            doneWhen: '角色当场说出答案。',
                             hookForUser: '回滚说明。',
                             hookForModel: '回滚软句。',
                         },
@@ -2481,6 +2505,7 @@ test('manager TaskPatch writes are counted in run summaries', async () => {
                             fingerprint: 'counted-task',
                             horizon: '统计远景',
                             current: '统计当前',
+                            doneWhen: '角色当场说出答案。',
                             hookForUser: '统计说明。',
                             hookForModel: '统计软句。',
                         },
@@ -2510,6 +2535,7 @@ test('manager stale task sweep is counted in run summaries', async () => {
         fingerprint: 'stale-by-manager',
         horizon: '过期远景',
         current: '过期当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '过期说明。',
         hookForModel: '过期软句。',
     }, { sourceAssistantOrder: 5 });
@@ -2559,6 +2585,7 @@ test('stale active tasks are abandoned internally with fingerprints', async () =
         fingerprint: 'stale-fingerprint',
         horizon: '过期远景',
         current: '过期当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '过期说明。',
         hookForModel: '过期软句。',
     }, { sourceAssistantOrder: 5 });
@@ -2572,6 +2599,7 @@ test('stale active tasks are abandoned internally with fingerprints', async () =
         fingerprint: 'stale-fingerprint',
         horizon: '过期远景',
         current: '过期当前',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '过期说明。',
         hookForModel: '过期软句。',
     }, { sourceAssistantOrder: 13 });
@@ -2709,6 +2737,7 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
         fingerprint: 'existing-hook',
         horizon: '弄清旧码头',
         current: '让旧码头名字自然浮出',
+        doneWhen: '角色当场说出答案。',
         hookForUser: '莉娜绕开旧码头名字。',
         hookForModel: '莉娜听见旧码头时短暂停顿。',
     }, { sourceAssistantOrder: 5 });
