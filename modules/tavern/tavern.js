@@ -4,6 +4,7 @@ import { extension_settings } from "../../../../../extensions.js";
 import { extensionFolderPath } from "../../core/constants.js";
 import { createFirstPartyIframeOverlay, loadFirstPartyIframeCacheKey } from "../../core/first-party-iframe-app.js";
 import { isTrustedMessage, postToIframe } from "../../core/iframe-messaging.js";
+import { replaceXbGetVarInString } from "../variables/var-commands.js";
 import { buildTavernFrameConfig, saveTavernAgentConfig } from "./host/agent-config.js";
 import {
   getTavernChatPresetBundle,
@@ -253,6 +254,25 @@ async function refreshContext(options = {}) {
 }
 function isHtmlRenderEnabled() {
   return extension_settings?.[LITTLE_WHITE_BOX_EXT_ID]?.renderEnabled !== false;
+}
+function replaceTavernHtmlRenderVariables(payload = {}) {
+  const html = String(payload.html || "");
+  const settings = extension_settings?.[LITTLE_WHITE_BOX_EXT_ID] || {};
+  const variablesCore = settings.variablesCore && typeof settings.variablesCore === "object" ? settings.variablesCore : {};
+  if (variablesCore.enabled !== true || typeof replaceXbGetVarInString !== "function") {
+    return { html, changed: false, enabled: variablesCore.enabled === true };
+  }
+  try {
+    const nextHtml = replaceXbGetVarInString(html);
+    return {
+      html: nextHtml,
+      changed: nextHtml !== html,
+      enabled: true
+    };
+  } catch (error) {
+    console.warn("[LittleWhiteBox Tavern] xbgetvar macro replacement failed:", error);
+    return { html, changed: false, enabled: true };
+  }
 }
 function refreshRenderSettings() {
   postToFrame("xb-tavern:context", {
@@ -880,6 +900,21 @@ async function handleSubstituteParamsRequest(type, payload = {}) {
     replyHostResult(requestId, hostErrorPayload(error, "substitute_params_failed"));
   }
 }
+async function handleHtmlRenderRequest(type, payload = {}) {
+  const requestId = String(payload.requestId || "");
+  try {
+    let result;
+    if (type === "xb-tavern:replace-html-render-vars") {
+      result = replaceTavernHtmlRenderVariables(payload.payload || {});
+    }
+    replyHostResult(requestId, {
+      ok: true,
+      result
+    });
+  } catch (error) {
+    replyHostResult(requestId, hostErrorPayload(error, "html_render_failed"));
+  }
+}
 async function handleSlashCommandRequest(type, payload = {}) {
   const requestId = String(payload.requestId || "");
   try {
@@ -1086,6 +1121,9 @@ function handleFrameMessage(event) {
       break;
     case "xb-tavern:substitute-params":
       void handleSubstituteParamsRequest(data.type, data.payload || {});
+      break;
+    case "xb-tavern:replace-html-render-vars":
+      void handleHtmlRenderRequest(data.type, data.payload || {});
       break;
     case "xb-tavern:run-slash-command":
       void handleSlashCommandRequest(data.type, data.payload || {});

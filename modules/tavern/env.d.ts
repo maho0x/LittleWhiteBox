@@ -189,8 +189,12 @@ declare module '*.js' {
         options?: Record<string, unknown>,
     ): Array<{ id: string; name: string; arguments: string }>;
     export const HTML_PREVIEW_SANDBOX: string;
-    export function renderMarkdownToHtml(text: string): string;
+    export function renderMarkdownToHtml(text: string, options?: Record<string, unknown>): string;
     export function enhanceMarkdownContent(rootNode: ParentNode, options?: Record<string, unknown>): ParentNode;
+    export function postToIframe(iframe: HTMLIFrameElement, payload: Record<string, unknown>, source?: string, targetOrigin?: string | null): boolean;
+    export function getIframeBaseScript(): string;
+    export function getWrapperScript(): string;
+    export function replaceXbGetVarInString(value: string): string;
     export function createAgentSettingsPanel(deps?: Record<string, unknown>): {
         getActiveProviderConfig(options?: Record<string, unknown>): Record<string, unknown>;
         syncConfigToForm(root: ParentNode): void;

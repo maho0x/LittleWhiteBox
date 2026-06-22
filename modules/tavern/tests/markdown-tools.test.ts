@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { preprocessTavernRoleplayMarkdown } from '../app-src/components/chat/useTavernMarkdownTools';
+import type { Ref } from 'vue';
+import { preprocessTavernRoleplayMarkdown, useTavernMarkdownTools } from '../app-src/components/chat/useTavernMarkdownTools';
+
+function makeRef<T>(value: T): Ref<T> {
+    return { value } as Ref<T>;
+}
 
 test('roleplay markdown only substitutes display macros before shared ST-style sanitization', () => {
     const text = [
@@ -43,4 +48,199 @@ test('roleplay markdown keeps fenced HTML renderable after macro substitution', 
 
     assert.match(rendered, /界面如下：/);
     assert.match(rendered, /```html\n<main><h1>林舟 \/ 许知夏<\/h1><section>内容<\/section><\/main>\n```/);
+});
+
+test('tavern html generate relay returns parent responses to the requesting iframe', () => {
+    const host = globalThis as Record<string, unknown>;
+    const previousWindow = host.window;
+    const listeners = new Map<string, Array<(event: Record<string, unknown>) => void>>();
+    const parentMessages: Array<{ payload: unknown; origin: string }> = [];
+    const iframeMessages: Array<{ payload: unknown; origin: string }> = [];
+    const timers = new Map<number, () => void>();
+    let nextTimerId = 1;
+
+    const parentWindow = {
+        postMessage(payload: unknown, origin: string) {
+            parentMessages.push({ payload, origin });
+        },
+    };
+    const fakeWindow = {
+        location: { origin: 'https://tavern.local' },
+        parent: parentWindow,
+        addEventListener(type: string, listener: (event: Record<string, unknown>) => void) {
+            const bucket = listeners.get(type) || [];
+            bucket.push(listener);
+            listeners.set(type, bucket);
+        },
+        removeEventListener(type: string, listener: (event: Record<string, unknown>) => void) {
+            const bucket = listeners.get(type) || [];
+            listeners.set(type, bucket.filter((item) => item !== listener));
+        },
+        setTimeout(callback: () => void, delay: number) {
+            assert.equal(delay, 300_000);
+            const id = nextTimerId;
+            nextTimerId += 1;
+            timers.set(id, callback);
+            return id;
+        },
+        clearTimeout(id: number) {
+            timers.delete(id);
+        },
+    };
+    const innerWindow = {
+        postMessage(payload: unknown, origin: string) {
+            iframeMessages.push({ payload, origin });
+        },
+    };
+    const iframe = { contentWindow: innerWindow };
+    const root = {
+        querySelectorAll(selector: string) {
+            assert.equal(selector, 'iframe.xb-tavern-html-iframe');
+            return [iframe];
+        },
+    };
+
+    host.window = fakeWindow;
+    try {
+        const tools = useTavernMarkdownTools({
+            chatScrollRef: makeRef(root as unknown as HTMLElement | null),
+            managerScrollRef: makeRef<HTMLElement | null>(null),
+            htmlRenderEnabled: makeRef(true),
+            alertDialog: async () => {},
+            confirmDialog: async () => true,
+            requestHost: async () => ({}),
+        });
+        const dispatchMessage = (event: Record<string, unknown>) => {
+            for (const listener of listeners.get('message') || []) {
+                listener(event);
+            }
+        };
+
+        dispatchMessage({
+            source: innerWindow,
+            origin: 'https://preview.example',
+            data: {
+                type: 'generateRequest',
+                id: 'relay-1',
+                options: { prompt: 'hello' },
+            },
+        });
+
+        assert.deepEqual(parentMessages, [{
+            payload: {
+                type: 'generateRequest',
+                id: 'relay-1',
+                options: { prompt: 'hello' },
+            },
+            origin: 'https://tavern.local',
+        }]);
+        assert.equal(timers.size, 1);
+
+        dispatchMessage({
+            source: parentWindow,
+            origin: 'https://tavern.local',
+            data: {
+                source: 'xiaobaix-host',
+                type: 'generateStreamChunk',
+                id: 'relay-1',
+                text: 'partial',
+            },
+        });
+        dispatchMessage({
+            source: parentWindow,
+            origin: 'https://tavern.local',
+            data: {
+                source: 'xiaobaix-host',
+                type: 'generateResult',
+                id: 'relay-1',
+                text: 'done',
+            },
+        });
+        dispatchMessage({
+            source: parentWindow,
+            origin: 'https://tavern.local',
+            data: {
+                source: 'xiaobaix-host',
+                type: 'generateStreamChunk',
+                id: 'relay-1',
+                text: 'too-late',
+            },
+        });
+
+        assert.deepEqual(iframeMessages, [
+            {
+                payload: {
+                    source: 'xiaobaix-host',
+                    type: 'generateStreamChunk',
+                    id: 'relay-1',
+                    text: 'partial',
+                },
+                origin: 'https://preview.example',
+            },
+            {
+                payload: {
+                    source: 'xiaobaix-host',
+                    type: 'generateResult',
+                    id: 'relay-1',
+                    text: 'done',
+                },
+                origin: 'https://preview.example',
+            },
+        ]);
+        assert.equal(timers.size, 0);
+
+        dispatchMessage({
+            source: innerWindow,
+            origin: 'null',
+            data: {
+                type: 'generateRequest',
+                id: 'relay-2',
+                options: {},
+            },
+        });
+        assert.equal(timers.size, 1);
+        dispatchMessage({
+            source: parentWindow,
+            origin: 'https://tavern.local',
+            data: {
+                source: 'xiaobaix-host',
+                type: 'generateStreamChunk',
+                id: 'relay-2',
+                text: 'opaque-origin',
+            },
+        });
+        assert.deepEqual(iframeMessages[2], {
+            payload: {
+                source: 'xiaobaix-host',
+                type: 'generateStreamChunk',
+                id: 'relay-2',
+                text: 'opaque-origin',
+            },
+            origin: '*',
+        });
+        const [timeoutId, timeout] = [...timers.entries()][0];
+        timers.delete(timeoutId);
+        timeout();
+        assert.equal(timers.size, 0);
+        dispatchMessage({
+            source: parentWindow,
+            origin: 'https://tavern.local',
+            data: {
+                source: 'xiaobaix-host',
+                type: 'generateResult',
+                id: 'relay-2',
+                text: 'after-timeout',
+            },
+        });
+        assert.equal(iframeMessages.length, 3);
+
+        tools.disposeMarkdownTools();
+        assert.equal(listeners.get('message')?.length || 0, 0);
+    } finally {
+        if (previousWindow === undefined) {
+            delete host.window;
+        } else {
+            host.window = previousWindow;
+        }
+    }
 });

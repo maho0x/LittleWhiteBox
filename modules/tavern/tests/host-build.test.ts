@@ -65,11 +65,15 @@ test('tavern host replies sanitize payload before postMessage', () => {
 test('tavern host can return a fresh live context on demand', () => {
     const tavernSource = readRepoFile('modules/tavern/tavern.ts');
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
     assert.match(tavernSource, /async function handleContextRequest/);
     assert.match(tavernSource, /case 'xb-tavern:get-context':/);
     assert.match(tavernSource, /case 'xb-tavern:run-slash-command':/);
+    assert.match(tavernSource, /case 'xb-tavern:replace-html-render-vars':/);
+    assert.match(tavernSource, /replaceXbGetVarInString/);
     assert.match(appSource, /requestHost\('xb-tavern:get-context'/);
     assert.match(appSource, /requestHost\('xb-tavern:run-slash-command'/);
+    assert.match(markdownToolsSource, /requestHost\('xb-tavern:replace-html-render-vars'/);
 });
 
 test('tavern app requests sanitize payload before postMessage', () => {
@@ -371,7 +375,7 @@ test('tavern worldbook host bridge exposes named entry edit endpoints and native
     assert.match(tavernSource, /case 'xb-tavern:set-global-worldbooks':/);
     assert.match(tavernSource, /case 'xb-tavern:get-worldbook-runtime':/);
     assert.match(appSource, /action === 'needs_import_confirmation'/);
-    assert.match(appSource, /window\.confirm\(`世界书「\$\{name\}」已存在，导入角色内嵌世界书会覆盖它。继续？`\)/);
+    assert.match(appSource, /await confirmTavernDialog\(\{[\s\S]*message: `世界书「\$\{name\}」已存在，导入角色内嵌世界书会覆盖它。继续？`/);
     assert.match(appSource, /payload: \{ nativeCharacterId, confirmed: true \}/);
     assert.doesNotMatch(tavernSource, /case 'xb-tavern:open-worldbook-editor':/);
     assert.doesNotMatch(tavernSource, /case 'xb-tavern:list-worldbooks':/);

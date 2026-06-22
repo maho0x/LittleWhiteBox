@@ -9,5 +9,6 @@
 @import './styles/home.css';
 @import './styles/archive.css';
 @import './styles/shell-overrides.css';
+@import './styles/dialog.css';
 @import './styles/settings.css';
 @import './styles/chat/quick-settings.css';

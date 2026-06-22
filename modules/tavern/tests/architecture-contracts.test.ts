@@ -45,6 +45,11 @@ test('tavern source keeps cross-frame messages behind clone-safe wrappers', () =
             line: directPostMessages[0]?.line,
             text: "window.parent?.postMessage({ source: SOURCE_APP, type, payload: safePayload }, window.location.origin);",
         },
+        {
+            path: 'modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts',
+            line: directPostMessages[1]?.line,
+            text: 'window.parent?.postMessage(safePayload, window.location.origin);',
+        },
     ]);
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const hostSource = readRepoFile('modules/tavern/tavern.ts');
@@ -501,6 +506,35 @@ test('tavern chat exposes local settings modals without leaving the session', ()
     assert.doesNotMatch(assistantPresetPanelSource, />记忆档案</);
 });
 
+test('tavern confirmation prompts use the shared centered app dialog', () => {
+    const browserDialogs = sourceMatches(/window\.(confirm|alert|prompt)\(/);
+    assert.deepEqual(browserDialogs, []);
+
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
+    const dialogCss = readRepoFile('modules/tavern/app-src/styles/dialog.css');
+    const stylesSource = readRepoFile('modules/tavern/app-src/styles.css');
+    const settingsControllerSource = readRepoFile('modules/tavern/app-src/components/settings/useTavernSettingsController.ts');
+    const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
+
+    assert.match(contextSource, /confirmTavernDialog: TavernCommand<\[options: TavernDialogOptions \| string\], Promise<boolean>>;/);
+    assert.match(contextSource, /alertTavernDialog: TavernCommand<\[options: TavernDialogOptions \| string\], Promise<void>>;/);
+    assert.match(contextSource, /promptTavernDialog: TavernCommand<\[options: TavernDialogOptions \| string\], Promise<string \| null>>;/);
+    assert.match(appSource, /<Teleport to="body">[\s\S]*class="tavern-dialog-overlay"[\s\S]*class="tavern-dialog"/);
+    assert.match(appSource, /@click\.self="handleTavernDialogBackdropClick"/);
+    assert.match(appSource, /@submit\.prevent="confirmOpenTavernDialog"/);
+    assert.match(appSource, /ref="tavernDialogCancelRef"[\s\S]*ref="tavernDialogPrimaryRef"/);
+    assert.match(appSource, /function focusInitialTavernDialogControl\(\)[\s\S]*dialog\.kind === 'alert'[\s\S]*tavernDialogPrimaryRef[\s\S]*tavernDialogCancelRef/);
+    assert.match(appSource, /function handleTavernDialogTab\(event: KeyboardEvent\)/);
+    assert.match(appSource, /function canCloseTavernDialogFromBackdrop[\s\S]*dialog\.kind === 'alert' \|\| \(dialog\.kind === 'confirm' && dialog\.tone === 'default'\)/);
+    assert.match(stylesSource, /@import '\.\/styles\/dialog\.css';/);
+    assert.match(dialogCss, /\.tavern-dialog-overlay \{[\s\S]*position: fixed;[\s\S]*z-index: 100200;[\s\S]*display: grid;[\s\S]*place-items: center;/);
+    assert.match(dialogCss, /\.tavern-dialog-overlay\.theme-light \{/);
+    assert.doesNotMatch(dialogCss, /bottom:\s*0/);
+    assert.match(settingsControllerSource, /confirmDialog: \(options:/);
+    assert.match(markdownToolsSource, /confirmDialog: \(options:/);
+});
+
 test('tavern map update badge stays collapsed until requested', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
@@ -813,7 +847,7 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(appSource, /const htmlRenderEnabled = ref\(true\);/);
     assert.match(appSource, /if \('context' in payload\) \{[\s\S]*const nextContext = payload\.context as XbTavernContext \|\| \{\};[\s\S]*if \(canApplyHostContext\(nextContext\)\) \{[\s\S]*context\.value = nextContext;/);
     assert.match(appSource, /htmlRenderEnabled\.value = payload\.htmlRenderEnabled !== false;/);
-    assert.match(appSource, /htmlRenderEnabled,\s*requestHost,/);
+    assert.match(appSource, /htmlRenderEnabled,\s*alertDialog: alertTavernDialog,\s*confirmDialog: confirmTavernDialog,\s*requestHost,/);
     assert.match(contextSource, /htmlRenderEnabled: Ref<boolean>;/);
     assert.match(conversationSource, /htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
     assert.match(conversationSource, /pending-user:\$\{pendingUserRenderState\.signature\}/);
@@ -835,9 +869,62 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.doesNotMatch(indexSource, /refreshContext\?\.\(\{ includeWorldbooks: false \}\)/);
 });
 
+test('tavern roleplay html previews use stable code anchors and a local iframe bridge', () => {
+    const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
+    const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const markdownSource = readRepoFile('modules/agent-core/ui/message-markdown.js');
+
+    assert.match(markdownSource, /function preprocessMarkdownInput\(raw = '', options = \{\}\)/);
+    assert.match(markdownSource, /const htmlFenceMode = options\.htmlFenceMode === 'code' \? 'code' : 'placeholder';/);
+    assert.match(markdownSource, /shouldFoldAsHtml && htmlFenceMode !== 'code'/);
+    assert.match(markdownToolsSource, /renderOptions\.roleplay \? \{ htmlFenceMode: 'code' \} : \{\}/);
+    assert.match(markdownToolsSource, /function enhanceTavernHtmlCodeBlocks\(root: HTMLElement\)/);
+    assert.match(markdownToolsSource, /function extractTavernExternalHtmlUrl\(content = ''\)[\s\S]*\/\^https\?:\\\/\\\/\[\^\\s\]\+\$\/i[\s\S]*xb-src:/);
+    assert.match(markdownToolsSource, /async function loadTavernExternalHtmlUrl\(iframe: HTMLIFrameElement, url: string\)[\s\S]*iframe\.srcdoc = '<!DOCTYPE html><html><body style="display:flex;justify-content:center;align-items:center;height:100px;color:#888;font-family:sans-serif;background:transparent">加载中\.\.\.<\/body><\/html>';[\s\S]*iframe\.src = url;[\s\S]*iframe\.style\.minHeight = '800px';[\s\S]*iframe\.setAttribute\('scrolling', 'auto'\);/);
+    assert.match(markdownToolsSource, /async function replaceTavernHtmlRenderVariables\(html = ''\)[\s\S]*requestHost\('xb-tavern:replace-html-render-vars', \{ payload: \{ html: source \} \}\)/);
+    assert.match(markdownToolsSource, /async function loadTavernHtmlIframeContent\(iframe: HTMLIFrameElement, html = ''\)[\s\S]*extractTavernExternalHtmlUrl\(source\)[\s\S]*await loadTavernExternalHtmlUrl\(iframe, externalUrl\);[\s\S]*await replaceTavernHtmlRenderVariables\(source\);/);
+    assert.match(markdownToolsSource, /enhanceTavernHtmlCodeBlocks\(node\);[\s\S]*enhanceMarkdownContent\(node, \{[\s\S]*skipPreSelector: TAVERN_HTML_PRE_SELECTOR/);
+    assert.match(markdownToolsSource, /className = 'xb-tavern-html-wrapper'/);
+    assert.match(markdownToolsSource, /className = 'xb-tavern-html-iframe'/);
+    assert.match(markdownToolsSource, /iframe\.style\.cssText = 'width:100%;border:none;background:transparent;overflow:hidden;height:0;margin:0;padding:0;display:block;contain:layout paint style;will-change:height;min-height:50px';/);
+    assert.match(markdownToolsSource, /iframe\.srcdoc = buildTavernWrappedHtml\(replaced\);/);
+    assert.match(markdownToolsSource, /if \(!externalUrl && same\) \{return;\}/);
+    assert.match(markdownToolsSource, /window\.addEventListener\('message', handleTavernHtmlIframeMessage as EventListener\);/);
+    assert.match(markdownToolsSource, /window\.removeEventListener\('message', handleTavernHtmlIframeMessage as EventListener\);/);
+    assert.match(markdownToolsSource, /const htmlGenerateRelays = new Map/);
+    assert.match(markdownToolsSource, /const TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS = 300_000;/);
+    assert.match(markdownToolsSource, /function postToParentGenerateService\(payload: Record<string, unknown>\)[\s\S]*const safePayload = cloneTavernHtmlMessagePayload\(payload\);[\s\S]*window\.parent\?\.postMessage\(safePayload, window\.location\.origin\);/);
+    assert.match(markdownToolsSource, /function deleteTavernHtmlGenerateRelay\(id: string\)[\s\S]*window\.clearTimeout\(relay\.timeoutId\);[\s\S]*htmlGenerateRelays\.delete\(id\);/);
+    assert.match(markdownToolsSource, /function clearTavernHtmlGenerateRelaysForIframe\(iframe: HTMLIFrameElement\)[\s\S]*relay\.iframe === iframe[\s\S]*deleteTavernHtmlGenerateRelay\(id\);/);
+    assert.match(markdownToolsSource, /function rememberTavernHtmlGenerateRelay\(id: string, iframe: HTMLIFrameElement, targetOrigin: string\)[\s\S]*window\.setTimeout\(\(\) => \{[\s\S]*htmlGenerateRelays\.delete\(id\);[\s\S]*TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS\);[\s\S]*htmlGenerateRelays\.set\(id, \{ iframe, targetOrigin, timeoutId \}\);/);
+    assert.match(markdownToolsSource, /function removeTavernHtmlWrapper\(wrapper: Element \| null \| undefined\)[\s\S]*clearTavernHtmlGenerateRelaysForIframe\(iframe\);[\s\S]*wrapper\.remove\(\);/);
+    assert.match(markdownToolsSource, /event\.source === window\.parent && isTavernGenerateRelayResponse\(topData\)/);
+    assert.match(markdownToolsSource, /data\.type === 'generateRequest'[\s\S]*rememberTavernHtmlGenerateRelay\(id, iframe, replyOrigin\);[\s\S]*postToParentGenerateService\(\{[\s\S]*type: 'generateRequest',[\s\S]*options:/);
+    assert.match(markdownToolsSource, /TAVERN_HTML_GENERATE_RESPONSE_TYPES = new Set\(\[[\s\S]*'generateStreamChunk'[\s\S]*'generateStreamComplete'[\s\S]*'generateResult'[\s\S]*'generateError'/);
+    assert.match(markdownToolsSource, /postToTavernHtmlIframe\(relay\.iframe, data, relay\.targetOrigin\);/);
+    assert.match(markdownToolsSource, /disposeMarkdownTools\(\) \{[\s\S]*clearAllTavernHtmlGenerateRelays\(\);/);
+    assert.match(markdownToolsSource, /const replyOrigin = getTavernHtmlMessageTargetOrigin\(event\.origin\);[\s\S]*postToTavernHtmlIframe\(iframe, \{[\s\S]*type: 'avatars'[\s\S]*\}, replyOrigin\);/);
+    assert.match(markdownToolsSource, /data\.type === 'getAvatars'[\s\S]*type: 'avatars'/);
+    assert.match(markdownToolsSource, /data\.type === 'runCommand'[\s\S]*xb-tavern:run-slash-command/);
+    assert.doesNotMatch(markdownToolsSource, /callGenerate is not available in Tavern HTML preview yet/);
+    assert.match(appSource, /getHtmlFrameAvatarUrls: \(\) => \(\{[\s\S]*user: String\(effectiveContext\.value\.user\?\.avatar \|\| ''\),[\s\S]*char: String\(effectiveContext\.value\.character\?\.avatar \|\| ''\),/);
+    assert.match(conversationSource, /function shouldIgnoreMessageActionTrayClick\(event: MouseEvent\)[\s\S]*closest\('summary, details, a, button, input, textarea, select, label, \.xb-tavern-html-wrapper'\)/);
+    assert.match(conversationSource, /@click\.stop="toggleMessageActionTray\(message, \$event\)"/);
+    assert.doesNotMatch(markdownToolsSource, /setAttribute\('sandbox'/);
+    assert.doesNotMatch(markdownToolsSource, /\bnew Blob\b|createObjectURL|useBlob/);
+    assert.doesNotMatch(markdownToolsSource, /xiaobaix-iframe-wrapper|xiaobaix-iframe'/);
+});
+
 test('tavern live stream rendering is frame-batched without bypassing display regex', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
+    const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
+    const liveEnhanceMatch = markdownToolsSource.match(/function enhanceLiveChatMarkdown\(\) \{[\s\S]*?\n {4}\}/);
+
+    assert.ok(liveEnhanceMatch);
+    assert.match(liveEnhanceMatch[0], /enhanceActionCheckMarkers\(node\);/);
+    assert.doesNotMatch(liveEnhanceMatch[0], /enhanceTavernHtmlCodeBlocks/);
 
     assert.match(appSource, /let runtimeStreamFrame = 0;/);
     assert.match(appSource, /let pendingRuntimeStreamSnapshot: TavernRunStreamSnapshot \| null = null;/);
@@ -927,9 +1014,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(conversationPanelSource, /v-if="isRunning && (?:!?)liveAssistantVisible"/);
     assert.match(conversationPanelSource, /useTavernMediaQuery\('\(max-width: 760px\)'\)/);
     assert.match(conversationPanelSource, /@click="handleChatMainClick"/);
-    assert.match(conversationPanelSource, /function toggleMessageActionTray\(message: TavernMessageRecord\) \{[\s\S]*const key = messageKey\(message\);[\s\S]*activeMessageActionsKey\.value = activeMessageActionsKey\.value === key \? '' : key;/);
+    assert.match(conversationPanelSource, /function toggleMessageActionTray\(message: TavernMessageRecord, event\?: MouseEvent\) \{[\s\S]*const key = messageKey\(message\);[\s\S]*activeMessageActionsKey\.value = activeMessageActionsKey\.value === key \? '' : key;/);
     assert.match(conversationPanelSource, /'is-action-tray-open': isMessageActionTrayOpen\(message\)/);
-    assert.match(conversationPanelSource, /@click\.stop="toggleMessageActionTray\(message\)"/);
+    assert.match(conversationPanelSource, /@click\.stop="toggleMessageActionTray\(message, \$event\)"/);
     assert.match(conversationPanelSource, /class="bubble-identity"[\s\S]*class="bubble-nameplate"[\s\S]*class="message-floor-label"[\s\S]*class="bubble-time-tag"[\s\S]*v-if="!isEditingMessage\(message\)"[\s\S]*class="message-actions"/);
     assert.match(conversationPanelSource, /class="message-actions"[\s\S]*isDrawingMessage\(message\) \? '■' : '🎨'[\s\S]*<svg[\s\S]*viewBox="0 0 24 24"/);
     assert.doesNotMatch(conversationPanelSource, /actionFeedback\(message, 'copy'\)|copyMessage\(message\)/);

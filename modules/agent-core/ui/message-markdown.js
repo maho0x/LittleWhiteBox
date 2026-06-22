@@ -117,8 +117,9 @@ function preprocessNonFenceMarkdown(text = '') {
     return protectedLines.join('\n');
 }
 
-function preprocessMarkdownInput(raw = '') {
+function preprocessMarkdownInput(raw = '', options = {}) {
     const text = String(raw || '');
+    const htmlFenceMode = options.htmlFenceMode === 'code' ? 'code' : 'placeholder';
     const fenceRegex = /(^|\n)(`{3,}|~{3,})[ \t]*([^\n]*)\n([\s\S]*?)\n\2[ \t]*(?=\n|$)/g;
     let result = '';
     let lastIndex = 0;
@@ -133,7 +134,7 @@ function preprocessMarkdownInput(raw = '') {
         const shouldFoldAsHtml = isHtmlBlockLanguage(rawLanguage) || (!rawLanguage && looksLikeHtmlCode(code));
 
         result += preprocessNonFenceMarkdown(text.slice(lastIndex, blockStart));
-        if (shouldFoldAsHtml) {
+        if (shouldFoldAsHtml && htmlFenceMode !== 'code') {
             result += storeHtmlBlock(code, rawLanguage || 'html');
         } else {
             result += text.slice(blockStart, fenceEnd);
@@ -328,10 +329,10 @@ function sanitizeMarkdownHtml(html = '') {
     return decodeStyleTags(sanitizeMarkdownHtmlFallback(raw));
 }
 
-export function renderMarkdownToHtml(text) {
+export function renderMarkdownToHtml(text, options = {}) {
     const raw = String(text || '').trim();
     if (!raw) return '';
-    const markdownText = preprocessMarkdownInput(raw);
+    const markdownText = preprocessMarkdownInput(raw, options);
 
     try {
         if (!markdownConverter) {
@@ -463,8 +464,10 @@ export function enhanceMarkdownCodeBlocks(rootNode, options = {}) {
     const copySuccessTitle = String(options.copySuccessTitle || '已复制');
     const copyFailureTitle = String(options.copyFailureTitle || '复制失败');
     const flattenPreCode = options.flattenPreCode === true;
+    const skipPreSelector = String(options.skipPreSelector || '').trim();
 
     Array.from(rootNode.querySelectorAll('pre')).forEach((pre) => {
+        if (skipPreSelector && pre.matches?.(skipPreSelector)) return;
         if (pre.closest(`.${codeBlockClassName}`)) return;
 
         const codeNode = pre.children.length === 1 && pre.firstElementChild?.tagName === 'CODE'

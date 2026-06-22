@@ -113,7 +113,7 @@ import {
     useTavernSettingsController,
     type TavernSettingsWorkspaceKey,
 } from './components/settings/useTavernSettingsController';
-import { TAVERN_APP_UI_CONTEXT } from './components/tavern-app-context';
+import { TAVERN_APP_UI_CONTEXT, type TavernDialogOptions } from './components/tavern-app-context';
 
 interface TavernDiagnostics {
     ok?: boolean;
@@ -167,6 +167,18 @@ interface TavernCharacterWorldbookActionResult {
     name?: string;
     worldbookOptions?: unknown;
     state?: TavernCharacterWorldbookState;
+}
+
+interface TavernDialogState {
+    kind: 'alert' | 'confirm' | 'prompt';
+    title: string;
+    message: string;
+    confirmText: string;
+    cancelText: string;
+    placeholder: string;
+    inputValue: string;
+    tone: 'default' | 'danger' | 'warning';
+    resolve: (value: boolean | string | null) => void;
 }
 
 const SOURCE_APP = 'xb-tavern-app';
@@ -425,10 +437,189 @@ const displayRegexCache = ref<Record<string, string>>({});
 const activeRunController = ref<AbortController | null>(null);
 const managerAssistantController = ref<AbortController | null>(null);
 const tavernDrawController = ref<AbortController | null>(null);
+const tavernDialog = ref<TavernDialogState | null>(null);
+const tavernDialogInputRef = ref<HTMLInputElement | null>(null);
+const tavernDialogPanelRef = ref<HTMLElement | null>(null);
+const tavernDialogCancelRef = ref<HTMLButtonElement | null>(null);
+const tavernDialogPrimaryRef = ref<HTMLButtonElement | null>(null);
+const tavernDialogAttention = ref(false);
 const rootTypographyStyle = computed<Record<string, string>>(() => ({
     '--xb-host-main-font-size': hostMainFontSizePx.value,
     '--xb-host-prose-line-height': hostProseLineHeightPx.value,
 }));
+let tavernDialogReturnFocus: HTMLElement | null = null;
+
+function normalizeTavernDialogOptions(
+    options: TavernDialogOptions | string,
+    kind: TavernDialogState['kind'],
+): Omit<TavernDialogState, 'kind' | 'resolve'> {
+    const source = typeof options === 'string' ? { message: options } : (options || {});
+    const title = String(source.title || (kind === 'alert' ? '提示' : kind === 'prompt' ? '输入' : '确认操作')).trim();
+    return {
+        title,
+        message: String(source.message || '').trim(),
+        confirmText: String(source.confirmText || (kind === 'alert' ? '知道了' : '确认')).trim(),
+        cancelText: String(source.cancelText || '取消').trim(),
+        placeholder: String(source.placeholder || '').trim(),
+        inputValue: String(source.defaultValue || ''),
+        tone: source.tone === 'danger' || source.tone === 'warning' ? source.tone : 'default',
+    };
+}
+
+function rememberTavernDialogReturnFocus() {
+    if (tavernDialog.value) {return;}
+    const active = document.activeElement;
+    tavernDialogReturnFocus = active instanceof HTMLElement ? active : null;
+}
+
+function restoreTavernDialogReturnFocus() {
+    const target = tavernDialogReturnFocus;
+    tavernDialogReturnFocus = null;
+    if (!target?.isConnected) {return;}
+    void nextTick(() => {
+        try {
+            target.focus({ preventScroll: true });
+        } catch {
+            target.focus();
+        }
+    });
+}
+
+function focusTavernDialogElement(element: HTMLElement | null | undefined) {
+    if (!element) {return;}
+    try {
+        element.focus({ preventScroll: true });
+    } catch {
+        element.focus();
+    }
+}
+
+function focusInitialTavernDialogControl() {
+    const dialog = tavernDialog.value;
+    if (!dialog) {return;}
+    if (dialog.kind === 'prompt') {
+        focusTavernDialogElement(tavernDialogInputRef.value);
+        tavernDialogInputRef.value?.select();
+        return;
+    }
+    if (dialog.kind === 'alert') {
+        focusTavernDialogElement(tavernDialogPrimaryRef.value);
+        return;
+    }
+    focusTavernDialogElement(tavernDialogCancelRef.value || tavernDialogPrimaryRef.value || tavernDialogPanelRef.value);
+}
+
+function openTavernDialog(
+    kind: TavernDialogState['kind'],
+    options: TavernDialogOptions | string,
+): Promise<boolean | string | null> {
+    rememberTavernDialogReturnFocus();
+    tavernDialog.value?.resolve(kind === 'prompt' ? null : false);
+    return new Promise((resolve) => {
+        tavernDialog.value = {
+            kind,
+            ...normalizeTavernDialogOptions(options, kind),
+            resolve,
+        };
+        void nextTick(focusInitialTavernDialogControl);
+    });
+}
+
+async function confirmTavernDialog(options: TavernDialogOptions | string): Promise<boolean> {
+    return await openTavernDialog('confirm', options) === true;
+}
+
+async function alertTavernDialog(options: TavernDialogOptions | string): Promise<void> {
+    await openTavernDialog('alert', options);
+}
+
+async function promptTavernDialog(options: TavernDialogOptions | string): Promise<string | null> {
+    const result = await openTavernDialog('prompt', options);
+    return typeof result === 'string' ? result : null;
+}
+
+function closeTavernDialog(value?: boolean | string | null) {
+    const dialog = tavernDialog.value;
+    if (!dialog) {return;}
+    tavernDialog.value = null;
+    tavernDialogAttention.value = false;
+    if (typeof value !== 'undefined') {
+        dialog.resolve(value);
+        restoreTavernDialogReturnFocus();
+        return;
+    }
+    dialog.resolve(dialog.kind === 'prompt' ? null : false);
+    restoreTavernDialogReturnFocus();
+}
+
+function confirmOpenTavernDialog() {
+    const dialog = tavernDialog.value;
+    if (!dialog) {return;}
+    closeTavernDialog(dialog.kind === 'prompt' ? dialog.inputValue : true);
+}
+
+const tavernDialogPrimaryText = computed(() => tavernDialog.value?.confirmText || '确认');
+
+function canCloseTavernDialogFromBackdrop(dialog: TavernDialogState | null) {
+    if (!dialog) {return false;}
+    return dialog.kind === 'alert' || (dialog.kind === 'confirm' && dialog.tone === 'default');
+}
+
+function pulseTavernDialogAttention() {
+    tavernDialogAttention.value = false;
+    void nextTick(() => {
+        tavernDialogAttention.value = true;
+        window.setTimeout(() => {
+            tavernDialogAttention.value = false;
+        }, 260);
+    });
+}
+
+function handleTavernDialogBackdropClick() {
+    if (canCloseTavernDialogFromBackdrop(tavernDialog.value)) {
+        closeTavernDialog();
+        return;
+    }
+    pulseTavernDialogAttention();
+    focusInitialTavernDialogControl();
+}
+
+function getTavernDialogFocusableElements() {
+    const panel = tavernDialogPanelRef.value;
+    if (!panel) {return [];}
+    return Array.from(panel.querySelectorAll<HTMLElement>([
+        'button:not(:disabled)',
+        'input:not(:disabled)',
+        'textarea:not(:disabled)',
+        'select:not(:disabled)',
+        'a[href]',
+        '[tabindex]:not([tabindex="-1"])',
+    ].join(','))).filter((element) => element.offsetParent !== null || element === document.activeElement);
+}
+
+function handleTavernDialogTab(event: KeyboardEvent) {
+    const focusable = getTavernDialogFocusableElements();
+    if (!focusable.length) {
+        event.preventDefault();
+        focusTavernDialogElement(tavernDialogPanelRef.value);
+        return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey) {
+        if (active === first || !focusable.includes(active as HTMLElement)) {
+            event.preventDefault();
+            focusTavernDialogElement(last);
+        }
+        return;
+    }
+    if (active === last || !focusable.includes(active as HTMLElement)) {
+        event.preventDefault();
+        focusTavernDialogElement(first);
+    }
+}
+
 const {
     clearMarkdownCache,
     disposeMarkdownTools,
@@ -442,7 +633,13 @@ const {
     chatScrollRef,
     managerScrollRef,
     htmlRenderEnabled,
+    alertDialog: alertTavernDialog,
+    confirmDialog: confirmTavernDialog,
     requestHost,
+    getHtmlFrameAvatarUrls: () => ({
+        user: String(effectiveContext.value.user?.avatar || ''),
+        char: String(effectiveContext.value.character?.avatar || ''),
+    }),
 });
 const characterOptionCache = new Map<string, { signature: string; option: TavernCharacterOption }>();
 const memoryFileSearchCorpusCache = new WeakMap<TavernMemoryIndexFileEntry, string>();
@@ -495,6 +692,7 @@ const {
     currentWorldbookNativeCharacterId,
     homeThemeDark,
     isRunning,
+    confirmDialog: confirmTavernDialog,
     describeError,
     postToHost,
     requestHost,
@@ -2231,7 +2429,13 @@ async function openSelectedCharacterWorldbook() {
             const name = String(payload.name || '').trim();
             const state = payload.state as TavernCharacterWorldbookState | undefined;
             if (state) {characterWorldbookState.value = state;}
-            if (!name || !window.confirm(`世界书「${name}」已存在，导入角色内嵌世界书会覆盖它。继续？`)) {
+            const shouldOverwrite = name && await confirmTavernDialog({
+                title: '覆盖世界书',
+                message: `世界书「${name}」已存在，导入角色内嵌世界书会覆盖它。继续？`,
+                confirmText: '继续覆盖',
+                tone: 'warning',
+            });
+            if (!shouldOverwrite) {
                 return;
             }
             result = await requestHost('xb-tavern:activate-character-worldbook', {
@@ -2792,7 +2996,12 @@ async function removeSession(sessionId: string, event?: Event) {
             ))[0]
         : null;
     const title = sessionDisplayTitle(session) || '这个会话';
-    if (!window.confirm(`删除「${title}」？`)) {return;}
+    if (!await confirmTavernDialog({
+        title: '删除会话',
+        message: `删除「${title}」？`,
+        confirmText: '删除',
+        tone: 'danger',
+    })) {return;}
     if (isDeletingSelectedSession && isRunning.value) {
         activeRunController.value?.abort();
     }
@@ -2913,6 +3122,7 @@ const {
     selectedMemoryFilePath,
     selectedMemoryFileRecord,
     selectedSessionId,
+    confirmDialog: confirmTavernDialog,
     refreshRecords: refreshManagerRecords,
 });
 
@@ -3364,7 +3574,12 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rerun?: 
         return;
     }
     const floor = Math.max(1, Number(message.order) + 1);
-    if (!window.confirm(`保存第 ${floor} 楼的编辑？\n\n${acceptedStateRollbackNoticeForFloor(floor)}`)) {return;}
+    if (!await confirmTavernDialog({
+        title: '保存楼层编辑',
+        message: `保存第 ${floor} 楼的编辑？\n\n${acceptedStateRollbackNoticeForFloor(floor)}`,
+        confirmText: '保存',
+        tone: 'warning',
+    })) {return;}
     const substitutedContent = await substituteEditedMessageContent(message, content);
     const regexedContent = await applyEditRegexToMessageContent(message, substitutedContent);
     const updated = await updateTavernMessage(message.sessionId, message.order, {
@@ -3438,7 +3653,12 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
     const confirmText = ordersToDelete.length > 1
         ? `从第 ${floor} 楼开始删除后续剧情？将移除 ${ordersToDelete.length} 楼。\n\n${acceptedStateRollbackNoticeForFloor(floor)}`
         : `删除第 ${floor} 楼？\n\n${acceptedStateRollbackNoticeForFloor(floor)}`;
-    if (!window.confirm(confirmText)) {return;}
+    if (!await confirmTavernDialog({
+        title: '删除剧情楼层',
+        message: confirmText,
+        confirmText: '删除',
+        tone: 'danger',
+    })) {return;}
     const fromOrder = Math.min(...ordersToDelete);
     await cancelAndRollbackXbTavernManagersForMessageRange(message.sessionId, fromOrder);
     const deleted = await deleteTavernMessages(message.sessionId, ordersToDelete);
@@ -3512,7 +3732,12 @@ async function deleteManagerMessageTurn(message: TavernManagerMessageRecord) {
     const confirmText = message.role === 'user'
         ? `删除这轮助手对话？将移除 ${ordersToDelete.length} 条记录。`
         : '删除这条助手回复？';
-    if (!window.confirm(confirmText)) {return;}
+    if (!await confirmTavernDialog({
+        title: '删除助手记录',
+        message: confirmText,
+        confirmText: '删除',
+        tone: 'danger',
+    })) {return;}
     const deleted = await deleteTavernManagerMessages(message.sessionId, ordersToDelete);
     if (selectedSessionId.value === message.sessionId) {
         managerChatMessages.value = await listTavernManagerMessages(message.sessionId);
@@ -3541,7 +3766,12 @@ async function rerunFromManagerMessage(message: TavernManagerMessageRecord) {
         .filter((item) => item.order >= userMessage.order)
         .map((item) => item.order);
     if (ordersToDelete.length > 2) {
-        const ok = window.confirm(`从这里重新询问助手会移除后面的 ${ordersToDelete.length} 条记录。继续？`);
+        const ok = await confirmTavernDialog({
+            title: '重新询问助手',
+            message: `从这里重新询问助手会移除后面的 ${ordersToDelete.length} 条记录。继续？`,
+            confirmText: '继续',
+            tone: 'warning',
+        });
         if (!ok) {return;}
     }
     const historyBeforeTurn = sorted.filter((item) => item.order < userMessage.order);
@@ -4429,10 +4659,13 @@ watch(homeThemeDark, (isDark) => {
 provide(TAVERN_APP_UI_CONTEXT, {
     shell: {
         activeView,
+        alertTavernDialog,
         chatFocus,
+        confirmTavernDialog,
         homeThemeDark,
         openPromptInspector,
         postToHost,
+        promptTavernDialog,
         rememberBrokenAvatar,
         shortText,
     },
@@ -4841,5 +5074,73 @@ onUnmounted(() => {
         </div>
       </section>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="tavernDialog"
+        class="tavern-dialog-overlay"
+        :class="homeThemeDark ? 'theme-dark' : 'theme-light'"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tavern-dialog-title"
+        @click.self="handleTavernDialogBackdropClick"
+        @keydown.esc="closeTavernDialog()"
+        @keydown.tab="handleTavernDialogTab"
+      >
+        <form
+          ref="tavernDialogPanelRef"
+          class="tavern-dialog"
+          :class="[`tone-${tavernDialog.tone}`, { 'is-attention': tavernDialogAttention }]"
+          tabindex="-1"
+          @submit.prevent="confirmOpenTavernDialog"
+        >
+          <header class="tavern-dialog-head">
+            <div>
+              <strong id="tavern-dialog-title">{{ tavernDialog.title }}</strong>
+            </div>
+            <button
+              type="button"
+              class="tavern-dialog-close"
+              aria-label="关闭"
+              @click="closeTavernDialog()"
+            />
+          </header>
+          <div class="tavern-dialog-body">
+            <p v-if="tavernDialog.message">
+              {{ tavernDialog.message }}
+            </p>
+            <label
+              v-if="tavernDialog.kind === 'prompt'"
+              class="tavern-dialog-field"
+            >
+              <input
+                ref="tavernDialogInputRef"
+                v-model="tavernDialog.inputValue"
+                type="text"
+                :placeholder="tavernDialog.placeholder"
+              >
+            </label>
+          </div>
+          <footer class="tavern-dialog-actions">
+            <button
+              v-if="tavernDialog.kind !== 'alert'"
+              ref="tavernDialogCancelRef"
+              type="button"
+              class="tavern-dialog-button secondary"
+              @click="closeTavernDialog()"
+            >
+              {{ tavernDialog.cancelText }}
+            </button>
+            <button
+              ref="tavernDialogPrimaryRef"
+              type="submit"
+              class="tavern-dialog-button primary"
+            >
+              {{ tavernDialogPrimaryText }}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </Teleport>
   </main>
 </template>

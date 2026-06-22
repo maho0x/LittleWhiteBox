@@ -18,6 +18,7 @@ export interface TavernMemoryWorkspaceOptions {
     selectedMemoryFilePath: Ref<string>;
     selectedMemoryFileRecord: Ref<TavernMemoryFileRecord | null>;
     selectedSessionId: Ref<string>;
+    confirmDialog: (options: { title?: string; message?: string; confirmText?: string; cancelText?: string; tone?: 'default' | 'danger' | 'warning' } | string) => Promise<boolean>;
     refreshRecords: (sessionId?: string) => Promise<void>;
 }
 
@@ -70,13 +71,19 @@ export function useTavernMemoryWorkspace(options: TavernMemoryWorkspaceOptions) 
         return file;
     }
 
-    function selectMemoryFile(path = '') {
+    async function selectMemoryFile(path = '') {
         const nextPath = String(path || '').trim();
-        if (!nextPath || nextPath === options.selectedMemoryFilePath.value) {return;}
-        if (options.memoryEditorDirty.value && !window.confirm('当前记忆档案有未保存修改，切换后会放弃这份草稿。继续切换？')) {
-            return;
+        if (!nextPath || nextPath === options.selectedMemoryFilePath.value) {return false;}
+        if (options.memoryEditorDirty.value && !await options.confirmDialog({
+            title: '切换记忆档案',
+            message: '当前记忆档案有未保存修改，切换后会放弃这份草稿。继续切换？',
+            confirmText: '继续切换',
+            tone: 'warning',
+        })) {
+            return false;
         }
         options.selectedMemoryFilePath.value = nextPath;
+        return true;
     }
 
     async function saveSelectedMemoryFile() {

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useTavernSettingsContext } from '../tavern-app-context';
+import { useTavernSettingsContext, useTavernShellContext } from '../tavern-app-context';
 import { DEFAULT_TAVERN_ASSISTANT_PRESET_ID } from '../../../shared/assistant-presets';
 import type { TavernAssistantPresetRecord } from '../../../shared/session-db';
 
 const settings = useTavernSettingsContext();
+const shell = useTavernShellContext();
 const {
     activeAssistantPresetId,
     activeSettingsWorkspace,
@@ -29,9 +30,14 @@ const selectedAssistantPresetId = computed(() => String(activeAssistantPresetId.
 const currentAssistantPresetRecord = computed(() => assistantPresets.value.find((item: TavernAssistantPresetRecord) => item.id === selectedAssistantPresetId.value) || null);
 const importInputRef = ref<HTMLInputElement | null>(null);
 
-function renameCurrentPreset() {
+async function renameCurrentPreset() {
     const currentName = String(assistantPreset.value.name || '').trim() || '助手预设';
-    const nextName = window.prompt('输入预设名称：', currentName);
+    const nextName = await shell.promptTavernDialog({
+        title: '重命名助手预设',
+        message: '输入预设名称：',
+        defaultValue: currentName,
+        confirmText: '保存',
+    });
     if (nextName === null) {return;}
     const normalized = String(nextName || '').trim();
     if (!normalized || normalized === currentName) {return;}
@@ -51,7 +57,10 @@ async function handleImportPreset(event: Event) {
         await importAssistantPreset(JSON.parse(text));
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error || '导入失败');
-        window.alert(message || '导入失败');
+        await shell.alertTavernDialog({
+            title: '导入失败',
+            message: message || '导入失败',
+        });
     } finally {
         if (input) {
             input.value = '';

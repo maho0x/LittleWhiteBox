@@ -1,5 +1,7 @@
 import type { Ref } from 'vue';
 import { enhanceMarkdownContent, renderMarkdownToHtml } from '../../../../agent-core/ui/message-markdown.js';
+import { postToIframe } from '../../../../../core/iframe-messaging.js';
+import { getIframeBaseScript, getWrapperScript } from '../../../../../core/wrapper-inline.js';
 import {
     normalizeActionCheckRenderGroups,
     type TavernActionCheckRenderGroup,
@@ -14,7 +16,10 @@ export interface TavernMarkdownToolsOptions {
     chatScrollRef: Ref<HTMLElement | null>;
     managerScrollRef: Ref<HTMLElement | null>;
     htmlRenderEnabled: Ref<boolean>;
+    alertDialog: (options: { title?: string; message?: string; confirmText?: string; tone?: 'default' | 'danger' | 'warning' } | string) => Promise<void>;
+    confirmDialog: (options: { title?: string; message?: string; confirmText?: string; cancelText?: string; tone?: 'default' | 'danger' | 'warning' } | string) => Promise<boolean>;
     requestHost: (type: string, payload?: { payload?: object }) => Promise<{ result?: unknown } & Record<string, unknown>>;
+    getHtmlFrameAvatarUrls?: () => { user?: string; char?: string };
 }
 
 export interface TavernRoleplayMarkdownOptions {
@@ -41,8 +46,107 @@ export function preprocessTavernRoleplayMarkdown(text = '', options: TavernRolep
     return replaceRoleplayMacros(text, options);
 }
 
+const TAVERN_HTML_IFRAME_SELECTOR = 'iframe.xb-tavern-html-iframe';
+const TAVERN_HTML_PRE_SELECTOR = 'pre[data-xb-tavern-html-final="true"]';
+const TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS = 300_000;
+const TAVERN_HTML_FRAGMENT_START_REGEX = /^\s*(?:<!--[\s\S]*?-->\s*)*<(?:style|link|meta|svg|iframe|canvas|img|video|audio|picture|div|section|main|article|header|footer|nav|aside|p|span|button|input|textarea|select|label|ul|ol|li|table|thead|tbody|tr|td|th|form|figure|figcaption|details|summary|dialog|h[1-6])\b/i;
+const TAVERN_HTML_GENERATE_RESPONSE_TYPES = new Set([
+    'generatePromptPreview',
+    'generateStreamStart',
+    'generateStreamChunk',
+    'generateStreamComplete',
+    'generateStreamError',
+    'generateResult',
+    'generateError',
+]);
+
+function extractTavernExternalHtmlUrl(content = '') {
+    const trimmed = String(content || '').trim();
+    if (!trimmed) {return null;}
+    if (/^https?:\/\/[^\s]+$/i.test(trimmed)) {return trimmed;}
+    const match = trimmed.match(/<!--\s*xb-src:\s*(https?:\/\/[^\s>]+)\s*-->/i);
+    return match ? match[1] : null;
+}
+
+function djb2(text = '') {
+    let hash = 5381;
+    for (let index = 0; index < text.length; index += 1) {
+        hash = ((hash << 5) + hash) ^ text.charCodeAt(index);
+    }
+    return (hash >>> 0).toString(16);
+}
+
+function looksLikeTavernHtmlFrameContent(html = '') {
+    const text = String(html || '').trim();
+    if (!text) {return false;}
+    if (extractTavernExternalHtmlUrl(text)) {return true;}
+    const lower = text.toLowerCase();
+    return lower.includes('<!doctype')
+        || lower.includes('<html')
+        || lower.includes('<script')
+        || TAVERN_HTML_FRAGMENT_START_REGEX.test(text);
+}
+
+function buildTavernHtmlResourceHints(html = '') {
+    const urls = Array.from(new Set((String(html || '').match(/https?:\/\/[^"'()\s]+/gi) || [])
+        .map((url) => {
+            try {
+                return new URL(url).origin;
+            } catch {
+                return '';
+            }
+        })
+        .filter(Boolean)));
+    let hints = '';
+    urls.slice(0, 6).forEach((origin) => {
+        hints += `<link rel="dns-prefetch" href="${origin}">`;
+        hints += `<link rel="preconnect" href="${origin}" crossorigin>`;
+    });
+    const font = (String(html || '').match(/https?:\/\/[^"'()\s]+\.(?:woff2|woff|ttf|otf)/i) || [])[0];
+    if (font) {
+        const type = font.endsWith('.woff2') ? 'font/woff2' : font.endsWith('.woff') ? 'font/woff' : font.endsWith('.ttf') ? 'font/ttf' : 'font/otf';
+        hints += `<link rel="preload" as="font" href="${font}" type="${type}" crossorigin fetchpriority="high">`;
+    }
+    const css = (String(html || '').match(/https?:\/\/[^"'()\s]+\.css/i) || [])[0];
+    if (css) {
+        hints += `<link rel="preload" as="style" href="${css}" crossorigin fetchpriority="high">`;
+    }
+    const image = (String(html || '').match(/https?:\/\/[^"'()\s]+\.(?:png|jpg|jpeg|webp|gif|svg)/i) || [])[0];
+    if (image) {
+        hints += `<link rel="preload" as="image" href="${image}" crossorigin fetchpriority="high">`;
+    }
+    return hints;
+}
+
+function buildTavernWrappedHtml(html = '') {
+    const source = String(html || '');
+    const scripts = `<script>${getWrapperScript()}${getIframeBaseScript()}</script>`;
+    const headHints = buildTavernHtmlResourceHints(source);
+    const vhFix = '<style>html,body{height:auto!important;min-height:0!important;max-height:none!important}.profile-container,[style*="100vh"]{height:auto!important;min-height:600px!important}[style*="height:100%"]{height:auto!important;min-height:100%!important}</style>';
+    const injection = `${scripts}${headHints}${vhFix}`;
+    if (source.includes('<html') && source.includes('</html')) {
+        if (source.includes('<head>')) {
+            return source.replace('<head>', `<head>${injection}`);
+        }
+        if (source.includes('</head>')) {
+            return source.replace('</head>', `${injection}</head>`);
+        }
+        return source.replace('<body', `<head>${injection}</head><body`);
+    }
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+${injection}
+<style>html,body{margin:0;padding:0;background:transparent}</style>
+</head>
+<body>${source}</body></html>`;
+}
+
 export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     const markdownHtmlCache = new Map<string, string>();
+    const htmlGenerateRelays = new Map<string, { iframe: HTMLIFrameElement; targetOrigin: string; timeoutId: number }>();
 
     function isHiddenMarkdownNode(node: Element | null) {
         return !node || !!node.closest('[hidden], [aria-hidden="true"]');
@@ -71,18 +175,17 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     }
 
     function renderChatMarkdown(text = '', renderOptions: TavernRoleplayMarkdownOptions = {}) {
-        // Ordinary message HTML follows the ST message sanitizer path; fenced HTML
-        // code blocks remain isolated iframe previews.
         const raw = renderOptions.roleplay
             ? preprocessTavernRoleplayMarkdown(text, renderOptions)
             : String(text || '');
+        const markdownOptions = renderOptions.roleplay ? { htmlFenceMode: 'code' } : {};
         const canCache = !/(^|\n)(`{3,}|~{3,})[ \t]*(html|htm|xhtml|xml|svg|vue|svelte)?\b/i.test(raw)
             && !renderOptions.roleplay;
         const cacheKey = markdownSignature(raw);
         if (canCache && markdownHtmlCache.has(cacheKey)) {
             return markdownHtmlCache.get(cacheKey) || '';
         }
-        const html = renderMarkdownToHtml(raw);
+        const html = renderMarkdownToHtml(raw, markdownOptions);
         if (canCache && !html.includes('xb-markdown-html-placeholder')) {
             markdownHtmlCache.set(cacheKey, html);
             if (markdownHtmlCache.size > 160) {
@@ -102,6 +205,304 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
 
     function clearMarkdownCache() {
         markdownHtmlCache.clear();
+    }
+
+    function getTavernHtmlIframeForSource(source: MessageEventSource | null): HTMLIFrameElement | null {
+        if (!source) {return null;}
+        const roots = [options.chatScrollRef.value, options.managerScrollRef.value].filter(Boolean) as HTMLElement[];
+        for (const root of roots) {
+            const frames = Array.from(root.querySelectorAll<HTMLIFrameElement>(TAVERN_HTML_IFRAME_SELECTOR));
+            const match = frames.find((iframe) => iframe.contentWindow === source);
+            if (match) {return match;}
+        }
+        return null;
+    }
+
+    function getTavernHtmlMessageTargetOrigin(origin: string | null | undefined) {
+        const value = String(origin || '').trim();
+        return value && value !== 'null' ? value : '*';
+    }
+
+    function cloneTavernHtmlMessagePayload<T>(payload: T): T {
+        try {
+            return JSON.parse(JSON.stringify(payload)) as T;
+        } catch {
+            return payload;
+        }
+    }
+
+    function postToTavernHtmlIframe(iframe: HTMLIFrameElement, payload: Record<string, unknown>, targetOrigin = window.location.origin) {
+        postToIframe(iframe, payload, undefined, getTavernHtmlMessageTargetOrigin(targetOrigin));
+    }
+
+    function postToParentGenerateService(payload: Record<string, unknown>) {
+        const safePayload = cloneTavernHtmlMessagePayload(payload);
+        // eslint-disable-next-line no-restricted-syntax -- Tavern HTML iframe callGenerate relay to the top-level service.
+        window.parent?.postMessage(safePayload, window.location.origin);
+    }
+
+    function deleteTavernHtmlGenerateRelay(id: string) {
+        const relay = htmlGenerateRelays.get(id);
+        if (!relay) {return false;}
+        window.clearTimeout(relay.timeoutId);
+        htmlGenerateRelays.delete(id);
+        return true;
+    }
+
+    function clearTavernHtmlGenerateRelaysForIframe(iframe: HTMLIFrameElement) {
+        Array.from(htmlGenerateRelays.entries()).forEach(([id, relay]) => {
+            if (relay.iframe === iframe) {
+                deleteTavernHtmlGenerateRelay(id);
+            }
+        });
+    }
+
+    function clearAllTavernHtmlGenerateRelays() {
+        Array.from(htmlGenerateRelays.keys()).forEach((id) => {
+            deleteTavernHtmlGenerateRelay(id);
+        });
+    }
+
+    function isTavernGenerateRelayResponse(data: Record<string, unknown>) {
+        return data.source === 'xiaobaix-host'
+            && typeof data.id === 'string'
+            && TAVERN_HTML_GENERATE_RESPONSE_TYPES.has(String(data.type || ''));
+    }
+
+    function handleTavernGenerateRelayResponse(data: Record<string, unknown>) {
+        const id = String(data.id || '');
+        const relay = htmlGenerateRelays.get(id);
+        if (!relay) {return false;}
+        postToTavernHtmlIframe(relay.iframe, data, relay.targetOrigin);
+        const type = String(data.type || '');
+        if (type === 'generateResult'
+            || type === 'generateError'
+            || type === 'generateStreamComplete'
+            || type === 'generateStreamError') {
+            deleteTavernHtmlGenerateRelay(id);
+        }
+        return true;
+    }
+
+    function rememberTavernHtmlGenerateRelay(id: string, iframe: HTMLIFrameElement, targetOrigin: string) {
+        deleteTavernHtmlGenerateRelay(id);
+        const timeoutId = window.setTimeout(() => {
+            const relay = htmlGenerateRelays.get(id);
+            if (relay?.iframe === iframe) {
+                htmlGenerateRelays.delete(id);
+            }
+        }, TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS);
+        htmlGenerateRelays.set(id, { iframe, targetOrigin, timeoutId });
+    }
+
+    function removeTavernHtmlWrapper(wrapper: Element | null | undefined) {
+        if (!wrapper?.classList.contains('xb-tavern-html-wrapper')) {return;}
+        const iframe = wrapper.querySelector<HTMLIFrameElement>(TAVERN_HTML_IFRAME_SELECTOR);
+        if (iframe) {
+            clearTavernHtmlGenerateRelaysForIframe(iframe);
+        }
+        wrapper.remove();
+    }
+
+    function probeTavernHtmlIframe(iframe: HTMLIFrameElement, delay = 0) {
+        const send = () => {
+            try {
+                postToIframe(iframe, { type: 'probe' }, undefined, window.location.origin);
+            } catch {
+                // Height probes are best effort; the iframe base script also reports on load/resize.
+            }
+        };
+        if (delay > 0) {
+            window.setTimeout(send, delay);
+            return;
+        }
+        send();
+    }
+
+    function handleTavernHtmlIframeMessage(event: MessageEvent) {
+        const topData = event.data && typeof event.data === 'object'
+            ? event.data as Record<string, unknown>
+            : {};
+        if (event.source === window.parent && isTavernGenerateRelayResponse(topData)) {
+            handleTavernGenerateRelayResponse(topData);
+            return;
+        }
+        const iframe = getTavernHtmlIframeForSource(event.source);
+        if (!iframe) {return;}
+        const replyOrigin = getTavernHtmlMessageTargetOrigin(event.origin);
+        const data = event.data && typeof event.data === 'object'
+            ? event.data as Record<string, unknown>
+            : {};
+        if (typeof data.height === 'number') {
+            const next = Math.max(1, Math.ceil(Number(data.height) || 0));
+            iframe.style.height = `${next}px`;
+            return;
+        }
+        if (data.type === 'getAvatars') {
+            const urls = options.getHtmlFrameAvatarUrls?.() || {};
+            postToTavernHtmlIframe(iframe, {
+                source: 'xiaobaix-host',
+                type: 'avatars',
+                urls: {
+                    user: String(urls.user || ''),
+                    char: String(urls.char || ''),
+                },
+            }, replyOrigin);
+            return;
+        }
+        if (data.type === 'runCommand') {
+            const id = String(data.id || '');
+            const command = String(data.command || '');
+            void options.requestHost('xb-tavern:run-slash-command', { payload: { command } })
+                .then((response) => {
+                    const result = (response.result || response) as Record<string, unknown>;
+                    postToTavernHtmlIframe(iframe, {
+                        source: 'xiaobaix-host',
+                        type: 'commandResult',
+                        id,
+                        result,
+                    }, replyOrigin);
+                })
+                .catch((error) => {
+                    postToTavernHtmlIframe(iframe, {
+                        source: 'xiaobaix-host',
+                        type: 'commandError',
+                        id,
+                        error: error instanceof Error ? error.message : String(error || 'slash_command_failed'),
+                    }, replyOrigin);
+                });
+            return;
+        }
+        if (data.type === 'generateRequest') {
+            const id = String(data.id || '');
+            if (!id) {return;}
+            rememberTavernHtmlGenerateRelay(id, iframe, replyOrigin);
+            postToParentGenerateService({
+                type: 'generateRequest',
+                id,
+                options: data.options && typeof data.options === 'object' ? data.options : {},
+            });
+        }
+    }
+
+    function cleanupTavernHtmlPre(pre: HTMLPreElement) {
+        const previous = pre.previousElementSibling;
+        removeTavernHtmlWrapper(previous);
+        pre.style.display = '';
+        delete pre.dataset.xbTavernHtmlFinal;
+        delete pre.dataset.xbTavernHtmlHash;
+    }
+
+    async function fetchTavernExternalHtml(url: string) {
+        try {
+            const response = await fetch(url, { mode: 'cors' });
+            if (response.ok) {return await response.text();}
+        } catch {
+            // Match the body renderer: CORS fetch failure falls back to direct iframe navigation.
+        }
+        return null;
+    }
+
+    async function replaceTavernHtmlRenderVariables(html = '') {
+        const source = String(html || '');
+        if (!source.includes('{{xbgetvar::')) {return source;}
+        try {
+            const response = await options.requestHost('xb-tavern:replace-html-render-vars', { payload: { html: source } });
+            const result = response.result && typeof response.result === 'object'
+                ? response.result as Record<string, unknown>
+                : response as Record<string, unknown>;
+            return typeof result.html === 'string' ? result.html : source;
+        } catch (error) {
+            console.warn('[LittleWhiteBox Tavern] xbgetvar macro replacement failed:', error);
+            return source;
+        }
+    }
+
+    async function loadTavernExternalHtmlUrl(iframe: HTMLIFrameElement, url: string) {
+        try {
+            iframe.srcdoc = '<!DOCTYPE html><html><body style="display:flex;justify-content:center;align-items:center;height:100px;color:#888;font-family:sans-serif;background:transparent">加载中...</body></html>';
+
+            let html = await fetchTavernExternalHtml(url);
+            if (html) {
+                html = await replaceTavernHtmlRenderVariables(html);
+                iframe.srcdoc = buildTavernWrappedHtml(html);
+                probeTavernHtmlIframe(iframe, 100);
+                return;
+            }
+
+            iframe.removeAttribute('srcdoc');
+            iframe.src = url;
+            iframe.style.minHeight = '800px';
+            iframe.setAttribute('scrolling', 'auto');
+        } catch (error) {
+            console.error('[LittleWhiteBox Tavern] external HTML preview failed:', error);
+            iframe.removeAttribute('srcdoc');
+            iframe.src = url;
+            iframe.style.minHeight = '800px';
+            iframe.setAttribute('scrolling', 'auto');
+        }
+    }
+
+    async function loadTavernHtmlIframeContent(iframe: HTMLIFrameElement, html = '') {
+        const source = String(html || '');
+        const externalUrl = extractTavernExternalHtmlUrl(source);
+        if (externalUrl) {
+            await loadTavernExternalHtmlUrl(iframe, externalUrl);
+            return;
+        }
+        const replaced = await replaceTavernHtmlRenderVariables(source);
+        iframe.srcdoc = buildTavernWrappedHtml(replaced);
+        probeTavernHtmlIframe(iframe);
+    }
+
+    function renderTavernHtmlPre(pre: HTMLPreElement, html = '', hash = '') {
+        const previous = pre.previousElementSibling;
+        removeTavernHtmlWrapper(previous);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'xb-tavern-html-wrapper';
+        const iframe = document.createElement('iframe');
+        iframe.className = 'xb-tavern-html-iframe';
+        iframe.setAttribute('frameborder', '0');
+        iframe.setAttribute('scrolling', 'no');
+        iframe.loading = 'eager';
+        iframe.style.cssText = 'width:100%;border:none;background:transparent;overflow:hidden;height:0;margin:0;padding:0;display:block;contain:layout paint style;will-change:height;min-height:50px';
+        wrapper.append(iframe);
+        pre.parentNode?.insertBefore(wrapper, pre);
+        pre.style.display = 'none';
+        pre.dataset.xbTavernHtmlFinal = 'true';
+        pre.dataset.xbTavernHtmlHash = hash;
+        void loadTavernHtmlIframeContent(iframe, html);
+    }
+
+    function enhanceTavernHtmlCodeBlocks(root: HTMLElement) {
+        if (!canEnhanceMarkdownRoot(root)) {return;}
+        root.querySelectorAll<HTMLPreElement>(TAVERN_HTML_PRE_SELECTOR).forEach((pre) => {
+            if (!options.htmlRenderEnabled.value) {
+                cleanupTavernHtmlPre(pre);
+            }
+        });
+        root.querySelectorAll<HTMLElement>('pre > code').forEach((codeBlock) => {
+            const pre = codeBlock.parentElement as HTMLPreElement | null;
+            if (!pre) {return;}
+            const html = codeBlock.textContent || '';
+            if (!looksLikeTavernHtmlFrameContent(html)) {
+                cleanupTavernHtmlPre(pre);
+                return;
+            }
+            if (!options.htmlRenderEnabled.value) {
+                cleanupTavernHtmlPre(pre);
+                return;
+            }
+            const hash = djb2(html);
+            const externalUrl = extractTavernExternalHtmlUrl(html);
+            const wrapper = pre.previousElementSibling;
+            const same = pre.dataset.xbTavernHtmlFinal === 'true'
+                && pre.dataset.xbTavernHtmlHash === hash
+                && wrapper?.classList.contains('xb-tavern-html-wrapper')
+                && !!wrapper.querySelector(TAVERN_HTML_IFRAME_SELECTOR);
+            if (!externalUrl && same) {return;}
+            renderTavernHtmlPre(pre, html, hash);
+        });
     }
 
     const dialogueQuotePairs: { [key: string]: string } = {
@@ -302,17 +703,22 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
                 return;
             }
             if (action === 'save-tags') {
-                const sceneInput = editPanel.querySelector<HTMLTextAreaElement>('textarea[data-type="scene"]');
-                const tags = String(sceneInput?.value || '').trim();
-                if (!tags) {
-                    window.alert('场景 TAG 不能为空');
-                    return;
-                }
-                const characterPrompts = collectTavernImageEditCharacterPrompts(editPanel, result);
-                setTavernImageBusy(figure, true);
-                void options.requestHost('xb-tavern:draw-image-edit', { payload: { slotId, tags, characterPrompts } })
-                    .then((response) => refreshTavernImageFigure(figure, slotId, response))
-                    .catch(() => setTavernImageBusy(figure, false));
+                void (async () => {
+                    const sceneInput = editPanel.querySelector<HTMLTextAreaElement>('textarea[data-type="scene"]');
+                    const tags = String(sceneInput?.value || '').trim();
+                    if (!tags) {
+                        await options.alertDialog({
+                            title: '缺少场景 TAG',
+                            message: '场景 TAG 不能为空',
+                        });
+                        return;
+                    }
+                    const characterPrompts = collectTavernImageEditCharacterPrompts(editPanel, result);
+                    setTavernImageBusy(figure, true);
+                    void options.requestHost('xb-tavern:draw-image-edit', { payload: { slotId, tags, characterPrompts } })
+                        .then((response) => refreshTavernImageFigure(figure, slotId, response))
+                        .catch(() => setTavernImageBusy(figure, false));
+                })();
             }
         });
 
@@ -490,27 +896,34 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
                 .catch(() => { saveButton.disabled = false; });
         });
         deleteButton.addEventListener('click', () => {
-            if (!window.confirm('确定删除这张图片吗？')) {return;}
-            const current = previews[currentIndex] || previews[0];
-            const imgId = String(current?.imgId || '').trim();
-            if (!imgId) {return;}
-            void options.requestHost('xb-tavern:draw-image-delete', { payload: { slotId, imgId } })
-                .then((deleteResponse) => refreshTavernImageFigure(figure as HTMLElement, slotId, deleteResponse))
-                .then(() => {
-                    previews.splice(currentIndex, 1);
-                    if (!previews.length) {
-                        closeTavernImageGallery();
-                        return;
-                    }
-                    currentIndex = Math.max(0, Math.min(previews.length - 1, currentIndex));
-                    thumbs.querySelectorAll<HTMLImageElement>('.xb-tavern-image-gallery-thumb').forEach((thumb) => {
-                        if (Number(thumb.dataset.index) === currentIndex) {
-                            thumb.remove();
+            void (async () => {
+                if (!await options.confirmDialog({
+                    title: '删除图片',
+                    message: '确定删除这张图片吗？',
+                    confirmText: '删除',
+                    tone: 'danger',
+                })) {return;}
+                const current = previews[currentIndex] || previews[0];
+                const imgId = String(current?.imgId || '').trim();
+                if (!imgId) {return;}
+                void options.requestHost('xb-tavern:draw-image-delete', { payload: { slotId, imgId } })
+                    .then((deleteResponse) => refreshTavernImageFigure(figure as HTMLElement, slotId, deleteResponse))
+                    .then(() => {
+                        previews.splice(currentIndex, 1);
+                        if (!previews.length) {
+                            closeTavernImageGallery();
+                            return;
                         }
+                        currentIndex = Math.max(0, Math.min(previews.length - 1, currentIndex));
+                        thumbs.querySelectorAll<HTMLImageElement>('.xb-tavern-image-gallery-thumb').forEach((thumb) => {
+                            if (Number(thumb.dataset.index) === currentIndex) {
+                                thumb.remove();
+                            }
+                        });
+                        closeTavernImageGallery();
+                        void openTavernImageGallery(slotId, figure);
                     });
-                    closeTavernImageGallery();
-                    void openTavernImageGallery(slotId, figure);
-                });
+            })();
         });
         render();
     }
@@ -726,11 +1139,19 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
                 void refreshImage();
             } else if (action === 'edit-tags') {
                 openEditor();
-            } else if (action === 'delete-image' && window.confirm('确定删除这张图片吗？')) {
-                setTavernImageBusy(figure, true);
-                void options.requestHost('xb-tavern:draw-image-delete', { payload: { slotId } })
-                    .then((response) => refreshTavernImageFigure(figure, slotId, response))
-                    .catch(() => setTavernImageBusy(figure, false));
+            } else if (action === 'delete-image') {
+                void (async () => {
+                    if (!await options.confirmDialog({
+                        title: '删除图片',
+                        message: '确定删除这张图片吗？',
+                        confirmText: '删除',
+                        tone: 'danger',
+                    })) {return;}
+                    setTavernImageBusy(figure, true);
+                    void options.requestHost('xb-tavern:draw-image-delete', { payload: { slotId } })
+                        .then((response) => refreshTavernImageFigure(figure, slotId, response))
+                        .catch(() => setTavernImageBusy(figure, false));
+                })();
             }
         });
     }
@@ -1064,6 +1485,8 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
 
     if (typeof window !== 'undefined') {
         window.addEventListener(TAVERN_INLINE_IMAGE_PROGRESS_EVENT, handleInlineImageProgressEvent as EventListener);
+        // eslint-disable-next-line no-restricted-syntax -- source is validated by matching event.source to a Tavern HTML iframe.
+        window.addEventListener('message', handleTavernHtmlIframeMessage as EventListener);
     }
 
     function buildActionCheckAriaLabel(event: TavernActionCheckRuntimeEvent) {
@@ -1203,11 +1626,13 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             if (!canEnhanceMarkdownRoot(node)) {return;}
             const signature = node.dataset.markdownSignature || '';
             if (node.dataset.markdownEnhanced === signature) {return;}
+            enhanceTavernHtmlCodeBlocks(node);
             enhanceMarkdownContent(node, {
                 codeBlockClassName: 'xb-tavern-codeblock',
                 codeCopyClassName: 'xb-tavern-code-copy',
                 flattenPreCode: true,
                 htmlBlockMode: options.htmlRenderEnabled.value ? 'preview' : 'code',
+                skipPreSelector: TAVERN_HTML_PRE_SELECTOR,
             });
             enhanceTavernImageMarkers(node);
             enhanceInlineImageTokens(node);
@@ -1222,6 +1647,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         if (!root?.querySelectorAll) {return;}
         root.querySelectorAll<HTMLElement>('.chat-bubble.streaming .xb-tavern-markdown').forEach((node) => {
             if (!canEnhanceMarkdownRoot(node)) {return;}
+            // Match the native renderer: streamed DOM is unstable, so HTML iframes wait for the final message.
             enhanceActionCheckMarkers(node);
         });
     }
@@ -1233,11 +1659,13 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             if (!canEnhanceMarkdownRoot(node)) {return;}
             const signature = node.dataset.markdownSignature || '';
             if (node.dataset.markdownEnhanced === signature) {return;}
+            enhanceTavernHtmlCodeBlocks(node);
             enhanceMarkdownContent(node, {
                 codeBlockClassName: 'xb-tavern-codeblock',
                 codeCopyClassName: 'xb-tavern-code-copy',
                 flattenPreCode: true,
                 htmlBlockMode: options.htmlRenderEnabled.value ? undefined : 'code',
+                skipPreSelector: TAVERN_HTML_PRE_SELECTOR,
             });
             node.dataset.markdownEnhanced = signature;
         });
@@ -1248,8 +1676,10 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         disposeMarkdownTools() {
             inlineImageObserver?.disconnect();
             inlineImageObserver = null;
+            clearAllTavernHtmlGenerateRelays();
             if (typeof window !== 'undefined') {
                 window.removeEventListener(TAVERN_INLINE_IMAGE_PROGRESS_EVENT, handleInlineImageProgressEvent as EventListener);
+                window.removeEventListener('message', handleTavernHtmlIframeMessage as EventListener);
             }
         },
         enhanceChatMarkdown,

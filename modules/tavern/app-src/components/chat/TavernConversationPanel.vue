@@ -193,8 +193,14 @@ function isMessageActionTrayOpen(message: TavernMessageRecord) {
     return activeMessageActionsKey.value === messageKey(message);
 }
 
-function toggleMessageActionTray(message: TavernMessageRecord) {
+function shouldIgnoreMessageActionTrayClick(event: MouseEvent) {
+    const target = event.target instanceof Element ? event.target : null;
+    return !!target?.closest('summary, details, a, button, input, textarea, select, label, .xb-tavern-html-wrapper');
+}
+
+function toggleMessageActionTray(message: TavernMessageRecord, event?: MouseEvent) {
     if (!isMobileActionTrayViewport.value || isEditingMessage(message)) {return;}
+    if (event && shouldIgnoreMessageActionTrayClick(event)) {return;}
     const key = messageKey(message);
     activeMessageActionsKey.value = activeMessageActionsKey.value === key ? '' : key;
 }
@@ -338,7 +344,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
               { 'is-error': message.error },
               { 'is-action-tray-open': isMessageActionTrayOpen(message) },
             ]"
-            @click.stop="toggleMessageActionTray(message)"
+            @click.stop="toggleMessageActionTray(message, $event)"
           >
             <div class="bubble-meta">
               <div class="bubble-identity">

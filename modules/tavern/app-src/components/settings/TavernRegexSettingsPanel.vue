@@ -49,14 +49,20 @@ const shouldMountRegexEditor = computed(() => (
 ));
 
 function openRegexEditor(row: RegexRow) {
-    selectRegexScript(row);
-    mobileRegexEditorOpen.value = true;
+    void selectRegexScript(row).then((selected) => {
+        if (selected) {
+            mobileRegexEditorOpen.value = true;
+        }
+    });
 }
 
 function createMobileRegexScript(group: RegexCreateGroup) {
-    createRegexScript(group);
-    regexCreateMenuOpen.value = false;
-    mobileRegexEditorOpen.value = true;
+    void createRegexScript(group).then((created) => {
+        if (created) {
+            regexCreateMenuOpen.value = false;
+            mobileRegexEditorOpen.value = true;
+        }
+    });
 }
 
 function closeRegexEditor() {

@@ -32,6 +32,7 @@ test('display settings revert to the last committed values when host save fails'
         currentWorldbookNativeCharacterId: computed(() => ''),
         homeThemeDark: ref(false),
         isRunning: ref(false),
+        confirmDialog: async () => true,
         describeError: (error) => error instanceof Error ? error.message : String(error || ''),
         postToHost: () => {},
         requestHost: async (type) => {
@@ -72,6 +73,7 @@ test('runtime chat preset follows the LittleWhiteBox selected preset state', asy
         currentWorldbookNativeCharacterId: computed(() => ''),
         homeThemeDark: ref(false),
         isRunning: ref(false),
+        confirmDialog: async () => true,
         describeError: (error) => error instanceof Error ? error.message : String(error || ''),
         postToHost: () => {},
         requestHost: async (type, payload = {}) => {

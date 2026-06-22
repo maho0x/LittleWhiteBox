@@ -169,8 +169,11 @@ function toggleMobileMemoryDirectory() {
 }
 
 function selectMobileMemoryFile(path: string) {
-    selectMemoryFile(path);
-    emit('close-memory-directory');
+    void selectMemoryFile(path).then((selected) => {
+        if (selected) {
+            emit('close-memory-directory');
+        }
+    });
 }
 
 </script>

@@ -34,6 +34,16 @@ export type { TavernDisplaySettings, TavernUserOption } from '../../shared/setti
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
 export type TavernCommand<TArgs extends unknown[] = [], TResult = void> = (...args: TArgs) => TResult;
 
+export interface TavernDialogOptions {
+    title?: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    defaultValue?: string;
+    placeholder?: string;
+    tone?: 'default' | 'danger' | 'warning';
+}
+
 export interface TavernPromptEditorRow {
     identifier: string;
     name: string;
@@ -218,10 +228,13 @@ export interface TavernManagerToolTraceItem {
 
 export interface TavernShellContext {
     activeView: Ref<string>;
+    alertTavernDialog: TavernCommand<[options: TavernDialogOptions | string], Promise<void>>;
     chatFocus: Ref<string>;
+    confirmTavernDialog: TavernCommand<[options: TavernDialogOptions | string], Promise<boolean>>;
     homeThemeDark: Ref<boolean>;
     openPromptInspector: TavernCommand<[tab?: 'history' | 'simulate']>;
     postToHost: TavernCommand<[type: string, payload?: object]>;
+    promptTavernDialog: TavernCommand<[options: TavernDialogOptions | string], Promise<string | null>>;
     rememberBrokenAvatar: TavernCommand<[url?: string]>;
     shortText: TavernCommand<[value?: string, limit?: number], string>;
 }
@@ -408,7 +421,7 @@ export interface TavernMemoryContext {
     selectedMemoryFileEntry: TavernReadable<TavernMemoryIndexFileEntry | null>;
     selectedMemoryFile: TavernReadable<TavernMemoryFileRecord | null>;
     selectedMemoryFilePath: Ref<string>;
-    selectMemoryFile: TavernCommand<[path?: string]>;
+    selectMemoryFile: TavernCommand<[path?: string], Promise<boolean>>;
     stateMemoryFile: Ref<TavernMemoryFileRecord | null>;
 }
 
@@ -457,7 +470,7 @@ export interface TavernSettingsContext {
     currentTavernUser: TavernReadable<TavernUserOption | null>;
     currentTavernUserId: Ref<string | null>;
     createAssistantPreset: TavernCommand<[], Promise<void>>;
-    createRegexScript: TavernCommand<[group: TavernRegexGroupRow]>;
+    createRegexScript: TavernCommand<[group: TavernRegexGroupRow], Promise<boolean>>;
     displaySettings: Ref<TavernDisplaySettings>;
     deleteCurrentAssistantPreset: TavernCommand<[], Promise<void>>;
     deleteCurrentRegexScript: TavernCommand<[], Promise<void>>;
@@ -520,7 +533,7 @@ export interface TavernSettingsContext {
     selectedWorldbook: TavernReadable<TavernWorldbookOptionRow | null>;
     selectedWorldbookName: Ref<string>;
     deleteRegexScript: TavernCommand<[row: TavernRegexScriptRow], Promise<void>>;
-    selectRegexScript: TavernCommand<[row: TavernRegexScriptRow]>;
+    selectRegexScript: TavernCommand<[row: TavernRegexScriptRow], Promise<boolean>>;
     selectSettingsWorkspace: TavernCommand<[workspace: string]>;
     settingsNavItems: TavernReadable<TavernSettingsNavItem[]>;
     shortText: TavernCommand<[value?: string, limit?: number], string>;

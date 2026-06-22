@@ -60,6 +60,7 @@ interface TavernSettingsControllerOptions {
     currentWorldbookNativeCharacterId: ComputedRef<string>;
     homeThemeDark: Ref<boolean>;
     isRunning: Ref<boolean>;
+    confirmDialog: (options: { title?: string; message?: string; confirmText?: string; cancelText?: string; tone?: 'default' | 'danger' | 'warning' } | string) => Promise<boolean>;
     describeError: (error: unknown) => string;
     postToHost: (type: string, payload?: Record<string, unknown>) => void;
     requestHost: (type: string, payload?: Record<string, unknown>, options?: { signal?: AbortSignal }) => Promise<Record<string, unknown>>;
@@ -855,7 +856,12 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         }
     }
     function confirmDiscardDraft(label: string, action = '继续？') {
-        return window.confirm(`当前${label}有未保存修改，${action}会放弃这些草稿。继续？`);
+        return options.confirmDialog({
+            title: '放弃未保存修改',
+            message: `当前${label}有未保存修改，${action}会放弃这些草稿。继续？`,
+            confirmText: action,
+            tone: 'warning',
+        });
     }
     function applyWorldbookEntryDraft(draft: unknown) {
         const normalized = normalizeWorldbookEntryDraft(draft);
@@ -864,7 +870,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         worldbookEntryEditingKey.value = worldbookEntryEditKey(normalized);
     }
     async function refreshPresets() {
-        if (assistantPresetDirty.value && !confirmDiscardDraft('助手预设', '刷新')) {
+        if (assistantPresetDirty.value && !await confirmDiscardDraft('助手预设', '刷新')) {
             assistantPresetStatus.value = '';
             return;
         }
@@ -904,7 +910,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             selectedPresetSourceId.value = currentName;
             return;
         }
-        if (presetDirty.value && !confirmDiscardDraft('聊天预设', '切换')) {
+        if (presetDirty.value && !await confirmDiscardDraft('聊天预设', '切换')) {
             selectedPresetSourceId.value = currentName;
             return;
         }
@@ -1079,7 +1085,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         const uid = entry?.uid === undefined || entry.uid === null ? '' : String(entry.uid).trim();
         if (!targetName || !uid) {return;}
         const requestKey = worldbookEntryEditKey(entry);
-        if (worldbookEntryDirty.value && worldbookEntryEditingKey.value !== requestKey && !confirmDiscardDraft('世界书条目', '切换')) {
+        if (worldbookEntryDirty.value && worldbookEntryEditingKey.value !== requestKey && !await confirmDiscardDraft('世界书条目', '切换')) {
             return;
         }
         worldbookEntryEditingKey.value = requestKey;
@@ -1142,7 +1148,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         }
     }
     async function refreshRegexFromHost() {
-        if (regexDirty.value && !confirmDiscardDraft('正则', '刷新')) {
+        if (regexDirty.value && !await confirmDiscardDraft('正则', '刷新')) {
             regexStatus.value = '';
             return;
         }
@@ -1159,15 +1165,16 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             regexStatus.value = error instanceof Error ? error.message : String(error || '读取失败');
         }
     }
-    function selectRegexScript(row: TavernRegexScriptRow) {
-        if (regexDirty.value && !confirmDiscardDraft('正则', '切换')) {
-            return;
+    async function selectRegexScript(row: TavernRegexScriptRow) {
+        if (regexDirty.value && !await confirmDiscardDraft('正则', '切换')) {
+            return false;
         }
         applyActiveRegexScript(row);
+        return true;
     }
-    function createRegexScript(group: TavernRegexGroupRow) {
-        if (regexDirty.value && !confirmDiscardDraft('正则', '新建')) {
-            return;
+    async function createRegexScript(group: TavernRegexGroupRow) {
+        if (regexDirty.value && !await confirmDiscardDraft('正则', '新建')) {
+            return false;
         }
         const draft = normalizeRegexDraft({
             scriptName: '新正则',
@@ -1186,6 +1193,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         regexDraft.value = draft;
         activeRegexScriptJson.value = '';
         selectedRegexKey.value = `${group.scriptType}:new`;
+        return true;
     }
     function updateRegexPatch(patch: Partial<TavernRegexScriptDraft>) {
         regexDraft.value = normalizeRegexDraft({
@@ -1249,13 +1257,18 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         });
     }
     async function deleteRegexScript(row: TavernRegexScriptRow) {
-        if (regexDirty.value && selectedRegexKey.value !== row.key && !confirmDiscardDraft('正则', '删除')) {
+        if (regexDirty.value && selectedRegexKey.value !== row.key && !await confirmDiscardDraft('正则', '删除')) {
             return;
         }
         const id = String(row?.script.id || '');
         const scriptType = row?.scriptType;
         if (!id || !Number.isFinite(scriptType)) {return;}
-        if (!window.confirm('删除这个正则脚本？')) {return;}
+        if (!await options.confirmDialog({
+            title: '删除正则脚本',
+            message: '删除这个正则脚本？',
+            confirmText: '删除',
+            tone: 'danger',
+        })) {return;}
         regexStatus.value = '正在删除';
         try {
             const result = await options.requestHost('xb-tavern:delete-regex-script', {
@@ -1539,7 +1552,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     async function selectAssistantPreset(presetId: string) {
         const targetId = String(presetId || '').trim();
         if (!targetId || targetId === activeAssistantPresetId.value) {return;}
-        if (assistantPresetDirty.value && !confirmDiscardDraft('助手预设', '切换')) {
+        if (assistantPresetDirty.value && !await confirmDiscardDraft('助手预设', '切换')) {
             return;
         }
         await setActiveTavernAssistantPresetId(targetId);
@@ -1579,7 +1592,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         assistantPresetStatus.value = '';
     }
     async function createAssistantPreset() {
-        if (assistantPresetDirty.value && !confirmDiscardDraft('助手预设', '新建')) {
+        if (assistantPresetDirty.value && !await confirmDiscardDraft('助手预设', '新建')) {
             return;
         }
         const record = await saveTavernAssistantPreset({
@@ -1595,7 +1608,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         assistantPresetStatus.value = '';
     }
     async function importAssistantPreset(payload: unknown) {
-        if (assistantPresetDirty.value && !confirmDiscardDraft('助手预设', '导入')) {
+        if (assistantPresetDirty.value && !await confirmDiscardDraft('助手预设', '导入')) {
             return false;
         }
         const source = payload && typeof payload === 'object'
@@ -1621,10 +1634,15 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         const targetId = String(activeAssistantPresetId.value || assistantPreset.value.id || '').trim();
         const record = assistantPresets.value.find((item) => item.id === targetId) || null;
         if (!record || record.id === DEFAULT_TAVERN_ASSISTANT_PRESET_ID) {return;}
-        if (assistantPresetDirty.value && !confirmDiscardDraft('助手预设', '删除')) {
+        if (assistantPresetDirty.value && !await confirmDiscardDraft('助手预设', '删除')) {
             return;
         }
-        if (!window.confirm(`删除「${record.name || '当前助手预设'}」？`)) {return;}
+        if (!await options.confirmDialog({
+            title: '删除助手预设',
+            message: `删除「${record.name || '当前助手预设'}」？`,
+            confirmText: '删除',
+            tone: 'danger',
+        })) {return;}
         await deleteTavernAssistantPreset(record.id);
         assistantPresets.value = await listTavernAssistantPresets();
         activeAssistantPresetId.value = await getActiveTavernAssistantPresetId();

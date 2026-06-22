@@ -232,3 +232,28 @@ test('tavern markdown only folds fenced html code into iframe preview placeholde
     assert.doesNotMatch(html, /<script/i);
     assert.equal(HTML_PREVIEW_SANDBOX, 'allow-scripts');
 });
+
+test('tavern roleplay markdown can keep fenced html as stable code anchors', () => {
+    const markdown = [
+        '```html',
+        '<main class="status-bar"><strong>状态</strong></main>',
+        '```',
+        '',
+        '<details><summary>角色表</summary>',
+        '',
+        '| 项目 | 内容 |',
+        '|---|---|',
+        '| 名字 | 伊曼 |',
+        '',
+        '</details>',
+    ].join('\n');
+    const first = renderMarkdownToHtml(markdown, { htmlFenceMode: 'code' });
+    const second = renderMarkdownToHtml(markdown, { htmlFenceMode: 'code' });
+
+    assert.equal(first, second);
+    assert.match(first, /<pre><code/);
+    assert.match(first, /status-bar/);
+    assert.match(first, /<details><summary>角色表<\/summary>/);
+    assert.doesNotMatch(first, /xb-markdown-html-placeholder/);
+    assert.doesNotMatch(first, /@@XBHTMLBLOCK/);
+});

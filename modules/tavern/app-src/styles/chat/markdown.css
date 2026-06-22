@@ -65,6 +65,22 @@
     margin-bottom: 0;
 }
 
+.xb-tavern-markdown .xb-tavern-html-wrapper {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 0 10px;
+    overflow: hidden;
+}
+
+.xb-tavern-markdown .xb-tavern-html-iframe {
+    display: block;
+    width: 100%;
+    min-height: 50px;
+    border: 0;
+    background: transparent;
+}
+
 .xb-tavern-markdown p,
 .xb-tavern-markdown ul,
 .xb-tavern-markdown ol,
