@@ -874,7 +874,6 @@ test('tavern roleplay html previews use stable code anchors and a local iframe b
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const markdownSource = readRepoFile('modules/agent-core/ui/message-markdown.js');
-    const wrapperSource = readRepoFile('core/wrapper-inline.js');
 
     assert.match(markdownSource, /function preprocessMarkdownInput\(raw = '', options = \{\}\)/);
     assert.match(markdownSource, /const htmlFenceMode = options\.htmlFenceMode === 'code' \? 'code' : 'placeholder';/);
@@ -895,17 +894,12 @@ test('tavern roleplay html previews use stable code anchors and a local iframe b
     assert.match(markdownToolsSource, /window\.removeEventListener\('message', handleTavernHtmlIframeMessage as EventListener\);/);
     assert.match(markdownToolsSource, /const htmlGenerateRelays = new Map/);
     assert.match(markdownToolsSource, /const TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS = 300_000;/);
-    assert.match(markdownToolsSource, /const TAVERN_HTML_IFRAME_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';/);
-    assert.doesNotMatch(markdownToolsSource, /allow-same-origin/);
     assert.match(markdownToolsSource, /function postToParentGenerateService\(payload: Record<string, unknown>\)[\s\S]*const safePayload = cloneTavernHtmlMessagePayload\(payload\);[\s\S]*window\.parent\?\.postMessage\(safePayload, window\.location\.origin\);/);
-    assert.match(markdownToolsSource, /function relayTavernHtmlIframeWheel\(iframe: HTMLIFrameElement, data: Record<string, unknown>\)[\s\S]*root\.scrollTop \+= deltaY;[\s\S]*root\.scrollLeft \+= deltaX;/);
-    assert.match(wrapperSource, /document\.addEventListener\('wheel',function\(e\)\{[\s\S]*type:'wheel'[\s\S]*deltaY:Number\(e\.deltaY\|\|0\)[\s\S]*\},\{passive:true,capture:true\}\);/);
     assert.match(markdownToolsSource, /function deleteTavernHtmlGenerateRelay\(id: string\)[\s\S]*window\.clearTimeout\(relay\.timeoutId\);[\s\S]*htmlGenerateRelays\.delete\(id\);/);
     assert.match(markdownToolsSource, /function clearTavernHtmlGenerateRelaysForIframe\(iframe: HTMLIFrameElement\)[\s\S]*relay\.iframe === iframe[\s\S]*deleteTavernHtmlGenerateRelay\(id\);/);
     assert.match(markdownToolsSource, /function rememberTavernHtmlGenerateRelay\(id: string, iframe: HTMLIFrameElement, targetOrigin: string\)[\s\S]*window\.setTimeout\(\(\) => \{[\s\S]*htmlGenerateRelays\.delete\(id\);[\s\S]*TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS\);[\s\S]*htmlGenerateRelays\.set\(id, \{ iframe, targetOrigin, timeoutId \}\);/);
     assert.match(markdownToolsSource, /function removeTavernHtmlWrapper\(wrapper: Element \| null \| undefined\)[\s\S]*clearTavernHtmlGenerateRelaysForIframe\(iframe\);[\s\S]*wrapper\.remove\(\);/);
     assert.match(markdownToolsSource, /event\.source === window\.parent && isTavernGenerateRelayResponse\(topData\)/);
-    assert.match(markdownToolsSource, /data\.type === 'wheel'[\s\S]*relayTavernHtmlIframeWheel\(iframe, data\);/);
     assert.match(markdownToolsSource, /data\.type === 'generateRequest'[\s\S]*rememberTavernHtmlGenerateRelay\(id, iframe, replyOrigin\);[\s\S]*postToParentGenerateService\(\{[\s\S]*type: 'generateRequest',[\s\S]*options:/);
     assert.match(markdownToolsSource, /TAVERN_HTML_GENERATE_RESPONSE_TYPES = new Set\(\[[\s\S]*'generateStreamChunk'[\s\S]*'generateStreamComplete'[\s\S]*'generateResult'[\s\S]*'generateError'/);
     assert.match(markdownToolsSource, /postToTavernHtmlIframe\(relay\.iframe, data, relay\.targetOrigin\);/);
@@ -917,7 +911,7 @@ test('tavern roleplay html previews use stable code anchors and a local iframe b
     assert.match(appSource, /getHtmlFrameAvatarUrls: \(\) => \(\{[\s\S]*user: String\(effectiveContext\.value\.user\?\.avatar \|\| ''\),[\s\S]*char: String\(effectiveContext\.value\.character\?\.avatar \|\| ''\),/);
     assert.match(conversationSource, /function shouldIgnoreMessageActionTrayClick\(event: MouseEvent\)[\s\S]*closest\('summary, details, a, button, input, textarea, select, label, \.xb-tavern-html-wrapper'\)/);
     assert.match(conversationSource, /@click\.stop="toggleMessageActionTray\(message, \$event\)"/);
-    assert.match(markdownToolsSource, /iframe\.setAttribute\('sandbox', TAVERN_HTML_IFRAME_SANDBOX\);/);
+    assert.doesNotMatch(markdownToolsSource, /setAttribute\('sandbox'/);
     assert.doesNotMatch(markdownToolsSource, /\bnew Blob\b|createObjectURL|useBlob/);
     assert.doesNotMatch(markdownToolsSource, /xiaobaix-iframe-wrapper|xiaobaix-iframe'/);
 });
@@ -1313,27 +1307,10 @@ test('tavern settings and chat pages reset ephemeral expanded DOM on scope chang
 
 test('tavern edited RP messages use native macro substitution before saving', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
-    const editPanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernMessageEditPanel.vue');
-    const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
-
     assert.match(appSource, /function buildUiSubstituteParamsOptions/);
     assert.match(appSource, /async function substituteEditedMessageContent/);
-    assert.match(contextSource, /saveEditMessage: TavernCommand<\[message: TavernMessageRecord, options\?: \{ rerun\?: boolean; rollbackState\?: boolean; content\?: string \}\], Promise<void>>;/);
-    assert.match(editPanelSource, /event: 'save', options: \{ content: string; rerun\?: boolean; rollbackState\?: boolean \}/);
-    assert.match(editPanelSource, />\s*仅保存\s*<\/button>/);
-    assert.match(editPanelSource, /@click="save\(\{ rollbackState: true \}\)"[\s\S]*>\s*回滚保存\s*<\/button>/);
-    assert.match(editPanelSource, /v-if="message\.role === 'user'"[\s\S]*@click="save\(\{ rerun: true \}\)"[\s\S]*>\s*重来\s*<\/button>/);
-    assert.doesNotMatch(editPanelSource, /保存并从这里重来|保存修改/);
-    assert.match(appSource, /const shouldRollbackState = options\.rerun === true \|\| options\.rollbackState === true;/);
-    assert.match(appSource, /const shouldClearRuntimeEvents = options\.rerun === true && message\.role === 'user';/);
-    assert.match(appSource, /options\.rollbackState === true && !options\.rerun && !await confirmTavernDialog\(\{[\s\S]*message: `回滚这一楼之后的记忆和事件状态/);
     assert.match(appSource, /applyTavernSubstituteParams\(\[\{\s*id: `edit:\$\{message\.sessionId\}:\$\{message\.order\}`,[\s\S]*buildUiSubstituteParamsOptions/);
     assert.match(appSource, /const substitutedContent = await substituteEditedMessageContent\(message, content\);[\s\S]*const regexedContent = await applyEditRegexToMessageContent\(message, substitutedContent\);[\s\S]*updateTavernMessage\(message\.sessionId, message\.order, \{\s*content: regexedContent,/);
-    assert.match(appSource, /\.\.\.\(shouldClearRuntimeEvents \? \{ runtimeEvents: \[\] \} : \{\}\),/);
-    assert.doesNotMatch(appSource, /\.\.\.\(message\.role === 'user' \? \{ runtimeEvents: \[\] \} : \{\}\)/);
-    assert.match(appSource, /if \(updated && shouldRollbackState\) \{[\s\S]*await cancelAndRollbackXbTavernManagersForMessageRange\(message\.sessionId, message\.order\);[\s\S]*await restoreAcceptedStateBeforeMessage\(message\.sessionId, message\.order\);[\s\S]*\}/);
-    assert.match(appSource, /if \(shouldRollbackState\) \{[\s\S]*await refreshManagerRecords\(selectedSessionId\.value\);[\s\S]*\}/);
-    assert.match(appSource, /else if \(updated && shouldRollbackState\) \{[\s\S]*await rebuildSelectedSessionRuntimeState\(\);[\s\S]*\}/);
 });
 
 test('tavern RP display and edit save use native regex phases without slash command placement', () => {

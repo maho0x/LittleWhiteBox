@@ -49,7 +49,6 @@ export function preprocessTavernRoleplayMarkdown(text = '', options: TavernRolep
 const TAVERN_HTML_IFRAME_SELECTOR = 'iframe.xb-tavern-html-iframe';
 const TAVERN_HTML_PRE_SELECTOR = 'pre[data-xb-tavern-html-final="true"]';
 const TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS = 300_000;
-const TAVERN_HTML_IFRAME_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';
 const TAVERN_HTML_FRAGMENT_START_REGEX = /^\s*(?:<!--[\s\S]*?-->\s*)*<(?:style|link|meta|svg|iframe|canvas|img|video|audio|picture|div|section|main|article|header|footer|nav|aside|p|span|button|input|textarea|select|label|ul|ol|li|table|thead|tbody|tr|td|th|form|figure|figcaption|details|summary|dialog|h[1-6])\b/i;
 const TAVERN_HTML_GENERATE_RESPONSE_TYPES = new Set([
     'generatePromptPreview',
@@ -242,25 +241,6 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         window.parent?.postMessage(safePayload, window.location.origin);
     }
 
-    function getTavernHtmlIframeScrollRoot(iframe: HTMLIFrameElement): HTMLElement | null {
-        return iframe.closest<HTMLElement>('.chat-scroll, .manager-chat-scroll');
-    }
-
-    function relayTavernHtmlIframeWheel(iframe: HTMLIFrameElement, data: Record<string, unknown>) {
-        const root = getTavernHtmlIframeScrollRoot(iframe);
-        if (!root) {return;}
-        const mode = Number(data.deltaMode || 0);
-        const unit = mode === 1 ? 16 : mode === 2 ? root.clientHeight : 1;
-        const deltaY = Number(data.deltaY || 0) * unit;
-        const deltaX = Number(data.deltaX || 0) * unit;
-        if (Number.isFinite(deltaY) && deltaY) {
-            root.scrollTop += deltaY;
-        }
-        if (Number.isFinite(deltaX) && deltaX) {
-            root.scrollLeft += deltaX;
-        }
-    }
-
     function deleteTavernHtmlGenerateRelay(id: string) {
         const relay = htmlGenerateRelays.get(id);
         if (!relay) {return false;}
@@ -356,10 +336,6 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         if (typeof data.height === 'number') {
             const next = Math.max(1, Math.ceil(Number(data.height) || 0));
             iframe.style.height = `${next}px`;
-            return;
-        }
-        if (data.type === 'wheel') {
-            relayTavernHtmlIframeWheel(iframe, data);
             return;
         }
         if (data.type === 'getAvatars') {
@@ -486,7 +462,6 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         wrapper.className = 'xb-tavern-html-wrapper';
         const iframe = document.createElement('iframe');
         iframe.className = 'xb-tavern-html-iframe';
-        iframe.setAttribute('sandbox', TAVERN_HTML_IFRAME_SANDBOX);
         iframe.setAttribute('frameborder', '0');
         iframe.setAttribute('scrolling', 'no');
         iframe.loading = 'eager';

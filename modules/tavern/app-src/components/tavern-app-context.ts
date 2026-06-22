@@ -305,7 +305,7 @@ export interface TavernChatContext {
     runtimeText: Ref<string>;
     runtimeThoughts: Ref<Array<{ label?: string; text?: string }>>;
     runtimeUserMessageVisible: Ref<boolean>;
-    saveEditMessage: TavernCommand<[message: TavernMessageRecord, options?: { rerun?: boolean; rollbackState?: boolean; content?: string }], Promise<void>>;
+    saveEditMessage: TavernCommand<[message: TavernMessageRecord, options?: { rerun?: boolean; content?: string }], Promise<void>>;
     scrollChatToBottom: TavernCommand<[force?: boolean, options?: { collapseWindow?: boolean; revealHelpers?: boolean }]>;
     scrollChatToTop: TavernCommand;
     selectedSessionId: Ref<string>;
