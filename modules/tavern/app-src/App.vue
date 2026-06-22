@@ -1111,6 +1111,10 @@ function postToHost(type: string, payload: Record<string, unknown> = {}) {
     window.parent?.postMessage({ source: SOURCE_APP, type, payload: safePayload }, window.location.origin);
 }
 
+function reportStartupProgress(percent: number, action: string) {
+    postToHost('xb-tavern:startup-progress', { percent, action });
+}
+
 function createHostRequestId(prefix = 'host') {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -2011,6 +2015,7 @@ function onHostMessage(event: MessageEvent) {
         return;
     }
     if (data.type === 'xb-tavern:config') {
+        reportStartupProgress(80, 'applyHostPayload');
         applyHostPayload(data.payload || {});
         initialConfigApplied = true;
         startPostReadyStartupTasksAfterInitialConfig();
@@ -2224,6 +2229,7 @@ function clearLoadedSessionMessageWindow() {
 }
 
 async function loadSelectedSessionMessageWindow(options: { reset?: boolean; sessionId?: string } = {}) {
+    reportStartupProgress(92, 'loadSelectedSessionMessageWindow');
     const sessionId = String(options.sessionId || selectedSessionId.value || '').trim();
     const sequence = selectedMessageWindowLoadSequence + 1;
     selectedMessageWindowLoadSequence = sequence;
@@ -2249,6 +2255,7 @@ async function loadSelectedSessionMessageWindow(options: { reset?: boolean; sess
 }
 
 async function refreshSessions() {
+    reportStartupProgress(88, 'refreshSessions');
     sessions.value = await listTavernSessions();
     const storedSessionId = String(await getSelectedTavernSessionId() || '').trim();
     selectedSessionId.value = sessions.value.some((session) => session.id === storedSessionId)
@@ -2279,6 +2286,7 @@ async function saveSessionContract(nextContract: Partial<TavernSessionContract> 
 }
 
 async function refreshManagerRecords(sessionId = selectedSessionId.value) {
+    reportStartupProgress(95, 'refreshManagerRecords');
     const id = String(sessionId || '').trim();
     if (!id) {
         managerChatMessages.value = [];
@@ -4334,6 +4342,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
 });
 
 async function runPostReadyStartupTasks() {
+    reportStartupProgress(85, 'refreshPresets');
     const startupResults = await Promise.allSettled([
         refreshPresets(),
         refreshSessions(),
@@ -4364,6 +4373,7 @@ async function runPostReadyStartupTasks() {
     if (activeView.value === 'chat' && chatFocus.value === 'chat') {
         scrollChatToBottom(true);
     }
+    reportStartupProgress(100, 'enterTavern');
 }
 
 onMounted(async () => {

@@ -34,31 +34,29 @@
         .xb-frame-boot-core {
             display: grid;
             justify-items: center;
-            gap: 12px;
+            gap: 14px;
+            width: min(260px, calc(100vw - 64px));
         }
 
-        .xb-frame-boot-ring {
-            width: 28px;
-            height: 28px;
-            border: 2px solid rgba(184, 178, 166, 0.22);
-            border-top-color: #b8b2a6;
-            border-radius: 50%;
-            animation: xb-frame-boot-spin 800ms linear infinite;
+        .xb-frame-boot-bar {
+            width: 100%;
+            height: 3px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(184, 178, 166, 0.16);
         }
 
-        .xb-frame-boot-text {
-            color: rgba(184, 178, 166, 0.72);
+        .xb-frame-boot-fill {
+            width: 5%;
+            height: 100%;
+            border-radius: inherit;
+            background: #b8b2a6;
+            transition: width 220ms ease;
         }
 
         .xb-frame-boot-hint {
             color: rgba(184, 178, 166, 0.48);
             font-size: 12px;
-        }
-
-        @keyframes xb-frame-boot-spin {
-            to {
-                transform: rotate(360deg);
-            }
         }
     </style>
 </head>
@@ -66,12 +64,33 @@
     <div id="app"></div>
     <div id="xb-frame-boot" role="status" aria-live="polite">
         <div class="xb-frame-boot-core">
-            <div class="xb-frame-boot-ring" aria-hidden="true"></div>
-            <div class="xb-frame-boot-text">正在加载</div>
+            <div class="xb-frame-boot-bar" aria-hidden="true">
+                <div class="xb-frame-boot-fill"></div>
+            </div>
             <div class="xb-frame-boot-hint">首次加载需约30s</div>
         </div>
     </div>
     <script>
+        const SOURCE_APP = 'xb-tavern-app';
+        const SOURCE_HOST = 'xb-tavern-host';
+        const progressFill = document.querySelector('#xb-frame-boot .xb-frame-boot-fill');
+        const applyStartupProgress = (payload = {}) => {
+            const rawPercent = Number(payload.percent);
+            const percent = Number.isFinite(rawPercent) ? Math.max(0, Math.min(100, rawPercent)) : 5;
+            if (progressFill) progressFill.style.width = `${percent}%`;
+            if (payload.action) console.debug('[小白酒馆] startup', `${percent}%`, payload.action);
+        };
+        window.addEventListener('message', (event) => {
+            if (event.origin !== window.location.origin) return;
+            const data = event.data || {};
+            if (data.source !== SOURCE_HOST || data.type !== 'xb-tavern:startup-progress') return;
+            applyStartupProgress(data.payload || {});
+        });
+        window.parent?.postMessage({
+            source: SOURCE_APP,
+            type: 'xb-tavern:boot-ready',
+            payload: {},
+        }, window.location.origin);
         const version = new URLSearchParams(location.search).get('v') || '';
         const suffix = version ? `?v=${encodeURIComponent(version)}` : '';
         const stylesheet = document.createElement('link');
@@ -82,10 +101,9 @@
         script.type = 'module';
         script.src = `./dist/tavern-app.js${suffix}`;
         script.onerror = () => {
-            const text = document.querySelector('#xb-frame-boot .xb-frame-boot-text');
             const hint = document.querySelector('#xb-frame-boot .xb-frame-boot-hint');
-            if (text) text.textContent = '加载失败，请刷新重试';
-            if (hint) hint.textContent = '';
+            if (progressFill) progressFill.style.width = '100%';
+            if (hint) hint.textContent = '加载失败，请刷新重试';
         };
         document.body.appendChild(script);
     </script>

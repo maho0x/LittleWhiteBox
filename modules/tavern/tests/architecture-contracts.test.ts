@@ -55,6 +55,7 @@ test('tavern source keeps cross-frame messages behind clone-safe wrappers', () =
 test('tavern startup posts frame-ready before heavy app tasks and prewarms host config', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const hostSource = readRepoFile('modules/tavern/tavern.ts');
+    const htmlSource = readRepoFile('modules/tavern/tavern.html');
     const mountedIndex = appSource.indexOf('onMounted(async () => {');
     const readyIndex = appSource.indexOf("postToHost('xb-tavern:frame-ready');", mountedIndex);
     assert.notEqual(mountedIndex, -1);
@@ -65,14 +66,23 @@ test('tavern startup posts frame-ready before heavy app tasks and prewarms host 
     assert.doesNotMatch(appSource.slice(readyIndex, appSource.indexOf('onUnmounted', readyIndex)), /void runPostReadyStartupTasks\(\);/);
     assert.match(appSource, /if \(data\.type === 'xb-tavern:config'\) \{[\s\S]*applyHostPayload\(data\.payload \|\| \{\}\);[\s\S]*initialConfigApplied = true;[\s\S]*startPostReadyStartupTasksAfterInitialConfig\(\);/);
     assert.match(appSource, /function startPostReadyStartupTasksAfterInitialConfig\(\) \{[\s\S]*postReadyStartupStarted = true;[\s\S]*void runPostReadyStartupTasks\(\);/);
-    assert.match(appSource, /async function runPostReadyStartupTasks\(\) \{[\s\S]*Promise\.allSettled\(\[\s*refreshPresets\(\),\s*refreshSessions\(\),\s*\]\)/);
+    assert.match(appSource, /function reportStartupProgress\(percent: number, action: string\)[\s\S]*postToHost\('xb-tavern:startup-progress', \{ percent, action \}\)/);
+    assert.match(appSource, /async function runPostReadyStartupTasks\(\) \{[\s\S]*reportStartupProgress\(85, 'refreshPresets'\);[\s\S]*Promise\.allSettled\(\[\s*refreshPresets\(\),\s*refreshSessions\(\),\s*\]\)[\s\S]*reportStartupProgress\(100, 'enterTavern'\);/);
     assert.doesNotMatch(appSource, /scheduleMemoryTokenizerWarmup|promoteMemoryTokenizerWarmup|preloadXbTavernMemoryTokenizer|getXbTavernMemoryTokenizerStatus/);
     assert.match(appSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*isRunning\.value = true;[\s\S]*const runtimeContext = await resolveRuntimeContextForSession/);
     assert.match(appSource, /async function handleManagerSubmit\(\) \{[\s\S]*isManagerAssistantRunning\.value = true;[\s\S]*managerInputStatus\.value = '准备中';[\s\S]*await sendManagerQuestion\(managerSessionId, text\);/);
+    assert.match(htmlSource, /<div class="xb-frame-boot-fill"><\/div>/);
+    assert.match(htmlSource, /首次加载需约30s/);
+    assert.doesNotMatch(htmlSource, /xb-frame-boot-text|当前阶段|读取世界书/);
+    assert.match(htmlSource, /window\.addEventListener\('message'[\s\S]*data\.type !== 'xb-tavern:startup-progress'[\s\S]*applyStartupProgress\(data\.payload \|\| \{\}\)/);
+    assert.match(htmlSource, /window\.parent\?\.postMessage\(\{[\s\S]*source: SOURCE_APP,[\s\S]*type: 'xb-tavern:boot-ready'/);
     assert.match(hostSource, /let initialConfigPromise: Promise<Record<string, unknown>> \| null = null;/);
+    assert.match(hostSource, /let frameBootReady = false;/);
+    assert.match(hostSource, /function postStartupProgress\(payload: Partial<TavernStartupProgressPayload> = \{\}\): boolean[\s\S]*type: 'xb-tavern:startup-progress'/);
     assert.match(hostSource, /function prepareInitialConfig\(\): void \{[\s\S]*initialConfigPromise = promise;/);
-    assert.match(hostSource, /async function sendInitialConfigToFrame\(\): Promise<void> \{[\s\S]*const promise = initialConfigPromise \|\| buildFrameConfigPayload\(\);[\s\S]*postToFrame\('xb-tavern:config', await promise\);/);
-    assert.match(hostSource, /async function openTavern\(\): Promise<void> \{[\s\S]*prepareInitialConfig\(\);[\s\S]*await createOverlay\(\);/);
+    assert.match(hostSource, /async function sendInitialConfigToFrame\(\): Promise<void> \{[\s\S]*const configPayload = await promise;[\s\S]*postStartupProgress\(\{ percent: 78, action: 'sendInitialConfigToFrame' \}\);[\s\S]*postToFrame\('xb-tavern:config', configPayload\);/);
+    assert.match(hostSource, /async function openTavern\(\): Promise<void> \{[\s\S]*installMessageHandler\(\);[\s\S]*await createOverlay\(\);[\s\S]*prepareInitialConfig\(\);/);
+    assert.match(hostSource, /case 'xb-tavern:boot-ready':[\s\S]*frameBootReady = true;[\s\S]*postStartupProgress\(\{ percent: 15, action: 'loadTavernResources' \}\);/);
     assert.match(hostSource, /case 'xb-tavern:frame-ready':[\s\S]*void sendInitialConfigToFrame\(\)\.catch\(\(error\) => \{[\s\S]*failed to send initial config[\s\S]*\}\)\.finally\(flushPendingMessages\);/);
 });
 

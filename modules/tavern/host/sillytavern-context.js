@@ -450,12 +450,19 @@ async function fetchWorldbook(source) {
 }
 async function buildTavernContext(options = {}) {
   const ctx = getContext?.() || {};
+  options.onStartupProgress?.({ percent: 30, action: "hydrateSelectedCharacter" });
   await hydrateSelectedCharacter(ctx, options);
   const includeWorldbooks = options.includeWorldbooks !== false;
+  options.onStartupProgress?.({ percent: 38, action: "collectWorldbookSources" });
   const worldbookSources = collectWorldbookSources(ctx, options);
   const worldbookNames = worldbookSources.map((source) => source.name);
-  const fetchedWorldBooks = includeWorldbooks ? await Promise.all(worldbookSources.map(async (source) => {
+  const fetchedWorldBooks = includeWorldbooks ? await Promise.all(worldbookSources.map(async (source, index) => {
     try {
+      const span = worldbookSources.length > 1 ? 15 / (worldbookSources.length - 1) : 0;
+      options.onStartupProgress?.({
+        percent: Math.round(worldbookSources.length > 1 ? 45 + index * span : 52),
+        action: `fetchWorldbook:${source.name}`
+      });
       return await fetchWorldbook(source);
     } catch (error) {
       return {
@@ -467,6 +474,7 @@ async function buildTavernContext(options = {}) {
       };
     }
   })) : [];
+  options.onStartupProgress?.({ percent: 70, action: "assembleTavernContext" });
   const worldBooks = dedupeWorldBooks([
     ...fetchedWorldBooks
   ]);

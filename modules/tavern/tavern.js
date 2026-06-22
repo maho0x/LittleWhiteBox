@@ -46,11 +46,13 @@ const TAVERN_DRAW_DELETED_ERROR_TYPE = "deleted";
 const TAVERN_DRAW_DELETED_ERROR_MESSAGE = "\u56FE\u7247\u5DF2\u5220\u9664\uFF0C\u70B9\u51FB\u91CD\u8BD5\u53EF\u91CD\u65B0\u751F\u6210";
 let tavernCacheKey = "";
 let frameReady = false;
+let frameBootReady = false;
 let pendingMessages = [];
 let initialConfigPromise = null;
 let messageHandlerInstalled = false;
 let overlayResizeHandler = null;
 const pendingDrawRequests = /* @__PURE__ */ new Map();
+let latestStartupProgress = { percent: 5, action: "createOverlay" };
 async function getDrawGalleryCacheModule() {
   return await import("../draw/shared/gallery-cache.js");
 }
@@ -167,6 +169,25 @@ function postToFrame(type, payload = {}) {
   }
   return postToIframe(iframe, message, SOURCE_HOST);
 }
+function normalizeStartupProgress(payload = {}) {
+  const percent = Number(payload.percent);
+  const nextPercent = Number.isFinite(percent) ? Math.max(0, Math.min(100, Math.round(percent))) : latestStartupProgress.percent;
+  return {
+    percent: Math.max(latestStartupProgress.percent, nextPercent),
+    action: String(payload.action || latestStartupProgress.action || "startup")
+  };
+}
+function postStartupProgress(payload = {}) {
+  latestStartupProgress = normalizeStartupProgress(payload);
+  const iframe = getIframe();
+  if (!iframe?.contentWindow || !frameBootReady) {
+    return false;
+  }
+  return postToIframe(iframe, {
+    type: "xb-tavern:startup-progress",
+    payload: latestStartupProgress
+  }, SOURCE_HOST);
+}
 function flushPendingMessages() {
   if (!frameReady) {
     return;
@@ -179,7 +200,11 @@ function flushPendingMessages() {
   pendingMessages = [];
 }
 async function buildFrameConfigPayload(options = {}) {
-  const contextPayload = await buildTavernContext(options);
+  const contextPayload = await buildTavernContext({
+    ...options,
+    onStartupProgress: postStartupProgress
+  });
+  postStartupProgress({ percent: 75, action: "buildTavernFrameConfig" });
   return await buildTavernFrameConfig(contextPayload);
 }
 function prepareInitialConfig() {
@@ -194,7 +219,9 @@ function prepareInitialConfig() {
 async function sendInitialConfigToFrame() {
   const promise = initialConfigPromise || buildFrameConfigPayload();
   initialConfigPromise = null;
-  postToFrame("xb-tavern:config", await promise);
+  const configPayload = await promise;
+  postStartupProgress({ percent: 78, action: "sendInitialConfigToFrame" });
+  postToFrame("xb-tavern:config", configPayload);
 }
 async function sendConfigToFrame(options = {}) {
   postToFrame("xb-tavern:config", await buildFrameConfigPayload(options));
@@ -874,6 +901,8 @@ async function handleUserRequest(type, payload = {}) {
   }
 }
 async function createOverlay() {
+  postStartupProgress({ percent: 5, action: "createOverlay" });
+  postStartupProgress({ percent: 15, action: "loadTavernCacheKey" });
   const overlay = await createFirstPartyIframeOverlay({
     overlayId: OVERLAY_ID,
     iframeId: IFRAME_ID,
@@ -919,10 +948,12 @@ async function openTavern() {
     return;
   }
   frameReady = false;
+  frameBootReady = false;
   pendingMessages = [];
-  prepareInitialConfig();
+  latestStartupProgress = { percent: 5, action: "createOverlay" };
   installMessageHandler();
   await createOverlay();
+  prepareInitialConfig();
 }
 function closeTavern() {
   removeOverlayResizeHandler();
@@ -931,6 +962,7 @@ function closeTavern() {
     overlay.remove();
   }
   frameReady = false;
+  frameBootReady = false;
   pendingMessages = [];
   initialConfigPromise = null;
 }
@@ -941,11 +973,19 @@ function handleFrameMessage(event) {
   }
   const data = event.data || {};
   switch (data.type) {
+    case "xb-tavern:boot-ready":
+      frameBootReady = true;
+      postStartupProgress({ percent: 15, action: "loadTavernResources" });
+      break;
     case "xb-tavern:frame-ready":
       frameReady = true;
+      postStartupProgress({ percent: Math.max(latestStartupProgress.percent, 72), action: "frameReady" });
       void sendInitialConfigToFrame().catch((error) => {
         console.warn("[LittleWhiteBox][Tavern] failed to send initial config", error);
       }).finally(flushPendingMessages);
+      break;
+    case "xb-tavern:startup-progress":
+      postStartupProgress(data.payload || {});
       break;
     case "xb-tavern:close":
       closeTavern();

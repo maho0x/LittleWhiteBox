@@ -40,6 +40,11 @@ interface PendingFrameMessage {
     payload: Record<string, unknown>;
 }
 
+interface TavernStartupProgressPayload {
+    percent: number;
+    action: string;
+}
+
 interface TavernFacade {
     open: () => Promise<void>;
     close: () => void;
@@ -73,11 +78,13 @@ const TAVERN_DRAW_DELETED_ERROR_MESSAGE = '图片已删除，点击重试可重�
 
 let tavernCacheKey = '';
 let frameReady = false;
+let frameBootReady = false;
 let pendingMessages: PendingFrameMessage[] = [];
 let initialConfigPromise: Promise<Record<string, unknown>> | null = null;
 let messageHandlerInstalled = false;
 let overlayResizeHandler: (() => void) | null = null;
 const pendingDrawRequests = new Map<string, AbortController>();
+let latestStartupProgress: TavernStartupProgressPayload = { percent: 5, action: 'createOverlay' };
 
 async function getDrawGalleryCacheModule(): Promise<{
     clearSlotSelection: (slotId: string) => Promise<void>;
@@ -243,6 +250,25 @@ function postToFrame(type: string, payload: Record<string, unknown> = {}): boole
     return postToIframe(iframe, message, SOURCE_HOST);
 }
 
+function normalizeStartupProgress(payload: Partial<TavernStartupProgressPayload> = {}): TavernStartupProgressPayload {
+    const percent = Number(payload.percent);
+    const nextPercent = Number.isFinite(percent) ? Math.max(0, Math.min(100, Math.round(percent))) : latestStartupProgress.percent;
+    return {
+        percent: Math.max(latestStartupProgress.percent, nextPercent),
+        action: String(payload.action || latestStartupProgress.action || 'startup'),
+    };
+}
+
+function postStartupProgress(payload: Partial<TavernStartupProgressPayload> = {}): boolean {
+    latestStartupProgress = normalizeStartupProgress(payload);
+    const iframe = getIframe();
+    if (!iframe?.contentWindow || !frameBootReady) {return false;}
+    return postToIframe(iframe, {
+        type: 'xb-tavern:startup-progress',
+        payload: latestStartupProgress as unknown as Record<string, unknown>,
+    }, SOURCE_HOST);
+}
+
 function flushPendingMessages(): void {
     if (!frameReady) {return;}
     const iframe = getIframe();
@@ -252,7 +278,11 @@ function flushPendingMessages(): void {
 }
 
 async function buildFrameConfigPayload(options: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-    const contextPayload = await buildTavernContext(options);
+    const contextPayload = await buildTavernContext({
+        ...options,
+        onStartupProgress: postStartupProgress,
+    });
+    postStartupProgress({ percent: 75, action: 'buildTavernFrameConfig' });
     return await buildTavernFrameConfig(contextPayload as unknown as Record<string, unknown>);
 }
 
@@ -269,7 +299,9 @@ function prepareInitialConfig(): void {
 async function sendInitialConfigToFrame(): Promise<void> {
     const promise = initialConfigPromise || buildFrameConfigPayload();
     initialConfigPromise = null;
-    postToFrame('xb-tavern:config', await promise);
+    const configPayload = await promise;
+    postStartupProgress({ percent: 78, action: 'sendInitialConfigToFrame' });
+    postToFrame('xb-tavern:config', configPayload);
 }
 
 async function sendConfigToFrame(options: Record<string, unknown> = {}): Promise<void> {
@@ -989,6 +1021,8 @@ async function handleUserRequest(type: string, payload: Record<string, unknown> 
 }
 
 async function createOverlay(): Promise<HTMLElement> {
+    postStartupProgress({ percent: 5, action: 'createOverlay' });
+    postStartupProgress({ percent: 15, action: 'loadTavernCacheKey' });
     const overlay = await createFirstPartyIframeOverlay({
         overlayId: OVERLAY_ID,
         iframeId: IFRAME_ID,
@@ -1035,10 +1069,12 @@ async function openTavern(): Promise<void> {
         return;
     }
     frameReady = false;
+    frameBootReady = false;
     pendingMessages = [];
-    prepareInitialConfig();
+    latestStartupProgress = { percent: 5, action: 'createOverlay' };
     installMessageHandler();
     await createOverlay();
+    prepareInitialConfig();
 }
 
 function closeTavern(): void {
@@ -1046,6 +1082,7 @@ function closeTavern(): void {
     const overlay = document.getElementById(OVERLAY_ID);
     if (overlay) {overlay.remove();}
     frameReady = false;
+    frameBootReady = false;
     pendingMessages = [];
     initialConfigPromise = null;
 }
@@ -1055,11 +1092,19 @@ function handleFrameMessage(event: MessageEvent): void {
     if (!isTrustedMessage(event, iframe, SOURCE_APP)) {return;}
     const data = event.data || {};
     switch (data.type) {
+        case 'xb-tavern:boot-ready':
+            frameBootReady = true;
+            postStartupProgress({ percent: 15, action: 'loadTavernResources' });
+            break;
         case 'xb-tavern:frame-ready':
             frameReady = true;
+            postStartupProgress({ percent: Math.max(latestStartupProgress.percent, 72), action: 'frameReady' });
             void sendInitialConfigToFrame().catch((error) => {
                 console.warn('[LittleWhiteBox][Tavern] failed to send initial config', error);
             }).finally(flushPendingMessages);
+            break;
+        case 'xb-tavern:startup-progress':
+            postStartupProgress(data.payload || {});
             break;
         case 'xb-tavern:close':
             closeTavern();

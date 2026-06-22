@@ -13,6 +13,7 @@ interface TavernHostOptions {
     characterId?: string | number;
     includeHistory?: boolean;
     includeWorldbooks?: boolean;
+    onStartupProgress?: (payload: { percent: number; action: string }) => void;
 }
 
 interface TavernHostDiagnostics {
@@ -503,13 +504,20 @@ async function fetchWorldbook(source: TavernWorldbookSource): Promise<Record<str
 
 export async function buildTavernContext(options: TavernHostOptions = {}): Promise<TavernHostContextPayload> {
     const ctx = (getContext?.() || {}) as Record<string, unknown>;
+    options.onStartupProgress?.({ percent: 30, action: 'hydrateSelectedCharacter' });
     await hydrateSelectedCharacter(ctx, options);
     const includeWorldbooks = options.includeWorldbooks !== false;
+    options.onStartupProgress?.({ percent: 38, action: 'collectWorldbookSources' });
     const worldbookSources = collectWorldbookSources(ctx, options);
     const worldbookNames = worldbookSources.map((source) => source.name);
     const fetchedWorldBooks = includeWorldbooks
-        ? await Promise.all(worldbookSources.map(async (source) => {
+        ? await Promise.all(worldbookSources.map(async (source, index) => {
             try {
+                const span = worldbookSources.length > 1 ? 15 / (worldbookSources.length - 1) : 0;
+                options.onStartupProgress?.({
+                    percent: Math.round(worldbookSources.length > 1 ? 45 + (index * span) : 52),
+                    action: `fetchWorldbook:${source.name}`,
+                });
                 return await fetchWorldbook(source);
             } catch (error) {
                 return {
@@ -522,6 +530,7 @@ export async function buildTavernContext(options: TavernHostOptions = {}): Promi
             }
         }))
         : [];
+    options.onStartupProgress?.({ percent: 70, action: 'assembleTavernContext' });
     const worldBooks = dedupeWorldBooks([
         ...fetchedWorldBooks,
     ]);
