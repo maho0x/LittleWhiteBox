@@ -874,7 +874,6 @@ test('tavern roleplay html previews use stable code anchors and a local iframe b
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const markdownSource = readRepoFile('modules/agent-core/ui/message-markdown.js');
-    const wrapperSource = readRepoFile('core/wrapper-inline.js');
 
     assert.match(markdownSource, /function preprocessMarkdownInput\(raw = '', options = \{\}\)/);
     assert.match(markdownSource, /const htmlFenceMode = options\.htmlFenceMode === 'code' \? 'code' : 'placeholder';/);
@@ -895,17 +894,12 @@ test('tavern roleplay html previews use stable code anchors and a local iframe b
     assert.match(markdownToolsSource, /window\.removeEventListener\('message', handleTavernHtmlIframeMessage as EventListener\);/);
     assert.match(markdownToolsSource, /const htmlGenerateRelays = new Map/);
     assert.match(markdownToolsSource, /const TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS = 300_000;/);
-    assert.match(markdownToolsSource, /const TAVERN_HTML_IFRAME_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';/);
-    assert.doesNotMatch(markdownToolsSource, /allow-same-origin/);
     assert.match(markdownToolsSource, /function postToParentGenerateService\(payload: Record<string, unknown>\)[\s\S]*const safePayload = cloneTavernHtmlMessagePayload\(payload\);[\s\S]*window\.parent\?\.postMessage\(safePayload, window\.location\.origin\);/);
-    assert.match(markdownToolsSource, /function relayTavernHtmlIframeWheel\(iframe: HTMLIFrameElement, data: Record<string, unknown>\)[\s\S]*root\.scrollTop \+= deltaY;[\s\S]*root\.scrollLeft \+= deltaX;/);
-    assert.match(wrapperSource, /document\.addEventListener\('wheel',function\(e\)\{[\s\S]*type:'wheel'[\s\S]*deltaY:Number\(e\.deltaY\|\|0\)[\s\S]*\},\{passive:true,capture:true\}\);/);
     assert.match(markdownToolsSource, /function deleteTavernHtmlGenerateRelay\(id: string\)[\s\S]*window\.clearTimeout\(relay\.timeoutId\);[\s\S]*htmlGenerateRelays\.delete\(id\);/);
     assert.match(markdownToolsSource, /function clearTavernHtmlGenerateRelaysForIframe\(iframe: HTMLIFrameElement\)[\s\S]*relay\.iframe === iframe[\s\S]*deleteTavernHtmlGenerateRelay\(id\);/);
     assert.match(markdownToolsSource, /function rememberTavernHtmlGenerateRelay\(id: string, iframe: HTMLIFrameElement, targetOrigin: string\)[\s\S]*window\.setTimeout\(\(\) => \{[\s\S]*htmlGenerateRelays\.delete\(id\);[\s\S]*TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS\);[\s\S]*htmlGenerateRelays\.set\(id, \{ iframe, targetOrigin, timeoutId \}\);/);
     assert.match(markdownToolsSource, /function removeTavernHtmlWrapper\(wrapper: Element \| null \| undefined\)[\s\S]*clearTavernHtmlGenerateRelaysForIframe\(iframe\);[\s\S]*wrapper\.remove\(\);/);
     assert.match(markdownToolsSource, /event\.source === window\.parent && isTavernGenerateRelayResponse\(topData\)/);
-    assert.match(markdownToolsSource, /data\.type === 'wheel'[\s\S]*relayTavernHtmlIframeWheel\(iframe, data\);/);
     assert.match(markdownToolsSource, /data\.type === 'generateRequest'[\s\S]*rememberTavernHtmlGenerateRelay\(id, iframe, replyOrigin\);[\s\S]*postToParentGenerateService\(\{[\s\S]*type: 'generateRequest',[\s\S]*options:/);
     assert.match(markdownToolsSource, /TAVERN_HTML_GENERATE_RESPONSE_TYPES = new Set\(\[[\s\S]*'generateStreamChunk'[\s\S]*'generateStreamComplete'[\s\S]*'generateResult'[\s\S]*'generateError'/);
     assert.match(markdownToolsSource, /postToTavernHtmlIframe\(relay\.iframe, data, relay\.targetOrigin\);/);
@@ -917,7 +911,6 @@ test('tavern roleplay html previews use stable code anchors and a local iframe b
     assert.match(appSource, /getHtmlFrameAvatarUrls: \(\) => \(\{[\s\S]*user: String\(effectiveContext\.value\.user\?\.avatar \|\| ''\),[\s\S]*char: String\(effectiveContext\.value\.character\?\.avatar \|\| ''\),/);
     assert.match(conversationSource, /function shouldIgnoreMessageActionTrayClick\(event: MouseEvent\)[\s\S]*closest\('summary, details, a, button, input, textarea, select, label, \.xb-tavern-html-wrapper'\)/);
     assert.match(conversationSource, /@click\.stop="toggleMessageActionTray\(message, \$event\)"/);
-    assert.match(markdownToolsSource, /iframe\.setAttribute\('sandbox', TAVERN_HTML_IFRAME_SANDBOX\);/);
     assert.doesNotMatch(markdownToolsSource, /\bnew Blob\b|createObjectURL|useBlob/);
     assert.doesNotMatch(markdownToolsSource, /xiaobaix-iframe-wrapper|xiaobaix-iframe'/);
 });

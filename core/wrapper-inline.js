@@ -119,17 +119,6 @@ export function getIframeBaseScript() {
     if(d&&d.type==='probe')setTimeout(function(){send(true)},10);
   });
 
-  document.addEventListener('wheel',function(e){
-    try{
-      post({
-        type:'wheel',
-        deltaX:Number(e.deltaX||0),
-        deltaY:Number(e.deltaY||0),
-        deltaMode:Number(e.deltaMode||0)
-      });
-    }catch(_){}
-  },{passive:true,capture:true});
-
   window.STscript=function(command){
     return new Promise(function(resolve,reject){
       try{
