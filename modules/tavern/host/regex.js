@@ -7,7 +7,8 @@ import {
   saveSettingsDebounced,
   this_chid
 } from "../../../../../../../script.js";
-import {
+import * as nativeRegexEngine from "../../../../../../extensions/regex/engine.js";
+const {
   allowPresetScripts,
   allowScopedScripts,
   getCurrentPresetAPI,
@@ -17,11 +18,10 @@ import {
   isPresetScriptsAllowed,
   isScopedScriptsAllowed,
   regex_placement,
-  RegexProvider,
   saveScriptsByType,
   SCRIPT_TYPES,
   substitute_find_regex
-} from "../../../../../../extensions/regex/engine.js";
+} = nativeRegexEngine;
 function asRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -163,7 +163,7 @@ function buildGroup(scriptType, key, label) {
 }
 async function syncNativeRegexUiAfterWrite() {
   try {
-    RegexProvider.instance.clear();
+    nativeRegexEngine.RegexProvider?.instance?.clear?.();
     saveSettingsDebounced?.();
     const chatId = getCurrentChatId?.();
     const chatChangedEvent = event_types?.CHAT_CHANGED;

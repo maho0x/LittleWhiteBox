@@ -1213,9 +1213,11 @@ test('tavern RP display and edit save use native regex phases without slash comm
 
 test('tavern native regex writes refresh SillyTavern regex UI and cache', () => {
     const hostSource = readRepoFile('modules/tavern/host/regex.ts');
-    assert.match(hostSource, /RegexProvider/);
+    assert.doesNotMatch(hostSource, /RegexProvider,\s*[\r\n]/);
+    assert.doesNotMatch(hostSource, /import\s*\{[\s\S]*RegexProvider[\s\S]*\}\s*from/);
+    assert.match(hostSource, /import\s+\*\s+as\s+nativeRegexEngine/);
     assert.match(hostSource, /function syncNativeRegexUiAfterWrite/);
-    assert.match(hostSource, /RegexProvider\.instance\.clear\(\)/);
+    assert.match(hostSource, /nativeRegexEngine\.RegexProvider\?\./);
     assert.match(hostSource, /saveSettingsDebounced\?\.\(\)/);
     assert.match(hostSource, /event_types\?\.CHAT_CHANGED/);
     assert.match(hostSource, /await eventSource\.emit\(chatChangedEvent, chatId\)/);

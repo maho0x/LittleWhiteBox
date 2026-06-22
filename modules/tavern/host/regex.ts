@@ -6,7 +6,10 @@ import {
     saveSettingsDebounced,
     this_chid,
 } from '../../../../../../../script.js';
-import {
+import * as nativeRegexEngine from '../../../../../../extensions/regex/engine.js';
+import type { TavernApplyRegexItem, TavernApplyRegexResult, TavernRegexPlacementKey } from '../shared/regex';
+
+const {
     allowPresetScripts,
     allowScopedScripts,
     getCurrentPresetAPI,
@@ -16,12 +19,10 @@ import {
     isPresetScriptsAllowed,
     isScopedScriptsAllowed,
     regex_placement,
-    RegexProvider,
     saveScriptsByType,
     SCRIPT_TYPES,
     substitute_find_regex,
-} from '../../../../../../extensions/regex/engine.js';
-import type { TavernApplyRegexItem, TavernApplyRegexResult, TavernRegexPlacementKey } from '../shared/regex';
+} = nativeRegexEngine;
 
 interface TavernRegexScript {
     id?: string;
@@ -185,7 +186,7 @@ function buildGroup(scriptType: number, key: string, label: string): Record<stri
 
 async function syncNativeRegexUiAfterWrite(): Promise<void> {
     try {
-        RegexProvider.instance.clear();
+        nativeRegexEngine.RegexProvider?.instance?.clear?.();
         saveSettingsDebounced?.();
         const chatId = getCurrentChatId?.();
         const chatChangedEvent = event_types?.CHAT_CHANGED;
