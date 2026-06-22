@@ -489,6 +489,7 @@ test('tavern chat exposes local settings modals without leaving the session', ()
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.prompt-edit-button \{[\s\S]*display: grid;/);
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.preset-preview-panel \{[\s\S]*z-index: 1;[\s\S]*background: var\(--xb-settings-sheet-bg\);/);
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.prompt-detail-form \{[\s\S]*flex: 1 1 auto;[\s\S]*overflow: auto;[\s\S]*background: var\(--xb-settings-sheet-bg\);/);
+    assert.match(chatQuickSettingsCss, /@media \(max-width: 760px\) \{[\s\S]*\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.prompt-sequence-panel \{[\s\S]*overflow: hidden;[\s\S]*\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.prompt-manager-list \{[\s\S]*flex: 1 1 auto;[\s\S]*overflow: auto;[\s\S]*-webkit-overflow-scrolling: touch;[\s\S]*touch-action: pan-y;/);
     assert.match(chatQuickSettingsCss, /@media \(max-width: 760px\) \{[\s\S]*\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.preset-preview-panel\.prompt-editor-panel \{[\s\S]*position: fixed;[\s\S]*z-index: 180;[\s\S]*inset:[\s\S]*max\(10px, env\(safe-area-inset-top, 0px\)\)[\s\S]*overflow: hidden;[\s\S]*border-radius: 14px;/);
     assert.match(chatQuickSettingsCss, /@media \(max-width: 760px\) \{[\s\S]*\.settings-layout\.chat-quick-settings-layout\.is-chatPreset-workspace \.prompt-detail-form \{[\s\S]*flex: 1 1 auto;[\s\S]*overflow: auto;/);
     assert.match(chatQuickSettingsCss, /\.settings-layout\.chat-quick-settings-layout\.is-worldbooks-workspace \.worldbook-entry-editor \{[\s\S]*z-index: 1;[\s\S]*background: var\(--xb-settings-sheet-bg\);/);
@@ -921,7 +922,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(conversationPanelSource, /v-if="isRunning && (?:!?)liveAssistantVisible"/);
     assert.match(conversationPanelSource, /useTavernMediaQuery\('\(max-width: 760px\)'\)/);
     assert.match(conversationPanelSource, /@click="handleChatMainClick"/);
+    assert.match(conversationPanelSource, /function toggleMessageActionTray\(message: TavernMessageRecord\) \{[\s\S]*const key = messageKey\(message\);[\s\S]*activeMessageActionsKey\.value = activeMessageActionsKey\.value === key \? '' : key;/);
     assert.match(conversationPanelSource, /'is-action-tray-open': isMessageActionTrayOpen\(message\)/);
+    assert.match(conversationPanelSource, /@click\.stop="toggleMessageActionTray\(message\)"/);
     assert.match(conversationPanelSource, /class="bubble-identity"[\s\S]*class="bubble-nameplate"[\s\S]*class="message-floor-label"[\s\S]*class="bubble-time-tag"[\s\S]*v-if="!isEditingMessage\(message\)"[\s\S]*class="message-actions"/);
     assert.match(conversationPanelSource, /class="message-actions"[\s\S]*isDrawingMessage\(message\) \? '■' : '🎨'[\s\S]*<svg[\s\S]*viewBox="0 0 24 24"/);
     assert.doesNotMatch(conversationPanelSource, /actionFeedback\(message, 'copy'\)|copyMessage\(message\)/);
@@ -977,7 +980,8 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(contextSource, /currentAuthorNote: TavernReadable<XbTavernAuthorNote>/);
     assert.match(contextSource, /saveCurrentAuthorNote: TavernCommand<\[note: XbTavernAuthorNote\], Promise<void>>/);
     assert.match(appSource, /const currentAuthorNote = computed<XbTavernAuthorNote>\(\(\) => normalizeXbTavernAuthorNote\(selectedSession\.value\?\.contextSnapshot\?\.authorNote\)\)/);
-    assert.match(appSource, /const contextBase = session\.contextSnapshot \|\| \{\};/);
+    assert.match(appSource, /function buildSessionContextSnapshotBase\(session: TavernSessionRecord\): XbTavernContext \{[\s\S]*const snapshot = session\.contextSnapshot \|\| \{\};[\s\S]*characterKey = String\(snapshotCharacter\.characterKey \|\| session\.characterKey \|\| ''\)\.trim\(\);[\s\S]*name = String\(snapshotCharacter\.name \|\| session\.characterName \|\| ''\)\.trim\(\);/);
+    assert.match(appSource, /const contextBase = buildSessionContextSnapshotBase\(session\);/);
     assert.doesNotMatch(appSource, /const contextBase = selectedSessionId\.value === sessionId[\s\S]*context\.value/);
     assert.match(appSource, /async function saveCurrentAuthorNote\(note: XbTavernAuthorNote\)[\s\S]*authorNote: normalized/);
     assert.match(appSource, /async function saveCurrentAuthorNote\(note: XbTavernAuthorNote\)[\s\S]*contextSnapshot: nextContext/);

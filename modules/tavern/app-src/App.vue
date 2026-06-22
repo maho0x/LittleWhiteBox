@@ -1888,6 +1888,24 @@ function setSelectedSessionCharacterError(error: unknown, sessionId = selectedSe
     showComposeError(errorText, 8000);
 }
 
+function buildSessionContextSnapshotBase(session: TavernSessionRecord): XbTavernContext {
+    const snapshot = session.contextSnapshot || {};
+    const snapshotCharacter = snapshot.character && typeof snapshot.character === 'object' && !Array.isArray(snapshot.character)
+        ? snapshot.character
+        : {};
+    const characterKey = String(snapshotCharacter.characterKey || session.characterKey || '').trim();
+    const name = String(snapshotCharacter.name || session.characterName || '').trim();
+    if (!characterKey && !name) {return snapshot;}
+    return {
+        ...snapshot,
+        character: {
+            ...snapshotCharacter,
+            characterKey,
+            name,
+        },
+    };
+}
+
 async function saveCurrentAuthorNote(note: XbTavernAuthorNote): Promise<void> {
     const sessionId = String(selectedSessionId.value || '').trim();
     const session = selectedSession.value;
@@ -1895,7 +1913,7 @@ async function saveCurrentAuthorNote(note: XbTavernAuthorNote): Promise<void> {
         throw new Error('当前没有可保存的会话。');
     }
     const normalized = normalizeXbTavernAuthorNote(note);
-    const contextBase = session.contextSnapshot || {};
+    const contextBase = buildSessionContextSnapshotBase(session);
     const nextContext: XbTavernContext = {
         ...contextBase,
         authorNote: normalized,

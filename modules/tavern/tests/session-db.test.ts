@@ -2040,7 +2040,6 @@ test('StatePatch supports explicit active map switching without replacing other 
     assert.deepEqual(state.documents.map((document) => [document.docId, document.active]), [
         ['office', true],
         ['home', false],
-        ['main', false],
     ]);
     assert.equal((await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main'))?.revision, 0);
 
@@ -2086,6 +2085,40 @@ test('StatePatch supports explicit active map switching without replacing other 
     assert.equal(state.activeDocId, 'office');
     assert.equal(state.activeDocument?.docId, 'office');
     assert.deepEqual((await listTavernStructuredStatePatches({ sessionId: session.id, docId: 'office' })).map((patch) => patch.revision), [1]);
+});
+
+test('map state hides the uninitialized seed map when real scene maps exist', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Seed map hidden' });
+    const apartment = await executeTavernStateTool(session.id, 'MapPatch', {
+        docId: 'apartment',
+        ops: [
+            { op: 'meta', set: { name: '公寓' } },
+            { op: 'add', element: { id: 'room', at: [40, 40], rect: [180, 120], cat: 'room', text: '一楼公寓' } },
+        ],
+    });
+    assert.equal(apartment.ok, true);
+
+    const state = await getTavernMapStateForSession(session.id);
+    assert.equal(state.activeDocId, 'apartment');
+    assert.equal(state.activeDocument?.docId, 'apartment');
+    assert.deepEqual(state.documents.map((document) => [document.docId, document.title, document.active]), [
+        ['apartment', '公寓', true],
+    ]);
+    assert.equal((await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main'))?.revision, 0);
+
+    const activeSummary = await executeTavernStateTool(session.id, 'MapInspect', { mode: 'summary' });
+    assert.equal(activeSummary.ok, true);
+    assert.equal(activeSummary.docId, 'apartment');
+
+    const listed = await executeTavernStateTool(session.id, 'MapDocs', { docType: 'tavern.map' });
+    assert.equal(listed.ok, true);
+    assert.deepEqual((listed.documents || []).map((document) => [document.docId, document.active]), [
+        ['apartment', true],
+        ['main', false],
+    ]);
 });
 
 test('map active resolution falls back to main consistently across workspace, tools, and digests', async () => {

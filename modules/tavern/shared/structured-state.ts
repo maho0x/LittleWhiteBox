@@ -251,6 +251,20 @@ function normalizeMapDocIdOrThrow(value: unknown, error = 'state_doc_id_invalid'
     return text;
 }
 
+function isUninitializedSeedMapRecord(record: Pick<TavernStructuredStateDocumentRecord, 'docType' | 'docId' | 'revision' | 'data'> | null | undefined): boolean {
+    return record?.docType === MAP_DOC_TYPE
+        && record.docId === DEFAULT_DOC_ID
+        && Number(record.revision) === 0
+        && isUninitializedMapData(record.data);
+}
+
+function sortMapRecordsForDisplay<T extends Pick<TavernStructuredStateDocumentRecord, 'revision' | 'updatedAt'>>(records: T[]): T[] {
+    return [...records].sort((left, right) => (
+        (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0)
+        || (Number(right.revision) || 0) - (Number(left.revision) || 0)
+    ));
+}
+
 async function getActiveMapDocId(sessionId = ''): Promise<string> {
     const session = await tavernSessionsTable.get(String(sessionId || '').trim());
     return normalizeMapDocId(session?.state?.activeMapDocId || DEFAULT_DOC_ID);
@@ -297,8 +311,13 @@ async function resolveTavernActiveMapDocument(
         docType: MAP_DOC_TYPE,
         includeStale: options.includeStale === true,
     });
-    const record = documents.find((document) => document.docId === requestedDocId)
-        || documents.find((document) => document.docId === DEFAULT_DOC_ID)
+    const initializedDocuments = sortMapRecordsForDisplay(documents.filter((document) => !isUninitializedSeedMapRecord(document)));
+    const requestedRecord = documents.find((document) => document.docId === requestedDocId) || null;
+    const defaultRecord = documents.find((document) => document.docId === DEFAULT_DOC_ID) || null;
+    const record = requestedRecord && (!isUninitializedSeedMapRecord(requestedRecord) || !initializedDocuments.length)
+        ? requestedRecord
+        : (!isUninitializedSeedMapRecord(defaultRecord) ? defaultRecord : null)
+        || initializedDocuments[0]
         || documents[0]
         || null;
     return {
@@ -2654,7 +2673,10 @@ export async function getTavernMapStateForSession(sessionId = ''): Promise<{
     const resolved = await resolveTavernActiveMapDocument(sessionId);
     const activeDocId = resolved.activeDocId;
     const rows = resolved.documents;
-    const documents = rows
+    const visibleRows = rows.some((record) => !isUninitializedSeedMapRecord(record))
+        ? rows.filter((record) => !isUninitializedSeedMapRecord(record))
+        : rows;
+    const documents = visibleRows
         .map((record) => {
             const normalized = normalizeMapDocumentFromRecord(record);
             return {

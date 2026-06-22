@@ -193,9 +193,10 @@ function isMessageActionTrayOpen(message: TavernMessageRecord) {
     return activeMessageActionsKey.value === messageKey(message);
 }
 
-function showMessageActionTray(message: TavernMessageRecord) {
+function toggleMessageActionTray(message: TavernMessageRecord) {
     if (!isMobileActionTrayViewport.value || isEditingMessage(message)) {return;}
-    activeMessageActionsKey.value = messageKey(message);
+    const key = messageKey(message);
+    activeMessageActionsKey.value = activeMessageActionsKey.value === key ? '' : key;
 }
 
 function clearMessageActionTray() {
@@ -337,7 +338,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
               { 'is-error': message.error },
               { 'is-action-tray-open': isMessageActionTrayOpen(message) },
             ]"
-            @click.stop="showMessageActionTray(message)"
+            @click.stop="toggleMessageActionTray(message)"
           >
             <div class="bubble-meta">
               <div class="bubble-identity">

@@ -19,7 +19,7 @@ test('tavern contract runtime resolves module capabilities without leaking reser
     assert.equal(memoryOnly.includeMemoryFiles, true);
     assert.equal(memoryOnly.includeStructuredStates, false);
     assert.equal(memoryOnly.includeActionChecks, true);
-    assert.equal(memoryOnly.includeRandomEncounters, false);
+    assert.equal(memoryOnly.includeRandomEncounters, true);
     assert.equal(memoryOnly.hasAutomaticManagerWork, true);
     assert.deepEqual(memoryOnly.managerPromptOptions, {
         includeMemory: true,
@@ -34,7 +34,7 @@ test('tavern contract runtime resolves module capabilities without leaking reser
     assert.equal(mapOnly.includeMemoryFiles, false);
     assert.equal(mapOnly.includeStructuredStates, true);
     assert.equal(mapOnly.includeActionChecks, true);
-    assert.equal(mapOnly.includeRandomEncounters, false);
+    assert.equal(mapOnly.includeRandomEncounters, true);
     assert.equal(mapOnly.hasAutomaticManagerWork, true);
     assert.deepEqual(mapOnly.managerPromptOptions, {
         includeMemory: false,
@@ -49,7 +49,7 @@ test('tavern contract runtime resolves module capabilities without leaking reser
     assert.equal(disabled.includeMemoryFiles, false);
     assert.equal(disabled.includeStructuredStates, false);
     assert.equal(disabled.includeActionChecks, true);
-    assert.equal(disabled.includeRandomEncounters, false);
+    assert.equal(disabled.includeRandomEncounters, true);
     assert.equal(disabled.hasAutomaticManagerWork, false);
     assert.deepEqual(disabled.managerPromptOptions, {
         includeMemory: false,

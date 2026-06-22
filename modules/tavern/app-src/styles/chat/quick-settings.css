@@ -240,12 +240,16 @@
 
     .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-sequence-panel {
         max-height: none;
-        overflow: visible;
+        overflow: hidden;
         border-right: 0;
     }
 
     .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-manager-list {
-        overflow: visible;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
         padding: 0 12px 8px;
     }
 

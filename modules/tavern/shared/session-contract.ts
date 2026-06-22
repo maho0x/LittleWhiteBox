@@ -56,7 +56,7 @@ export const DEFAULT_TAVERN_SESSION_CONTRACT: TavernSessionContract = {
     memoryArchiving: true,
     cartographyEngine: true,
     actionChecks: true,
-    randomEncounters: false,
+    randomEncounters: true,
     questOrchestration: false,
 };
 
