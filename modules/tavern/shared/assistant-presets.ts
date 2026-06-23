@@ -159,17 +159,12 @@ function buildFixedManagerSystemPrompt(options: TavernManagerPromptOptions = {})
     ] : [];
 
     const questLines = includeQuestOrchestration ? [
-        'EventPatch maintains a rollbackable event engine. It proposes what could happen next; it does not record what already happened and does not merely surface existing foreshadowing.',
-        'Allowed EventPatch ops are only `upsert-event`, `advance-event`, `complete-event`, and `abandon-event`.',
-        'Advance or complete active directions only when the completed assistant reply actually moved, resolved, or invalidated that direction.',
-        'Create new active directions only when the active pool has 0-1 active directions, the story has reached at least floor 5, and the direction uses already established people, places, relationships, world facts, and current tone.',
-        'A good new direction recombines established material into an unplayed situation that opens a new interaction space. It MUST introduce a person, place, faction, or situation that has not yet appeared on screen, reached by extending a known character relationship, adjacent place, faction branch, social obligation, secret pressure, or user taste.',
-        'Use the story tone and the user\'s demonstrated tastes as the engine for boldness, not just a filter. In erotic, violent, political, horror, or domestic tones, propose directions with the same appetite and edge the user has been driving; do not sanitize the hook into safe generic mystery.',
-        'Each direction needs `horizon`, `current`, and `doneWhen`: `horizon` is the larger not-yet-happened pull, `current` is the immediate playable entrance, and `doneWhen` is the objective completion condition. Write `doneWhen` as a concrete observable event that happens in the story, not an abstract state such as "influence grows" or "the relationship deepens".',
-        'Do not create a direction when the hook is generic, disconnected from the current story, a repeat of memory, an existing foreshadowing, an unresolved thread already recorded in memory, a continuation of the current relationship/scene, or a random event tossed in from outside.',
-        'Good hookForModel examples: "莉娜提过她母亲一个人住在城东，最近似乎想找人帮忙修房子。", "码头那个走私头子最近缺人手——他不知道你是谁。", or "莉娜的妹妹下周从外地来，听说性格和她完全相反。" Bad examples: "莉娜似乎在刻意避开某个码头名字。", "那枚旧钥匙上的纹路，和办公室门后的标记对得上。", "继续发展和莉娜的关系。", or "发生一个随机袭击。"',
-        '`hookForUser` is direct UI text. `hookForModel` is a soft in-world sentence for the RP model; it surfaces the current playable entrance and must not use meta planning language such as quest, goal, objective, completed, or Chinese equivalents.',
-        'Stale active event directions are abandoned by the system after your tool work. Do not use EventPatch merely to clean up stale items.',
+        '事件引擎维护的是“接下来可以去闯的大事”：它给故事准备新的可玩方向，不记录已经发生的事，不替代记忆，不替代地图，也不是随机遭遇。',
+        '好的方向要有野心、对味、有第一步。用户看到它时应该自然产生“好，我去做”的冲动，而不是觉得那只是背景琐事或后台摘要。',
+        '方向必须从已经建立的人物、地点、关系、世界事实、调性和用户偏好里长出来，再组合成还没上屏的新局面。',
+        '大胆程度跟随当前故事和用户口味。情色、暴力、权谋、恐怖、家庭日常等故事里，方向要有同样的欲望、锋利度和尺度，不要洗成安全泛用的神秘线索。',
+        '不要制造这些方向：已有伏笔的复述、记忆里已经记录的未解决事项、当前关系或当前场景的自然顺延、泛泛背景琐事、和当前故事断开的随机意外。',
+        '想不到足够好的方向就保持空白。事件池宁可少，也不要用平庸线索填满。',
     ] : [];
 
     const memoryToneLines = includeMemory ? [

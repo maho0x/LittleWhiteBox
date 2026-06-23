@@ -277,7 +277,7 @@ function buildAutoManagerUserPrompt(input: {
         step += 1;
     }
     if (allowQuest) {
-        requirements.push(`${step}. Maintain the event pool with EventInspect/EventPatch only when useful: advance or complete active directions that the reply actually addressed; after floor ${TAVERN_TASK_MIN_GENERATION_FLOOR}, create fresh active directions only when the active pool has 0-1 items. A fresh direction must recombine established material into a not-yet-played person, place, faction, or situation, with a larger horizon, an immediate current entrance, and a doneWhen completion condition written as a concrete observable event in the story, not an abstract state. Use the user’s demonstrated tastes as the engine for boldness; do not use EventPatch for old facts, existing foreshadowing, obvious continuations, or generic random events.`);
+        requirements.push(`${step}. 事件：先看当前方向池；信息不足时再用 EventInspect。如果上一条回复真的推动或了结了某个活跃方向，advance 或 complete 它。如果活跃方向只剩 0-1 个且已过第 ${TAVERN_TASK_MIN_GENERATION_FLOOR} 楼，并且你想到一个有野心、对味的新方向，就 upsert 一个新的。想不到好的就别造；过期方向系统自动清，不用手动删。什么算好方向按事件引擎规则，字段按工具说明。`);
         step += 1;
     }
     requirements.push(`${step}. Close with a short result: say what you wrote, skipped, or left pending.`);

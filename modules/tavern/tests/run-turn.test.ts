@@ -375,21 +375,19 @@ test('xb tavern run turn sends only the latest quest hook first to ST-native mem
     await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'old-hook',
-        fingerprint: 'old-hook',
+        title: '旧线索',
         horizon: '旧线索远景',
         current: '旧线索当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '旧线索说明。',
         hookForModel: '旧码头的名字还挂在雨里。',
     }, { sourceAssistantOrder: 5 });
     await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'latest-hook',
-        fingerprint: 'latest-hook',
+        title: '最新线',
         horizon: '最新线索远景',
         current: '最新线索当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '最新线索说明。',
         hookForModel: '莉娜听见旧码头时短暂停顿。',
     }, { sourceAssistantOrder: 7 });
     let memoryPrompt = '';
@@ -489,11 +487,10 @@ test('xb tavern run turn continues and records diagnostics when manager settle t
                     arguments: {
                         op: 'upsert-event',
                         eventId: 'late-task',
-                        fingerprint: 'late-task',
+                        title: '超时线',
                         horizon: '超时后台远景',
                         current: '超时后台入口',
                         doneWhen: '角色在故事中明确说出超时后台结果。',
-                        hookForUser: '超时后台线索。',
                         hookForModel: '超时后台线索浮现。',
                     },
                 }, {
@@ -1905,16 +1902,12 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
         includeCartography: false,
         includeQuestOrchestration: true,
     });
-    assert.match(questOnly, /rollbackable event engine/i);
-    assert.match(questOnly, /not merely surface existing foreshadowing/i);
-    assert.match(questOnly, /MUST introduce a person, place, faction, or situation that has not yet appeared on screen/i);
-    assert.match(questOnly, /user's demonstrated tastes as the engine for boldness/i);
-    assert.match(questOnly, /`horizon` is the larger not-yet-happened pull/i);
-    assert.match(questOnly, /`doneWhen` is the objective completion condition/i);
-    assert.match(questOnly, /concrete observable event that happens in the story/i);
-    assert.match(questOnly, /not an abstract state/i);
-    assert.match(questOnly, /莉娜提过她母亲一个人住在城东/i);
-    assert.match(questOnly, /Bad examples: "莉娜似乎在刻意避开某个码头名字。"/i);
+    assert.match(questOnly, /事件引擎/);
+    assert.match(questOnly, /有野心、对味、有第一步/);
+    assert.match(questOnly, /好，我去做/);
+    assert.match(questOnly, /当前故事和用户口味/);
+    assert.match(questOnly, /想不到足够好的方向就保持空白/);
+    assert.doesNotMatch(questOnly, /"op":"upsert-event"|hookForModel|doneWhen.*objective completion condition/);
     assert.doesNotMatch(questOnly, /MemoryWrite/);
     assert.doesNotMatch(questOnly, /## Structured State/);
     assert.doesNotMatch(questOnly, /## Map Records/);

@@ -256,10 +256,10 @@ export interface TavernTaskRecord {
     id: string;
     sessionId: string;
     status: TavernTaskStatus;
+    title: string;
     horizon: string;
     current: string;
     doneWhen: string;
-    hookForUser: string;
     hookForModel: string;
     fingerprint: string;
     createdOrder: number;

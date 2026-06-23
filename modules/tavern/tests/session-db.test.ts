@@ -1295,6 +1295,16 @@ test('loose JSON repair knows tavern manager tool arguments', () => {
     assert.equal(repairedGrep.path, 'memory/state.md');
     assert.equal(repairedGrep.useRegex, false);
     assert.equal(repairedGrep.contextLines, 1);
+
+    const repairedEventPatch = JSON.parse(repairLooseToolArguments(
+        '{op:"upsert-event", title:"码头名", horizon:"弄清码头名字", current:"找到码头名字", doneWhen:"角色当场说出答案。", hookForModel:"码头名字在对话里轻轻擦过。"}',
+        'EventPatch',
+    ));
+    assert.equal(repairedEventPatch.title, '码头名');
+    assert.equal(repairedEventPatch.horizon, '弄清码头名字');
+    assert.equal(repairedEventPatch.current, '找到码头名字');
+    assert.equal(repairedEventPatch.doneWhen, '角色当场说出答案。');
+    assert.equal(repairedEventPatch.hookForModel, '码头名字在对话里轻轻擦过。');
 });
 
 test('Tavern Grep accepts ebook-style query and scope aliases', async () => {
@@ -2356,17 +2366,17 @@ test('State tools are in the unified manager tool schema', () => {
         eventPatch?.function.description || '',
         JSON.stringify(eventPatch?.function.parameters || {}),
     ].join('\n');
-    assert.match(eventPatch?.function.description || '', /event direction engine/i);
-    assert.match(eventPatch?.function.description || '', /Do not use it to surface existing foreshadowing/i);
-    assert.match(eventPatch?.function.description || '', /unplayed person, place, faction, or situation/i);
-    assert.match(eventPatch?.function.description || '', /user's demonstrated tastes as the engine for boldness/i);
-    assert.match(eventPatch?.function.description || '', /`horizon` is the larger not-yet-happened pull/i);
-    assert.match(eventPatch?.function.description || '', /`doneWhen` is the objective completion condition/i);
-    assert.match(eventPatch?.function.description || '', /concrete observable event that happens in the story/i);
-    assert.match(eventPatch?.function.description || '', /not an abstract state/i);
+    assert.match(eventPatch?.function.description || '', /Allowed ops: upsert-event, advance-event, complete-event, abandon-event/);
+    assert.match(eventPatch?.function.description || '', /title, horizon, current, doneWhen, and hookForModel/);
+    assert.match(eventPatch?.function.description || '', /title: short single-line UI title\. Aim for 2-8 characters; hard limit 12/);
+    assert.match(eventPatch?.function.description || '', /hookForModel: one soft in-world sentence/);
+    assert.match(eventPatch?.function.description || '', /"op":"upsert-event"/);
+    assert.match(eventPatch?.function.description || '', /"op":"advance-event"/);
+    assert.match(eventPatch?.function.description || '', /"op":"complete-event"/);
     assert.match(eventPatchText, /upsert-event/);
     assert.match(eventPatchText, /eventId/);
-    assert.doesNotMatch(eventPatchText, /taskId|upsert-task|advance-task|complete-task|abandon-task/);
+    assert.match(eventPatchText, /title/);
+    assert.doesNotMatch(eventPatchText, /hookForUser|fingerprint|taskId|upsert-task|advance-task|complete-task|abandon-task/);
 });
 
 test('EventPatch maintains active, completed, and abandoned event directions', async () => {
@@ -2377,11 +2387,10 @@ test('EventPatch maintains active, completed, and abandoned event directions', a
     const created = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'dock-name',
-        fingerprint: 'lina:dock-name',
+        title: '莉娜码头',
         horizon: '弄清莉娜避开的码头名字',
         current: '让码头名字自然浮出水面',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '莉娜一直绕开码头的名字。',
         hookForModel: '莉娜似乎在刻意避开某个码头名字。',
     }, { sourceAssistantOrder: 5 });
     assert.equal(created.ok, true);
@@ -2394,7 +2403,6 @@ test('EventPatch maintains active, completed, and abandoned event directions', a
         eventId: 'dock-name',
         current: '找到知道旧码头名字的人',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '旧码头名字可能藏在熟人嘴里。',
         hookForModel: '有人提到旧码头时，莉娜的手指短暂收紧。',
     }, { sourceAssistantOrder: 7 });
     assert.equal(advanced.ok, true);
@@ -2412,11 +2420,10 @@ test('EventPatch maintains active, completed, and abandoned event directions', a
     await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'repeat',
-        fingerprint: 'repeat:fingerprint',
+        title: '重复线',
         horizon: '重复方向',
         current: '重复方向',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '重复方向。',
         hookForModel: '重复方向仍在阴影里。',
     }, { sourceAssistantOrder: 10 });
     const abandoned = await executeTavernTaskTool(session.id, 'EventPatch', {
@@ -2427,15 +2434,102 @@ test('EventPatch maintains active, completed, and abandoned event directions', a
     const recreated = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'repeat-2',
-        fingerprint: 'repeat:fingerprint',
+        title: '重复线',
         horizon: '重复方向',
         current: '重复方向',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '重复方向。',
         hookForModel: '重复方向仍在阴影里。',
     }, { sourceAssistantOrder: 12 });
     assert.equal(recreated.ok, false);
     assert.equal(recreated.error, 'task_fingerprint_abandoned');
+
+    const duplicateSession = await createTavernSession({ title: 'Duplicate active event' });
+    const firstUpsert = await executeTavernTaskTool(duplicateSession.id, 'EventPatch', {
+        op: 'upsert-event',
+        title: '城东母亲',
+        horizon: '莉娜的家庭压力把你们牵进城东旧屋。',
+        current: '莉娜提到母亲一个人住在城东，最近需要人修房子。',
+        doneWhen: '角色亲自到达城东旧屋并见到莉娜的母亲。',
+        hookForModel: '莉娜提过她母亲一个人住在城东，最近似乎想找人帮忙修房子。',
+    }, { sourceAssistantOrder: 13 });
+    const secondUpsert = await executeTavernTaskTool(duplicateSession.id, 'EventPatch', {
+        op: 'upsert-event',
+        title: '城东母亲',
+        horizon: '莉娜的家庭压力把你们牵进城东旧屋。',
+        current: '莉娜提到母亲一个人住在城东，最近需要人修房子。',
+        doneWhen: '角色亲自到达城东旧屋并见到莉娜的母亲。',
+        hookForModel: '莉娜提过她母亲一个人住在城东，最近似乎想找人帮忙修房子。',
+    }, { sourceAssistantOrder: 14 });
+    const duplicateTasks = await listTavernTasks(duplicateSession.id);
+    assert.equal(firstUpsert.ok, true);
+    assert.equal(secondUpsert.ok, true);
+    assert.equal(secondUpsert.eventId, firstUpsert.eventId);
+    assert.equal(duplicateTasks.length, 1);
+    assert.equal(duplicateTasks[0]?.updatedOrder, 14);
+
+    const completedSession = await createTavernSession({ title: 'Duplicate completed event' });
+    const completedCreated = await executeTavernTaskTool(completedSession.id, 'EventPatch', {
+        op: 'upsert-event',
+        title: '码头名',
+        horizon: '弄清码头名字',
+        current: '找到码头名字',
+        doneWhen: '角色当场说出答案。',
+        hookForModel: '码头名字在对话里轻轻擦过。',
+    }, { sourceAssistantOrder: 15 });
+    assert.equal(completedCreated.ok, true);
+    const completedOnce = await executeTavernTaskTool(completedSession.id, 'EventPatch', {
+        op: 'complete-event',
+        eventId: completedCreated.eventId,
+    }, { sourceAssistantOrder: 16 });
+    assert.equal(completedOnce.ok, true);
+    const completedRecreated = await executeTavernTaskTool(completedSession.id, 'EventPatch', {
+        op: 'upsert-event',
+        title: '码头名',
+        horizon: '弄清码头名字',
+        current: '找到码头名字',
+        doneWhen: '角色当场说出答案。',
+        hookForModel: '码头名字在对话里轻轻擦过。',
+    }, { sourceAssistantOrder: 17 });
+    const completedTasks = await listTavernTasks(completedSession.id, { includeCompleted: true });
+    assert.equal(completedRecreated.ok, false);
+    assert.equal(completedRecreated.error, 'task_fingerprint_completed');
+    assert.deepEqual(completedTasks.map((task) => task.status), ['completed']);
+
+    const stableSession = await createTavernSession({ title: 'Stable abandoned event' });
+    const stableCreated = await executeTavernTaskTool(stableSession.id, 'EventPatch', {
+        op: 'upsert-event',
+        title: '旧屋线',
+        horizon: '旧屋背后的家庭压力浮出水面。',
+        current: '莉娜提到母亲一个人住在城东。',
+        doneWhen: '角色见到莉娜的母亲。',
+        hookForModel: '莉娜提过她母亲一个人住在城东。',
+    }, { sourceAssistantOrder: 15 });
+    assert.equal(stableCreated.ok, true);
+    const stableAdvanced = await executeTavernTaskTool(stableSession.id, 'EventPatch', {
+        op: 'advance-event',
+        eventId: stableCreated.eventId,
+        title: '门锁线',
+        horizon: '旧屋背后的家庭压力牵出更具体的阻碍。',
+        current: '旧屋门锁像是被人刚换过。',
+        doneWhen: '角色查清是谁换了旧屋门锁。',
+        hookForModel: '莉娜母亲家的门锁看起来像是最近才被人换过。',
+    }, { sourceAssistantOrder: 16 });
+    assert.equal(stableAdvanced.ok, true);
+    const stableAbandoned = await executeTavernTaskTool(stableSession.id, 'EventPatch', {
+        op: 'abandon-event',
+        eventId: stableCreated.eventId,
+    }, { sourceAssistantOrder: 17 });
+    assert.equal(stableAbandoned.ok, true);
+    const stableRecreated = await executeTavernTaskTool(stableSession.id, 'EventPatch', {
+        op: 'upsert-event',
+        title: '旧屋线',
+        horizon: '旧屋背后的家庭压力浮出水面。',
+        current: '莉娜提到母亲一个人住在城东。',
+        doneWhen: '角色见到莉娜的母亲。',
+        hookForModel: '莉娜提过她母亲一个人住在城东。',
+    }, { sourceAssistantOrder: 18 });
+    assert.equal(stableRecreated.ok, false);
+    assert.equal(stableRecreated.error, 'task_fingerprint_abandoned');
 });
 
 test('EventPatch event ids are scoped by session', async () => {
@@ -2447,20 +2541,19 @@ test('EventPatch event ids are scoped by session', async () => {
     const taskArgs = {
         op: 'upsert-event',
         eventId: 'dock-name',
+        title: '码头名',
         horizon: '弄清码头名字',
         current: '找到码头名字',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '码头名字仍然含糊。',
         hookForModel: '码头名字在对话里轻轻擦过。',
     };
 
     const leftCreate = await executeTavernTaskTool(left.id, 'EventPatch', {
         ...taskArgs,
-        fingerprint: 'left:dock',
     }, { sourceAssistantOrder: 5 });
     const rightCreate = await executeTavernTaskTool(right.id, 'EventPatch', {
         ...taskArgs,
-        fingerprint: 'right:dock',
+        title: '右侧码头',
         current: '追问右侧会话的码头名字',
     }, { sourceAssistantOrder: 5 });
 
@@ -2478,24 +2571,83 @@ test('EventPatch enforces auto generation floor, pool cap, and hook wording guar
     const early = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'too-early',
-        fingerprint: 'too-early',
+        title: '过早方向',
         horizon: '过早远景',
         current: '过早当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '过早说明。',
         hookForModel: '窗外的雾还没有散。',
     }, { caller: 'auto', sourceAssistantOrder: 4 });
     assert.equal(early.ok, false);
     assert.equal(early.error, 'task_floor_too_early');
 
+    const missingTitle = await executeTavernTaskTool(session.id, 'EventPatch', {
+        op: 'upsert-event',
+        eventId: 'missing-title',
+        horizon: '缺标题远景',
+        current: '缺标题当前',
+        doneWhen: '角色当场说出答案。',
+        hookForModel: '门外有人轻轻敲了两下。',
+    }, { caller: 'chat', sourceAssistantOrder: 5 });
+    assert.equal(missingTitle.ok, false);
+    assert.equal(missingTitle.error, 'task_fields_required');
+
+    const shortTitle = await executeTavernTaskTool(session.id, 'EventPatch', {
+        op: 'upsert-event',
+        eventId: 'short-title',
+        title: '短',
+        horizon: '短标题远景',
+        current: '短标题当前',
+        doneWhen: '角色当场说出答案。',
+        hookForModel: '门外的人把一封信塞进缝里。',
+    }, { caller: 'chat', sourceAssistantOrder: 5 });
+    assert.equal(shortTitle.ok, false);
+    assert.equal(shortTitle.error, 'task_title_too_short');
+
+    const naturalTitleSession = await createTavernSession({ title: 'Natural event title length' });
+    const naturalLongTitle = await executeTavernTaskTool(naturalTitleSession.id, 'EventPatch', {
+        op: 'upsert-event',
+        eventId: 'natural-long-title',
+        title: '城东旧屋门锁真相',
+        horizon: '自然长标题远景',
+        current: '自然长标题当前',
+        doneWhen: '角色当场说出答案。',
+        hookForModel: '门外的人把旧钥匙放在窗台上。',
+    }, { caller: 'chat', sourceAssistantOrder: 5 });
+    assert.equal(naturalLongTitle.ok, true);
+    assert.equal((await listTavernTasks(naturalTitleSession.id)).find((task) => task.id === 'natural-long-title')?.title, '城东旧屋门锁真相');
+
+    const longTitle = await executeTavernTaskTool(session.id, 'EventPatch', {
+        op: 'upsert-event',
+        eventId: 'long-title',
+        title: '这个标题确实已经明显太长了',
+        horizon: '长标题远景',
+        current: '长标题当前',
+        doneWhen: '角色当场说出答案。',
+        hookForModel: '门外的人把第二封信压在花盆下。',
+    }, { caller: 'chat', sourceAssistantOrder: 5 });
+    assert.equal(longTitle.ok, false);
+    assert.equal(longTitle.error, 'task_title_too_long');
+
+    const titleSession = await createTavernSession({ title: 'Event title normalization' });
+    const multilineTitle = await executeTavernTaskTool(titleSession.id, 'EventPatch', {
+        op: 'upsert-event',
+        eventId: 'multiline-title',
+        title: '城东\n母亲',
+        horizon: '换行标题远景',
+        current: '换行标题当前',
+        doneWhen: '角色当场说出答案。',
+        hookForModel: '门外的人把第三封信放在窗台上。',
+    }, { caller: 'chat', sourceAssistantOrder: 5 });
+    assert.equal(multilineTitle.ok, true);
+    assert.equal((await listTavernTasks(titleSession.id)).find((task) => task.id === 'multiline-title')?.title, '城东 母亲');
+
     const metaHook = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'meta-hook',
-        fingerprint: 'meta-hook',
+        title: '元词方向',
         horizon: '元词远景',
         current: '元词当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '元词说明。',
         hookForModel: '这是下一个任务目标。',
     }, { caller: 'auto', sourceAssistantOrder: 5 });
     assert.equal(metaHook.ok, false);
@@ -2505,23 +2657,25 @@ test('EventPatch enforces auto generation floor, pool cap, and hook wording guar
         const created = await executeTavernTaskTool(session.id, 'EventPatch', {
             op: 'upsert-event',
             eventId: `pool-${index}`,
-            fingerprint: `pool-${index}`,
+            title: `池子${index}`,
             horizon: `池子远景 ${index}`,
             current: `池子当前 ${index}`,
             doneWhen: '角色当场说出答案。',
-            hookForUser: `池子说明 ${index}。`,
             hookForModel: `第 ${index} 条暗线在门后轻轻晃动。`,
         }, { caller: 'auto', sourceAssistantOrder: 5 + index });
         assert.equal(created.ok, true);
     }
+    const [firstStored] = await listTavernTasks(session.id);
+    assert.equal(typeof firstStored?.fingerprint, 'string');
+    assert.notEqual(firstStored?.fingerprint, '');
+
     const autoBlocked = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'pool-3-auto',
-        fingerprint: 'pool-3-auto',
+        title: '第三条',
         horizon: '第三条远景',
         current: '第三条当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '第三条说明。',
         hookForModel: '第三条暗线在远处亮了一下。',
     }, { caller: 'auto', sourceAssistantOrder: 8 });
     assert.equal(autoBlocked.ok, false);
@@ -2530,11 +2684,10 @@ test('EventPatch enforces auto generation floor, pool cap, and hook wording guar
     const manual = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'manual-extra',
-        fingerprint: 'manual-extra',
+        title: '手动线',
         horizon: '手动远景',
         current: '手动当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '手动说明。',
         hookForModel: '额外暗线贴着墙根延伸。',
     }, { caller: 'chat', sourceAssistantOrder: 10 });
     assert.equal(manual.ok, true);
@@ -2542,11 +2695,10 @@ test('EventPatch enforces auto generation floor, pool cap, and hook wording guar
     const overflow = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'pool-4',
-        fingerprint: 'pool-4',
+        title: '第四条',
         horizon: '第四条远景',
         current: '第四条当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '第四条说明。',
         hookForModel: '第四条暗线在远处亮了一下。',
     }, { caller: 'chat', sourceAssistantOrder: 10 });
     assert.equal(overflow.ok, false);
@@ -2569,22 +2721,20 @@ test('event snapshots restore covering event pool and trim future snapshots', as
     await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'first',
-        fingerprint: 'first',
+        title: '第一线',
         horizon: '第一条远景',
         current: '第一条当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '第一条说明。',
         hookForModel: '第一条软句。',
     }, { sourceAssistantOrder: 5 });
     await saveTavernTaskSnapshot(session.id, 5);
     await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'future',
-        fingerprint: 'future',
+        title: '未来线',
         horizon: '未来远景',
         current: '未来当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '未来说明。',
         hookForModel: '未来软句。',
     }, { sourceAssistantOrder: 7 });
     await executeTavernTaskTool(session.id, 'EventPatch', {
@@ -2613,11 +2763,10 @@ test('accepted state snapshot saves memory and tasks on the same floor', async (
     await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'same-floor',
-        fingerprint: 'same-floor',
+        title: '同楼线',
         horizon: '同楼层远景',
         current: '同楼层当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '同楼层说明。',
         hookForModel: '同楼层软句。',
     }, { sourceAssistantOrder: 1 });
 
@@ -2666,11 +2815,10 @@ test('manager event snapshot rolls back failed event writes', async () => {
                         arguments: {
                             op: 'upsert-event',
                             eventId: 'rollback-task',
-                            fingerprint: 'rollback-task',
+                            title: '回滚线',
                             horizon: '回滚远景',
                             current: '回滚当前',
                             doneWhen: '角色当场说出答案。',
-                            hookForUser: '回滚说明。',
                             hookForModel: '回滚软句。',
                         },
                     }],
@@ -2711,11 +2859,10 @@ test('manager rollback keeps memory conflict audit when event rollback also succ
     const taskWrite = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'rollback-audit-task',
-        fingerprint: 'rollback-audit-task',
+        title: '审计线',
         horizon: '审计远景',
         current: '审计当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '审计说明。',
         hookForModel: '审计软句。',
     }, { caller: 'auto', managerRunId: run.id, sourceAssistantOrder: 5 });
     assert.equal(taskWrite.ok, true);
@@ -2749,11 +2896,10 @@ test('manager rollback marks event-only conflicts as rolled back with audit erro
     const taskWrite = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'task-conflict',
-        fingerprint: 'task-conflict',
+        title: '冲突线',
         horizon: '冲突远景',
         current: '冲突当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '冲突说明。',
         hookForModel: '冲突软句。',
     }, { caller: 'auto', managerRunId: run.id, sourceAssistantOrder: 5 });
     assert.equal(taskWrite.ok, true);
@@ -2764,7 +2910,6 @@ test('manager rollback marks event-only conflicts as rolled back with audit erro
         current: '用户后续手动改过的当前',
         horizon: '冲突远景',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '冲突说明。',
         hookForModel: '冲突软句后来变了。',
     }, { caller: 'chat', sourceAssistantOrder: 6 });
     assert.equal(userEdit.ok, true);
@@ -2815,11 +2960,10 @@ test('manager EventPatch writes are counted in run summaries', async () => {
                         arguments: {
                             op: 'upsert-event',
                             eventId: 'counted-task',
-                            fingerprint: 'counted-task',
+                            title: '统计线',
                             horizon: '统计远景',
                             current: '统计当前',
                             doneWhen: '角色当场说出答案。',
-                            hookForUser: '统计说明。',
                             hookForModel: '统计软句。',
                         },
                     }],
@@ -2845,11 +2989,10 @@ test('manager stale event sweep is counted in run summaries', async () => {
     await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'stale-by-manager',
-        fingerprint: 'stale-by-manager',
+        title: '过期线',
         horizon: '过期远景',
         current: '过期当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '过期说明。',
         hookForModel: '过期软句。',
     }, { sourceAssistantOrder: 5 });
     for (let index = 0; index < 7; index += 1) {
@@ -2895,11 +3038,10 @@ test('stale active events are abandoned internally with fingerprints', async () 
     await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'stale',
-        fingerprint: 'stale-fingerprint',
+        title: '过期线',
         horizon: '过期远景',
         current: '过期当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '过期说明。',
         hookForModel: '过期软句。',
     }, { sourceAssistantOrder: 5 });
     const abandoned = await abandonStaleTavernTasks(session.id, 12, { threshold: 3 });
@@ -2909,11 +3051,10 @@ test('stale active events are abandoned internally with fingerprints', async () 
     const recreate = await executeTavernTaskTool(session.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'stale-again',
-        fingerprint: 'stale-fingerprint',
+        title: '过期线',
         horizon: '过期远景',
         current: '过期当前',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '过期说明。',
         hookForModel: '过期软句。',
     }, { sourceAssistantOrder: 13 });
     assert.equal(recreate.error, 'task_fingerprint_abandoned');
@@ -3047,11 +3188,10 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
     await executeTavernTaskTool(questSession.id, 'EventPatch', {
         op: 'upsert-event',
         eventId: 'existing-hook',
-        fingerprint: 'existing-hook',
+        title: '旧码头',
         horizon: '弄清旧码头',
         current: '让旧码头名字自然浮出',
         doneWhen: '角色当场说出答案。',
-        hookForUser: '莉娜绕开旧码头名字。',
         hookForModel: '莉娜听见旧码头时短暂停顿。',
     }, { sourceAssistantOrder: 5 });
     const questUser = await appendTavernMessage(questSession.id, { role: 'user', content: '继续。' });
@@ -3075,7 +3215,10 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
     });
     assert.match(questPrompt, /\[Current Event Pool\]/);
     assert.match(questPrompt, /id: existing-hook/);
+    assert.match(questPrompt, /title: 旧码头/);
+    assert.match(questPrompt, /last advanced floor: 5/);
     assert.match(questPrompt, /Active count: 1\/3/);
+    assert.doesNotMatch(questPrompt, /user hook|fingerprint|莉娜绕开旧码头名字/);
     assert.doesNotMatch(questPrompt, /\[Resident Memory Files\]/);
 });
 
@@ -3216,11 +3359,10 @@ test('tavern auto manager denies unauthorized EventPatch without side effects', 
                     name: 'EventPatch',
                     arguments: {
                         op: 'upsert-event',
-                        fingerprint: 'blocked-hook',
+                        title: '城东事',
                         horizon: '某个方向',
                         current: '某个入口',
                         doneWhen: '某件事发生',
-                        hookForUser: 'UI 提示',
                         hookForModel: '莉娜提过她母亲一个人住在城东。',
                     },
                 }],

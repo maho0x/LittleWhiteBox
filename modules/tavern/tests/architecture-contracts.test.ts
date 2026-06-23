@@ -72,6 +72,24 @@ test('tavern module is lazy-loaded so host import failures stay isolated', () =>
     assert.match(indexSource, /await openTavernSafely\(\);/);
 });
 
+test('tavern event panel renders title-based directions without user hooks', () => {
+    const eventPanelSource = readRepoFile('modules/tavern/app-src/components/TavernEventPanel.vue');
+    const eventPanelCss = readRepoFile('modules/tavern/app-src/styles/chat/memory-editor.css');
+
+    assert.match(eventPanelSource, /function eventTitle\(task: TavernTaskRecord\)/);
+    assert.match(eventPanelSource, /String\(task\.title \|\| task\.current \|\| '未命名方向'\)/);
+    assert.match(eventPanelSource, /const completedPreviewTasks = computed\(\(\) => completedTasks\.value\.slice\(0, 3\)\)/);
+    assert.match(eventPanelSource, /当前方向/);
+    assert.match(eventPanelSource, /class="tavern-event-current-entry"/);
+    assert.match(eventPanelSource, /class="tavern-event-done-token"/);
+    assert.match(eventPanelSource, /v-for="task in completedPreviewTasks"/);
+    assert.doesNotMatch(eventPanelSource, /hookForUser/);
+    assert.doesNotMatch(eventPanelCss, /tavern-event-hook/);
+    assert.match(eventPanelCss, /\.tavern-chat\.xb-page \.tavern-event-current-entry/);
+    assert.match(eventPanelCss, /\.tavern-chat\.xb-page \.tavern-event-done-token/);
+    assert.match(eventPanelCss, /\.tavern-chat\.xb-page \.tavern-event-completed-more/);
+});
+
 test('tavern startup posts frame-ready before heavy app tasks and prewarms host config', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const hostSource = readRepoFile('modules/tavern/tavern.ts');
