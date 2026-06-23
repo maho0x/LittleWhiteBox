@@ -106,12 +106,6 @@ function resolvePromptPlacement(prompt: Record<string, unknown>): TavernChatProm
     return 'beforeHistory';
 }
 
-function getPreparedPromptManagerPrompts(): unknown[] {
-    const collection = promptManager?.getPromptCollection?.('normal');
-    const prompts = asArray(asRecord(collection).collection);
-    return prompts.length ? prompts : asArray(asRecord(promptManager?.serviceSettings).prompts);
-}
-
 function buildPromptManagerSections(prompts: unknown[] = []): TavernChatPromptSection[] {
     const sections: TavernChatPromptSection[] = [];
     prompts.forEach((item, index) => {
@@ -135,10 +129,22 @@ function buildPromptManagerSections(prompts: unknown[] = []): TavernChatPromptSe
 }
 
 function getSelectedPromptManagerPreset(): Record<string, unknown> {
-    const manager = getPresetManager('openai');
+    const manager = getRequiredPromptManager();
     const promptPresetName = normalizeText(manager?.getSelectedPresetName?.());
+    if (!promptPresetName) {
+        throw new Error('聊天预设未同步：酒馆当前未选择 Prompt Manager 预设。');
+    }
     const preset = asRecord(manager?.getCompletionPresetByName?.(promptPresetName));
-    return Object.keys(preset).length ? cloneJson(preset) : cloneJson(asRecord(promptManager?.serviceSettings));
+    if (!Object.keys(preset).length) {
+        throw new Error(`聊天预设未同步：无法读取酒馆当前预设「${promptPresetName}」。`);
+    }
+    if (!Array.isArray(preset.prompts)) {
+        throw new Error('聊天预设未同步：当前预设缺少 prompts。');
+    }
+    if (!Array.isArray(preset.prompt_order)) {
+        throw new Error('聊天预设未同步：当前预设缺少 prompt_order。');
+    }
+    return cloneJson(preset);
 }
 
 function getActivePromptManagerCharacterId(): string {
@@ -181,22 +187,58 @@ function pickPromptManagerRuntimeFields(source: Record<string, unknown> = {}): R
     return result;
 }
 
+type PromptPresetManager = {
+    findPreset?: (presetName: string) => unknown;
+    selectPreset?: (value: unknown) => unknown;
+    select?: { val?: (value: unknown) => unknown };
+    getSelectedPresetName?: () => unknown;
+    getCompletionPresetByName?: (presetName: string) => unknown;
+    savePreset?: (presetName: string, preset: Record<string, unknown>) => unknown | Promise<unknown>;
+    getAllPresets?: () => string[];
+};
+
+function getRequiredPromptManager(): PromptPresetManager {
+    const manager = getPresetManager('openai') as PromptPresetManager | null;
+    if (!manager) {
+        throw new Error('未读取到酒馆 Prompt Manager。');
+    }
+    return manager;
+}
+
+function assertPromptManagerRuntimeReady(targetName = ''): void {
+    const selectedName = normalizeText(getPresetManager('openai')?.getSelectedPresetName?.());
+    const expectedName = normalizeText(targetName);
+    if (expectedName && selectedName !== expectedName) {
+        throw new Error(`聊天预设切换失败：当前仍是「${selectedName || '未选择'}」。`);
+    }
+    const serviceSettings = asRecord(promptManager?.serviceSettings);
+    if (!Array.isArray(serviceSettings.prompts)) {
+        throw new Error('聊天预设切换失败：未同步 prompts。');
+    }
+    if (!Array.isArray(serviceSettings.prompt_order)) {
+        throw new Error('聊天预设切换失败：未同步 prompt_order。');
+    }
+}
+
 function setPromptManagerSelectedPresetName(name = ''): void {
-    const manager = getPresetManager('openai') as {
-        findPreset?: (presetName: string) => unknown;
-        select?: { val?: (value: unknown) => unknown };
-    } | null;
+    const manager = getRequiredPromptManager();
     const presetName = normalizeText(name);
-    if (!manager || !presetName) {return;}
+    if (!presetName) {
+        throw new Error('聊天预设名称为空。');
+    }
     const value = manager.findPreset?.(presetName);
-    if (value === undefined || value === null) {return;}
-    try {
+    if (value === undefined || value === null) {
+        throw new Error(`聊天预设不存在：${presetName}`);
+    }
+    if (typeof manager.selectPreset === 'function') {
+        manager.selectPreset(value);
+    } else {
         manager.select?.val?.(value);
-    } catch {}
+    }
+    assertPromptManagerRuntimeReady(presetName);
 }
 
 function buildCurrentBundle(): TavernChatPromptPresetBundle {
-    const promptSettings = asRecord(promptManager?.serviceSettings);
     const promptPresetName = normalizeText(getPresetManager('openai')?.getSelectedPresetName?.());
     const rawPreset = getSelectedPromptManagerPreset();
     const promptManagerRuntime = promptManager as typeof promptManager & {
@@ -209,7 +251,7 @@ function buildCurrentBundle(): TavernChatPromptPresetBundle {
         ? promptManagerRuntime.getPromptOrderForCharacter(promptManagerRuntime.activeCharacter)
         : [];
     const sections: TavernChatPromptSection[] = [
-        ...buildPromptManagerSections(getPreparedPromptManagerPrompts()),
+        ...buildPromptManagerSections(asArray(rawPreset.prompts)),
     ];
     return normalizeTavernChatPromptPresetBundle({
         id: promptPresetName || createFallbackTavernChatPromptPresetBundle().id,
@@ -218,8 +260,8 @@ function buildCurrentBundle(): TavernChatPromptPresetBundle {
         selected: true,
         promptManager: {
             name: promptPresetName,
-            prompts: cloneJson(asArray(rawPreset.prompts).length ? asArray(rawPreset.prompts) : asArray(promptSettings.prompts)),
-            promptOrder: cloneJson('prompt_order' in rawPreset ? rawPreset.prompt_order : promptSettings.prompt_order),
+            prompts: cloneJson(asArray(rawPreset.prompts)),
+            promptOrder: cloneJson(rawPreset.prompt_order),
             rawPreset,
             activeCharacterId,
             activeOrder: cloneJson(activeOrder),
@@ -248,10 +290,50 @@ export function getTavernChatPresetBundle(): TavernChatPromptPresetBundle {
     return buildCurrentBundle();
 }
 
+function stableJson(value: unknown): string {
+    return JSON.stringify(value ?? null);
+}
+
+function promptOrderForCharacter(promptOrder: unknown, characterId = ''): unknown[] {
+    const targetId = normalizeText(characterId);
+    if (!targetId) {return [];}
+    const container = asArray<Record<string, unknown>>(promptOrder)
+        .find((item) => normalizeText(asRecord(item).character_id) === targetId);
+    return asArray(asRecord(container).order);
+}
+
+function assertSavedPromptManagerPreset(
+    manager: PromptPresetManager,
+    name: string,
+    patch: Record<string, unknown>,
+    activeCharacterId: string,
+    activeOrder: unknown[],
+): void {
+    const saved = asRecord(manager.getCompletionPresetByName?.(name));
+    if (!Object.keys(saved).length) {
+        throw new Error(`聊天预设保存后无法读取：${name}`);
+    }
+    if (Array.isArray(patch.prompts) && stableJson(saved.prompts) !== stableJson(patch.prompts)) {
+        throw new Error('聊天预设保存失败：prompts 未写回酒馆。');
+    }
+    if (
+        Array.isArray(patch.prompt_order)
+        && activeCharacterId
+        && stableJson(promptOrderForCharacter(saved.prompt_order, activeCharacterId)) !== stableJson(activeOrder)
+    ) {
+        throw new Error('聊天预设保存失败：当前角色 prompt_order 未写回酒馆。');
+    }
+}
+
 async function savePromptManagerPreset(bundle: TavernChatPromptPresetBundle): Promise<void> {
-    const manager = getPresetManager('openai');
+    const manager = getRequiredPromptManager();
     const name = normalizeText(bundle.promptManager?.name);
-    if (!manager || !name) {return;}
+    if (!name) {
+        throw new Error('聊天预设名称为空。');
+    }
+    if (typeof manager.savePreset !== 'function') {
+        throw new Error('酒馆 Prompt Manager 不支持保存预设。');
+    }
     const selectedName = normalizeText(manager.getSelectedPresetName?.());
     if (selectedName && selectedName !== name) {
         throw new Error('酒馆当前预设已切换，请刷新后再保存。');
@@ -276,7 +358,8 @@ async function savePromptManagerPreset(bundle: TavernChatPromptPresetBundle): Pr
             bundle.promptManager.activeOrder,
         );
     }
-    await manager.savePreset?.(name, patch);
+    await manager.savePreset(name, patch);
+    assertSavedPromptManagerPreset(manager, name, patch, currentActiveCharacterId, bundle.promptManager?.activeOrder || []);
     if (promptManager?.serviceSettings) {
         Object.assign(promptManager.serviceSettings, pickPromptManagerRuntimeFields(patch));
     }
@@ -286,14 +369,20 @@ async function savePromptManagerPreset(bundle: TavernChatPromptPresetBundle): Pr
 }
 
 function applyPromptManagerPromptFieldsFromPreset(name = ''): boolean {
-    const manager = getPresetManager('openai');
+    const manager = getRequiredPromptManager();
     const presetName = normalizeText(name);
-    if (!manager || !presetName) {return false;}
+    if (!presetName) {
+        throw new Error('聊天预设名称为空。');
+    }
     const preset = asRecord(manager.getCompletionPresetByName?.(presetName));
-    if (!Object.keys(preset).length) {return false;}
+    if (!Object.keys(preset).length) {
+        throw new Error(`聊天预设不存在：${presetName}`);
+    }
     if (promptManager?.serviceSettings) {
         const promptFields = pickPromptManagerRuntimeFields(preset);
-        if (!Object.keys(promptFields).length) {return false;}
+        if (!Array.isArray(promptFields.prompts) || !Array.isArray(promptFields.prompt_order)) {
+            throw new Error(`聊天预设缺少 prompts 或 prompt_order：${presetName}`);
+        }
         Object.assign(promptManager.serviceSettings, promptFields);
     }
     setPromptManagerSelectedPresetName(presetName);
@@ -312,9 +401,10 @@ export async function saveTavernChatPresetBundle(input: unknown): Promise<Tavern
 export async function selectTavernChatPresetBundle(input: unknown): Promise<TavernChatPromptPresetBundle> {
     const source = asRecord(input);
     const promptManagerName = normalizeText(source.promptManagerName || source.name);
-    if (promptManagerName) {
-        applyPromptManagerPromptFieldsFromPreset(promptManagerName);
+    if (!promptManagerName) {
+        throw new Error('聊天预设名称为空。');
     }
+    applyPromptManagerPromptFieldsFromPreset(promptManagerName);
     saveSettingsDebounced?.();
     return buildCurrentBundle();
 }

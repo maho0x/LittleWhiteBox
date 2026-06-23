@@ -64,11 +64,6 @@ function resolvePromptPlacement(prompt) {
   }
   return "beforeHistory";
 }
-function getPreparedPromptManagerPrompts() {
-  const collection = promptManager?.getPromptCollection?.("normal");
-  const prompts = asArray(asRecord(collection).collection);
-  return prompts.length ? prompts : asArray(asRecord(promptManager?.serviceSettings).prompts);
-}
 function buildPromptManagerSections(prompts = []) {
   const sections = [];
   prompts.forEach((item, index) => {
@@ -93,10 +88,22 @@ function buildPromptManagerSections(prompts = []) {
   return sections;
 }
 function getSelectedPromptManagerPreset() {
-  const manager = getPresetManager("openai");
+  const manager = getRequiredPromptManager();
   const promptPresetName = normalizeText(manager?.getSelectedPresetName?.());
+  if (!promptPresetName) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u672A\u540C\u6B65\uFF1A\u9152\u9986\u5F53\u524D\u672A\u9009\u62E9 Prompt Manager \u9884\u8BBE\u3002");
+  }
   const preset = asRecord(manager?.getCompletionPresetByName?.(promptPresetName));
-  return Object.keys(preset).length ? cloneJson(preset) : cloneJson(asRecord(promptManager?.serviceSettings));
+  if (!Object.keys(preset).length) {
+    throw new Error(`\u804A\u5929\u9884\u8BBE\u672A\u540C\u6B65\uFF1A\u65E0\u6CD5\u8BFB\u53D6\u9152\u9986\u5F53\u524D\u9884\u8BBE\u300C${promptPresetName}\u300D\u3002`);
+  }
+  if (!Array.isArray(preset.prompts)) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u672A\u540C\u6B65\uFF1A\u5F53\u524D\u9884\u8BBE\u7F3A\u5C11 prompts\u3002");
+  }
+  if (!Array.isArray(preset.prompt_order)) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u672A\u540C\u6B65\uFF1A\u5F53\u524D\u9884\u8BBE\u7F3A\u5C11 prompt_order\u3002");
+  }
+  return cloneJson(preset);
 }
 function getActivePromptManagerCharacterId() {
   const runtime = promptManager;
@@ -128,23 +135,45 @@ function pickPromptManagerRuntimeFields(source = {}) {
   }
   return result;
 }
-function setPromptManagerSelectedPresetName(name = "") {
+function getRequiredPromptManager() {
   const manager = getPresetManager("openai");
+  if (!manager) {
+    throw new Error("\u672A\u8BFB\u53D6\u5230\u9152\u9986 Prompt Manager\u3002");
+  }
+  return manager;
+}
+function assertPromptManagerRuntimeReady(targetName = "") {
+  const selectedName = normalizeText(getPresetManager("openai")?.getSelectedPresetName?.());
+  const expectedName = normalizeText(targetName);
+  if (expectedName && selectedName !== expectedName) {
+    throw new Error(`\u804A\u5929\u9884\u8BBE\u5207\u6362\u5931\u8D25\uFF1A\u5F53\u524D\u4ECD\u662F\u300C${selectedName || "\u672A\u9009\u62E9"}\u300D\u3002`);
+  }
+  const serviceSettings = asRecord(promptManager?.serviceSettings);
+  if (!Array.isArray(serviceSettings.prompts)) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u5207\u6362\u5931\u8D25\uFF1A\u672A\u540C\u6B65 prompts\u3002");
+  }
+  if (!Array.isArray(serviceSettings.prompt_order)) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u5207\u6362\u5931\u8D25\uFF1A\u672A\u540C\u6B65 prompt_order\u3002");
+  }
+}
+function setPromptManagerSelectedPresetName(name = "") {
+  const manager = getRequiredPromptManager();
   const presetName = normalizeText(name);
-  if (!manager || !presetName) {
-    return;
+  if (!presetName) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u540D\u79F0\u4E3A\u7A7A\u3002");
   }
   const value = manager.findPreset?.(presetName);
   if (value === void 0 || value === null) {
-    return;
+    throw new Error(`\u804A\u5929\u9884\u8BBE\u4E0D\u5B58\u5728\uFF1A${presetName}`);
   }
-  try {
+  if (typeof manager.selectPreset === "function") {
+    manager.selectPreset(value);
+  } else {
     manager.select?.val?.(value);
-  } catch {
   }
+  assertPromptManagerRuntimeReady(presetName);
 }
 function buildCurrentBundle() {
-  const promptSettings = asRecord(promptManager?.serviceSettings);
   const promptPresetName = normalizeText(getPresetManager("openai")?.getSelectedPresetName?.());
   const rawPreset = getSelectedPromptManagerPreset();
   const promptManagerRuntime = promptManager;
@@ -152,7 +181,7 @@ function buildCurrentBundle() {
   const activeCharacterId = activeCharacter.id;
   const activeOrder = Array.isArray(promptManagerRuntime?.getPromptOrderForCharacter?.(promptManagerRuntime.activeCharacter)) ? promptManagerRuntime.getPromptOrderForCharacter(promptManagerRuntime.activeCharacter) : [];
   const sections = [
-    ...buildPromptManagerSections(getPreparedPromptManagerPrompts())
+    ...buildPromptManagerSections(asArray(rawPreset.prompts))
   ];
   return normalizeTavernChatPromptPresetBundle({
     id: promptPresetName || createFallbackTavernChatPromptPresetBundle().id,
@@ -161,8 +190,8 @@ function buildCurrentBundle() {
     selected: true,
     promptManager: {
       name: promptPresetName,
-      prompts: cloneJson(asArray(rawPreset.prompts).length ? asArray(rawPreset.prompts) : asArray(promptSettings.prompts)),
-      promptOrder: cloneJson("prompt_order" in rawPreset ? rawPreset.prompt_order : promptSettings.prompt_order),
+      prompts: cloneJson(asArray(rawPreset.prompts)),
+      promptOrder: cloneJson(rawPreset.prompt_order),
       rawPreset,
       activeCharacterId,
       activeOrder: cloneJson(activeOrder)
@@ -187,11 +216,37 @@ function listTavernChatPresetBundles() {
 function getTavernChatPresetBundle() {
   return buildCurrentBundle();
 }
+function stableJson(value) {
+  return JSON.stringify(value ?? null);
+}
+function promptOrderForCharacter(promptOrder, characterId = "") {
+  const targetId = normalizeText(characterId);
+  if (!targetId) {
+    return [];
+  }
+  const container = asArray(promptOrder).find((item) => normalizeText(asRecord(item).character_id) === targetId);
+  return asArray(asRecord(container).order);
+}
+function assertSavedPromptManagerPreset(manager, name, patch, activeCharacterId, activeOrder) {
+  const saved = asRecord(manager.getCompletionPresetByName?.(name));
+  if (!Object.keys(saved).length) {
+    throw new Error(`\u804A\u5929\u9884\u8BBE\u4FDD\u5B58\u540E\u65E0\u6CD5\u8BFB\u53D6\uFF1A${name}`);
+  }
+  if (Array.isArray(patch.prompts) && stableJson(saved.prompts) !== stableJson(patch.prompts)) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u4FDD\u5B58\u5931\u8D25\uFF1Aprompts \u672A\u5199\u56DE\u9152\u9986\u3002");
+  }
+  if (Array.isArray(patch.prompt_order) && activeCharacterId && stableJson(promptOrderForCharacter(saved.prompt_order, activeCharacterId)) !== stableJson(activeOrder)) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u4FDD\u5B58\u5931\u8D25\uFF1A\u5F53\u524D\u89D2\u8272 prompt_order \u672A\u5199\u56DE\u9152\u9986\u3002");
+  }
+}
 async function savePromptManagerPreset(bundle) {
-  const manager = getPresetManager("openai");
+  const manager = getRequiredPromptManager();
   const name = normalizeText(bundle.promptManager?.name);
-  if (!manager || !name) {
-    return;
+  if (!name) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u540D\u79F0\u4E3A\u7A7A\u3002");
+  }
+  if (typeof manager.savePreset !== "function") {
+    throw new Error("\u9152\u9986 Prompt Manager \u4E0D\u652F\u6301\u4FDD\u5B58\u9884\u8BBE\u3002");
   }
   const selectedName = normalizeText(manager.getSelectedPresetName?.());
   if (selectedName && selectedName !== name) {
@@ -217,7 +272,8 @@ async function savePromptManagerPreset(bundle) {
       bundle.promptManager.activeOrder
     );
   }
-  await manager.savePreset?.(name, patch);
+  await manager.savePreset(name, patch);
+  assertSavedPromptManagerPreset(manager, name, patch, currentActiveCharacterId, bundle.promptManager?.activeOrder || []);
   if (promptManager?.serviceSettings) {
     Object.assign(promptManager.serviceSettings, pickPromptManagerRuntimeFields(patch));
   }
@@ -226,19 +282,19 @@ async function savePromptManagerPreset(bundle) {
   promptManager?.render?.(false);
 }
 function applyPromptManagerPromptFieldsFromPreset(name = "") {
-  const manager = getPresetManager("openai");
+  const manager = getRequiredPromptManager();
   const presetName = normalizeText(name);
-  if (!manager || !presetName) {
-    return false;
+  if (!presetName) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u540D\u79F0\u4E3A\u7A7A\u3002");
   }
   const preset = asRecord(manager.getCompletionPresetByName?.(presetName));
   if (!Object.keys(preset).length) {
-    return false;
+    throw new Error(`\u804A\u5929\u9884\u8BBE\u4E0D\u5B58\u5728\uFF1A${presetName}`);
   }
   if (promptManager?.serviceSettings) {
     const promptFields = pickPromptManagerRuntimeFields(preset);
-    if (!Object.keys(promptFields).length) {
-      return false;
+    if (!Array.isArray(promptFields.prompts) || !Array.isArray(promptFields.prompt_order)) {
+      throw new Error(`\u804A\u5929\u9884\u8BBE\u7F3A\u5C11 prompts \u6216 prompt_order\uFF1A${presetName}`);
     }
     Object.assign(promptManager.serviceSettings, promptFields);
   }
@@ -256,9 +312,10 @@ async function saveTavernChatPresetBundle(input) {
 async function selectTavernChatPresetBundle(input) {
   const source = asRecord(input);
   const promptManagerName = normalizeText(source.promptManagerName || source.name);
-  if (promptManagerName) {
-    applyPromptManagerPromptFieldsFromPreset(promptManagerName);
+  if (!promptManagerName) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u540D\u79F0\u4E3A\u7A7A\u3002");
   }
+  applyPromptManagerPromptFieldsFromPreset(promptManagerName);
   saveSettingsDebounced?.();
   return buildCurrentBundle();
 }

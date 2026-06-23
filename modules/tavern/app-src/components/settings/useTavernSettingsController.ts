@@ -483,7 +483,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     const snapshotPreset = (value = preset.value) => JSON.stringify(value || {});
     const snapshotAssistantPreset = (value = assistantPreset.value) => JSON.stringify(value || {});
     const presetDirty = computed(() => snapshotPreset(preset.value) !== savedPresetJson.value);
-    const runtimeChatPreset = computed(() => normalizeTavernChatPromptPresetBundle(preset.value));
+    const runtimeChatPreset = computed(() => normalizeTavernChatPromptPresetBundle(activeChatPreset.value));
     const assistantPresetDirty = computed(() => snapshotAssistantPreset(assistantPreset.value) !== savedAssistantPresetJson.value);
     const resolvedProviderConfig = computed(() => resolveXbTavernProviderConfig(options.agentConfig.value));
     const apiReady = computed(() => resolvedProviderConfig.value.readiness.ok);
@@ -967,20 +967,27 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         applyActiveAssistantPreset(loadedAssistantPreset, { replaceDraft: !assistantPresetDirty.value });
     }
     async function syncChatPresetFromHost() {
-        if (presetDirty.value) {
-            presetStatus.value = '';
-            return;
-        }
         presetStatus.value = '正在同步';
         try {
             const result = await options.requestHost('xb-tavern:list-chat-presets');
             const payload = (result.result || result) as Record<string, unknown>;
             chatPresetList.value = payload;
-            applyActiveChatPreset(payload.active as Partial<TavernChatPromptPresetBundle>);
+            applyActiveChatPreset(payload.active as Partial<TavernChatPromptPresetBundle>, {
+                replaceDraft: !presetDirty.value,
+            });
             presetStatus.value = '';
         } catch (error) {
             presetStatus.value = error instanceof Error ? error.message : String(error || '读取失败');
         }
+    }
+    async function refreshRuntimeChatPresetFromHost(): Promise<TavernChatPromptPresetBundle> {
+        const result = await options.requestHost('xb-tavern:get-chat-preset');
+        const payload = (result.result || result) as Partial<TavernChatPromptPresetBundle>;
+        applyActiveChatPreset(payload, {
+            replaceDraft: !presetDirty.value,
+        });
+        presetStatus.value = '';
+        return normalizeTavernChatPromptPresetBundle(activeChatPreset.value);
     }
     async function selectChatPresetFromHost(name = selectedPresetSourceId.value) {
         const presetName = String(name || '').trim();
@@ -2175,6 +2182,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         loadTavernUsers,
         refreshPresets,
         refreshRegexFromHost,
+        refreshRuntimeChatPresetFromHost,
         renderApiSettingsPanel,
         runtimeChatPreset,
         selectSettingsWorkspace,

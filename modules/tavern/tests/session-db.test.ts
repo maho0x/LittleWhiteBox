@@ -1394,9 +1394,10 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
     const patchTool = getTavernStateToolDefinitions()
         .find((tool) => tool.function.name === 'MapPatch');
     const parameters = patchTool?.function.parameters as {
-        properties?: Record<string, { description?: string; items?: { properties?: Record<string, { description?: string }> } }>;
+        properties?: Record<string, { description?: string; items?: { properties?: Record<string, { description?: string; properties?: Record<string, { description?: string }> }> } }>;
     };
     const opsProperties = parameters.properties?.ops?.items?.properties || {};
+    const elementProperties = opsProperties.element?.properties || {};
 
     assert.match(patchTool?.function.description || '', /For `tavern\.map`, canonical ops are `meta`, `add`, `modify`, and `remove`/);
     assert.match(patchTool?.function.description || '', /For `tavern\.atlas\/main`/);
@@ -1404,11 +1405,13 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
     assert.match(patchTool?.function.description || '', /one atomic transaction/i);
     assert.match(patchTool?.function.description || '', /`meta\.viewBox` is the camera/i);
     assert.match(patchTool?.function.description || '', /splits the text into a system label element automatically/i);
+    assert.match(patchTool?.function.description || '', /Do not put house\/castle\/village\/forest\/temple\/shop icons inside a scene map/i);
     assert.match(parameters.properties?.docId?.description || '', /atlas always uses `main`/i);
     assert.match(parameters.properties?.activate?.description || '', /With `ops:\[\]`, this only switches the active map/i);
     assert.match(opsProperties.op?.description || '', /Map ops and atlas ops are selected by docType/i);
     assert.match(opsProperties.set?.description || '', /For map `meta`\/`modify`/i);
     assert.match(opsProperties.element?.description || '', /Full element object for `add`/i);
+    assert.match(elementProperties.icon?.description || '', /Do not put place icons/i);
 });
 
 test('State tools support tavern atlas without entering map element semantics', async () => {
@@ -1743,6 +1746,15 @@ test('StatePatch rejects map elements without drawable geometry', async () => {
     const seed = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
     assert.equal(seed?.revision, 0);
     assert.equal((seed?.data as { meta?: { status?: string } })?.meta?.status, 'uninitialized');
+
+    const placeScaleIcon = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [
+            { op: 'add', element: { id: 'wrong-house-icon', type: 'icon', cat: 'marker', pos: [80, 40], icon: 'house' } },
+        ],
+    });
+    assert.equal(placeScaleIcon.ok, false);
+    assert.equal(placeScaleIcon.changed, false);
+    assert.match(JSON.stringify(placeScaleIcon.details), /map_element_icon_place_scale:wrong-house-icon:house/);
 
     const valid = await executeTavernStateTool(session.id, 'MapPatch', {
         ops: [

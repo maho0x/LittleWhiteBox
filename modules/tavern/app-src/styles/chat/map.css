@@ -547,11 +547,11 @@
 @keyframes tavern-map-fill-in {
     0% {
         opacity: 0;
-        transform: scale(0.985);
+        filter: brightness(1.08);
     }
     100% {
         opacity: 0.9;
-        transform: scale(1);
+        filter: none;
     }
 }
 
@@ -582,7 +582,7 @@
     }
     100% {
         opacity: 0;
-        transform: scale(0.94);
+        filter: none;
     }
 }
 

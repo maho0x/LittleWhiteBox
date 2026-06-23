@@ -221,6 +221,7 @@ const MAP_ELEMENT_CATEGORIES = new Set<TavernMapElementCategory>([
     'secret',
 ]);
 const MAP_ICON_NAMES = new Set<TavernMapIconName>(TAVERN_MAP_ICON_NAMES);
+const SCENE_MAP_PLACE_SCALE_ICONS = new Set<string>(['house', 'castle', 'village', 'forest', 'temple', 'shop']);
 const MAP_THEMES = new Set<TavernMapTheme>(['parchment', 'paper', 'dark', 'blueprint', 'grid']);
 const MAP_STATUSES = new Set<TavernMapStatus>(['uninitialized', 'active']);
 const ATLAS_LOCATION_SCALES = new Set<TavernAtlasLocationScale>(['city', 'district', 'building', 'floor', 'room', 'outdoor']);
@@ -438,6 +439,12 @@ function normalizeCategory(value: unknown, fallback: TavernMapElementCategory): 
 function normalizeIcon(value: unknown): TavernMapIconName | undefined {
     const text = String(value || '').trim() as TavernMapIconName;
     return MAP_ICON_NAMES.has(text) ? text : undefined;
+}
+
+function assertSceneMapIconAllowed(icon: TavernMapIconName | undefined, elementId: string): void {
+    if (icon && SCENE_MAP_PLACE_SCALE_ICONS.has(icon)) {
+        throw new Error(`map_element_icon_place_scale:${elementId}:${icon}`);
+    }
 }
 
 function normalizeActorKey(value: unknown = ''): string {
@@ -681,7 +688,12 @@ function normalizeMapElementInput(
     if (textValue) {shapeParts.text = textValue;}
 
     const icon = normalizeIcon(value.icon);
-    if (icon) {shapeParts.icon = icon;}
+    if (icon) {
+        if (source === 'model-input') {
+            assertSceneMapIconAllowed(icon, id);
+        }
+        shapeParts.icon = icon;
+    }
 
     if (legacyType === 'line' && pathSource) {
         const normalized = normalizePathLikePoints(pathSource, id, at);
@@ -1111,6 +1123,8 @@ function describeMapPatchError(error = ''): string {
         return `${id} is missing text content. \`text\` must be a short non-empty label.`;
     case 'map_element_icon_invalid':
         return `${id} has an invalid icon. Use one of ${TAVERN_MAP_ICON_NAMES.join('/')}.`;
+    case 'map_element_icon_place_scale':
+        return `${id} uses a place icon inside a scene map. Scene maps should draw local space with geometry, small objects, labels, and actor positions instead of house/castle/village/forest/temple/shop.`;
     case 'map_element_shape_required':
         return `${id} is missing a shape field. Every element must provide exactly one of rect/circle/path/curve/icon/text.`;
     case 'map_element_shape_conflict':
@@ -1562,6 +1576,7 @@ function normalizePartialSet(value: unknown, id: string): Partial<TavernMapEleme
     if ('icon' in value) {
         const icon = normalizeIcon(value.icon);
         if (!icon) {throw new Error(`map_element_icon_invalid:${id}`);}
+        assertSceneMapIconAllowed(icon, id);
         set.icon = icon;
     }
     if ('text' in value || 'content' in value || 'label' in value || 'value' in value) {
@@ -1899,7 +1914,7 @@ function buildMapElementSchema() {
             icon: {
                 type: 'string',
                 enum: [...MAP_ICON_NAMES],
-                description: 'Named icon marker.',
+                description: 'Named scene-map icon marker. Use only small objects or abstract markers such as chest/table/bed/barrel/door/stairs/portal/skull/trap/fire/tree/rock/water/heart/lips/lovers/cherish/love-letter/locked-heart/perfume, or x/o/+ and arrows for markers and directions. Do not put place icons such as house/castle/village/forest/temple/shop inside a scene map; describe places in the atlas and draw local space with geometry, labels, and actor positions.',
             },
             text: {
                 type: 'string',
@@ -1999,6 +2014,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'For `cat:"actor"`, optional `actorKey` is the full-session identity key. If omitted, the element id is used. The runtime keeps only the latest actor with the same final key across all map documents.',
                     'With `at`, `path` and `curve` points are relative offsets. Without `at`, the points are treated as absolute coordinates and the stored result becomes relative to the first point.',
                     'If one add element contains geometry plus text, the runtime splits the text into a system label element automatically.',
+                    'Atlas glyphs describe places. Scene maps describe local space. Do not put house/castle/village/forest/temple/shop icons inside a scene map; draw the local walls, doors, roads, furniture, hazards, objects, labels, and actor positions instead.',
                     'For `tavern.atlas/main`, use only `upsert-location`, `remove-location`, `upsert-link`, `remove-link`, and `move-actor`. There is no set-active-location op.',
                     'Atlas links may omit `id`. The default link id is `link:${sorted(from,to).join(":")}:${kind}` for bidirectional links and `link:${from}:${to}:${kind}` for `bidirectional:false`. Use an explicit id only when two locations need multiple same-kind links.',
                     'Move the player between places with `move-actor` and `actorKey:"player"`. That updates atlas.activeLocationKey, marks the location visited, and syncs activeMapDocId when the location has mapDocId. Non-player actors do not change the current location.',

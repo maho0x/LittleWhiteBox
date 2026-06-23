@@ -651,6 +651,7 @@ const {
     openWorldbookWorkspace,
     refreshPresets,
     refreshRegexFromHost,
+    refreshRuntimeChatPresetFromHost,
     renderApiSettingsPanel,
     runtimeChatPreset,
     selectSettingsWorkspace,
@@ -3041,11 +3042,12 @@ async function simulateApiRequest() {
     simulateRequestStatus.value = '模拟中';
     try {
         const runtimeContext = await resolveRuntimeContextForSession(requestSessionId);
+        const runtimePreset = await refreshRuntimeChatPresetFromHost();
         const result = await simulateXbTavernRequest({
             sessionId: requestSessionId,
             agentConfig: agentConfig.value,
             contextSnapshot: runtimeContext,
-            chatPreset: runtimeChatPreset.value,
+            chatPreset: runtimePreset,
             currentUserMessage: messageText,
             runtimeState: normalizeTavernSessionState(selectedSession.value?.state || {}),
             diagnostics: diagnostics.value,
@@ -4417,9 +4419,18 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
             return;
         }
         if (!selectedSessionId.value) {
+            await refreshRuntimeChatPresetFromHost();
             await createSessionFromContext();
         }
         const runtimeContext = await resolveRuntimeContextForSession(selectedSessionId.value);
+        if (controller.signal.aborted) {
+            clearRuntimeAssistantLiveState();
+            if (isReusedUserMessageRun && selectedSessionId.value) {
+                await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
+            }
+            return;
+        }
+        const runtimePreset = await refreshRuntimeChatPresetFromHost();
         if (controller.signal.aborted) {
             clearRuntimeAssistantLiveState();
             if (isReusedUserMessageRun && selectedSessionId.value) {
@@ -4431,7 +4442,7 @@ async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: 
             sessionId: selectedSessionId.value,
             agentConfig: agentConfig.value,
             contextSnapshot: runtimeContext,
-            chatPreset: runtimeChatPreset.value,
+            chatPreset: runtimePreset,
             assistantPreset: activeAssistantPreset.value,
             currentUserMessage: messageText,
             runtimeState: normalizeTavernSessionState(selectedSession.value?.state || {}),

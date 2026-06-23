@@ -323,6 +323,19 @@ test('tavern character and global worldbook actions stay on native ST boundaries
 test('tavern chat preset bridge only writes native prompt fields, never API parameters', () => {
     const hostSource = readRepoFile('modules/tavern/host/chat-presets.ts');
     assert.match(hostSource, /function pickPromptManagerRuntimeFields/);
+    assert.match(hostSource, /manager\.selectPreset\(value\)/);
+    assert.match(hostSource, /assertPromptManagerRuntimeReady\(presetName\)/);
+    assert.match(hostSource, /throw new Error\(`聊天预设不存在：\$\{presetName\}`\)/);
+    assert.match(hostSource, /typeof manager\.savePreset !== 'function'[\s\S]*throw new Error\('酒馆 Prompt Manager 不支持保存预设。'\)/);
+    assert.match(hostSource, /await manager\.savePreset\(name, patch\)/);
+    assert.match(hostSource, /assertSavedPromptManagerPreset\(manager, name, patch, currentActiveCharacterId/);
+    assert.match(hostSource, /replaceActivePromptOrder\([\s\S]*asRecord\(existing\)\.prompt_order,[\s\S]*currentActiveCharacterId,[\s\S]*bundle\.promptManager\.activeOrder/);
+    assert.match(hostSource, /throw new Error\('聊天预设未同步：酒馆当前未选择 Prompt Manager 预设。'\)/);
+    assert.doesNotMatch(hostSource, /Object\.keys\(preset\)\.length \? cloneJson\(preset\) : cloneJson\(asRecord\(promptManager\?\.serviceSettings\)\)/);
+    assert.doesNotMatch(hostSource, /asArray\(rawPreset\.prompts\)\.length \? asArray\(rawPreset\.prompts\) : asArray\(promptSettings\.prompts\)/);
+    assert.doesNotMatch(hostSource, /&& activeOrder\.length\s*&& stableJson\(promptOrderForCharacter/);
+    assert.doesNotMatch(hostSource, /if \(!manager \|\| !presetName\) \{return false;\}/);
+    assert.doesNotMatch(hostSource, /if \(!manager \|\| !name\) \{return;\}/);
     for (const forbidden of [
         'api_key',
         'reverse_proxy',
@@ -337,6 +350,33 @@ test('tavern chat preset bridge only writes native prompt fields, never API para
     }
 });
 
+test('tavern runtime chat preset uses ST-confirmed active preset, never unsaved draft', () => {
+    const controllerSource = readRepoFile('modules/tavern/app-src/components/settings/useTavernSettingsController.ts');
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const nativeSource = readRepoFile('modules/tavern/host/native-prompt.ts');
+
+    assert.match(controllerSource, /const runtimeChatPreset = computed\(\(\) => normalizeTavernChatPromptPresetBundle\(activeChatPreset\.value\)\)/);
+    assert.doesNotMatch(controllerSource, /const runtimeChatPreset = computed\(\(\) => normalizeTavernChatPromptPresetBundle\(preset\.value\)\)/);
+    assert.match(controllerSource, /async function syncChatPresetFromHost\(\)[\s\S]*applyActiveChatPreset\(payload\.active as Partial<TavernChatPromptPresetBundle>, \{[\s\S]*replaceDraft: !presetDirty\.value/);
+    assert.match(controllerSource, /async function refreshRuntimeChatPresetFromHost\(\)[\s\S]*xb-tavern:get-chat-preset[\s\S]*applyActiveChatPreset\(payload, \{[\s\S]*replaceDraft: !presetDirty\.value/);
+    assert.match(appSource, /const runtimePreset = await refreshRuntimeChatPresetFromHost\(\);[\s\S]*simulateXbTavernRequest\(\{[\s\S]*chatPreset: runtimePreset/);
+    assert.match(appSource, /const runtimePreset = await refreshRuntimeChatPresetFromHost\(\);[\s\S]*runXbTavernTurn\(\{[\s\S]*chatPreset: runtimePreset/);
+    assert.match(nativeSource, /throw new Error\('聊天预设未同步：缺少 prompts。'\)/);
+    assert.match(nativeSource, /throw new Error\('聊天预设未同步：缺少 prompt_order。'\)/);
+});
+
+test('tavern map game icon animation does not override SVG transform attributes', () => {
+    const mapCss = readRepoFile('modules/tavern/app-src/styles/chat/map.css');
+    const fillInKeyframes = mapCss.match(/@keyframes tavern-map-fill-in \{[\s\S]*?\n\}/)?.[0] || '';
+    const removeKeyframes = mapCss.match(/@keyframes tavern-map-remove \{[\s\S]*?\n\}/)?.[0] || '';
+    assert.match(mapCss, /\.tavern-chat\.xb-page \.map-line\.is-game-icon\.is-animated \{[\s\S]*tavern-map-fill-in/);
+    assert.doesNotMatch(fillInKeyframes, /transform:/);
+    assert.doesNotMatch(removeKeyframes, /transform:/);
+    const stateSource = readRepoFile('modules/tavern/shared/structured-state.ts');
+    assert.match(stateSource, /SCENE_MAP_PLACE_SCALE_ICONS/);
+    assert.match(stateSource, /assertSceneMapIconAllowed\(icon, id\)/);
+});
+
 test('tavern request log is sourced from runtime request snapshots', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const runtimeSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
@@ -345,8 +385,8 @@ test('tavern request log is sourced from runtime request snapshots', () => {
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     assert.match(appSource, /lastRequestSnapshot\.value\?\.rawRequestJson \|\| lastRequestSnapshot\.value\?\.rawMessagesJson/);
     assert.match(appSource, /simulateRequestJson\.value = result\.requestSnapshot\.rawRequestJson \|\| result\.requestSnapshot\.rawMessagesJson/);
-    assert.match(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: runtimeChatPreset\.value/);
-    assert.match(appSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: runtimeChatPreset\.value/);
+    assert.match(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: runtimePreset/);
+    assert.match(appSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: runtimePreset/);
     assert.doesNotMatch(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
     assert.doesNotMatch(appSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
     assert.match(appSource, /runXbTavernTurn\(\{[\s\S]*buildNativeChatPrompt,/);

@@ -111,6 +111,84 @@ test('runtime chat preset follows the LittleWhiteBox selected preset state', asy
     );
 });
 
+test('runtime chat preset ignores unsaved editor draft and tracks synced ST active preset', async () => {
+    const activeView = ref('settings');
+    const activeSettingsWorkspace = ref<TavernSettingsWorkspaceKey>('chatPreset');
+    const agentConfig = ref<Record<string, unknown>>({});
+    const tavernDisplaySettings = ref(normalizeTavernDisplaySettings({}));
+    const controller = useTavernSettingsController({
+        activeView,
+        activeSettingsWorkspace,
+        agentConfig,
+        tavernDisplaySettings,
+        effectiveContext: computed(() => ({})),
+        currentWorldbookNativeCharacterId: computed(() => ''),
+        homeThemeDark: ref(false),
+        isRunning: ref(false),
+        confirmDialog: async () => true,
+        describeError: (error) => error instanceof Error ? error.message : String(error || ''),
+        postToHost: () => {},
+        requestHost: async (type) => {
+            if (type === 'xb-tavern:list-chat-presets') {
+                return {
+                    result: {
+                        active: {
+                            id: 'Preset B',
+                            name: 'Preset B',
+                            source: 'sillytavern',
+                            promptManager: {
+                                name: 'Preset B',
+                                prompts: [{ identifier: 'main', name: 'Main', role: 'system', content: 'B MAIN' }],
+                                promptOrder: [{ character_id: '0', order: [{ identifier: 'main', enabled: true }] }],
+                                activeCharacterId: '0',
+                                activeOrder: [{ identifier: 'main', enabled: true }],
+                            },
+                            sections: [],
+                        },
+                        components: { promptManager: ['Preset A', 'Preset B'] },
+                    },
+                };
+            }
+            return {};
+        },
+        shortText: (value = '') => String(value || ''),
+    });
+
+    controller.applyHostChatPreset({
+        chatPreset: {
+            id: 'Preset A',
+            name: 'Preset A',
+            source: 'sillytavern',
+            promptManager: {
+                name: 'Preset A',
+                prompts: [{ identifier: 'main', name: 'Main', role: 'system', content: 'A MAIN' }],
+                promptOrder: [{ character_id: '0', order: [{ identifier: 'main', enabled: true }] }],
+                activeCharacterId: '0',
+                activeOrder: [{ identifier: 'main', enabled: true }],
+            },
+            sections: [],
+        },
+    });
+    controller.settingsContext.updatePromptByIdentifier('main', { content: 'UNSAVED DRAFT' });
+
+    assert.equal(
+        String((controller.runtimeChatPreset.value.promptManager?.prompts as Array<Record<string, unknown>>)[0]?.content || ''),
+        'A MAIN',
+    );
+
+    await controller.settingsContext.syncChatPresetFromHost();
+
+    assert.equal(controller.runtimeChatPreset.value.name, 'Preset B');
+    assert.equal(
+        String((controller.runtimeChatPreset.value.promptManager?.prompts as Array<Record<string, unknown>>)[0]?.content || ''),
+        'B MAIN',
+    );
+    assert.equal(
+        String((controller.settingsContext.preset.value.promptManager?.prompts as Array<Record<string, unknown>>)[0]?.content || ''),
+        'UNSAVED DRAFT',
+    );
+});
+
 test('chat preset save feedback stays on the save button instead of the status banner', async () => {
     const activeView = ref('settings');
     const activeSettingsWorkspace = ref<TavernSettingsWorkspaceKey>('chatPreset');

@@ -332,20 +332,25 @@ function replacePromptOrderForCharacter(existingPromptOrder, nativeCharacterId =
 function applyChatPresetPromptManager(chatPreset = {}, context = {}) {
   const preset = asRecord(chatPreset.promptManager);
   const rawPreset = asRecord(preset.rawPreset);
-  const serviceSettings = asRecord(promptManager?.serviceSettings);
-  const prompts = Array.isArray(preset.prompts) ? preset.prompts : Array.isArray(rawPreset.prompts) ? rawPreset.prompts : null;
-  if (prompts) {
-    serviceSettings.prompts = cloneJson(prompts);
+  if (!promptManager?.serviceSettings || typeof promptManager.serviceSettings !== "object") {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u672A\u540C\u6B65\uFF1A\u672A\u8BFB\u53D6\u5230 Prompt Manager \u8BBE\u7F6E\u3002");
   }
+  const serviceSettings = promptManager.serviceSettings;
+  const prompts = Array.isArray(preset.prompts) ? preset.prompts : Array.isArray(rawPreset.prompts) ? rawPreset.prompts : null;
+  if (!prompts?.length) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u672A\u540C\u6B65\uFF1A\u7F3A\u5C11 prompts\u3002");
+  }
+  serviceSettings.prompts = cloneJson(prompts);
   let promptOrder = Array.isArray(preset.promptOrder) ? cloneJson(preset.promptOrder) : Array.isArray(rawPreset.prompt_order) ? cloneJson(rawPreset.prompt_order) : void 0;
   const activeOrder = Array.isArray(preset.activeOrder) ? preset.activeOrder : [];
   const nativeCharacterId = normalizeText(context.character?.nativeCharacterId);
   if (nativeCharacterId && activeOrder.length) {
     promptOrder = replacePromptOrderForCharacter(promptOrder, nativeCharacterId, activeOrder);
   }
-  if (Array.isArray(promptOrder)) {
-    serviceSettings.prompt_order = promptOrder;
+  if (!Array.isArray(promptOrder)) {
+    throw new Error("\u804A\u5929\u9884\u8BBE\u672A\u540C\u6B65\uFF1A\u7F3A\u5C11 prompt_order\u3002");
   }
+  serviceSettings.prompt_order = promptOrder;
 }
 function applyPromptManagerActiveCharacter(context = {}) {
   const character = characterPromptManagerIdentity(context);

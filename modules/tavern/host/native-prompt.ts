@@ -402,15 +402,19 @@ function replacePromptOrderForCharacter(existingPromptOrder: unknown, nativeChar
 function applyChatPresetPromptManager(chatPreset: TavernChatPromptPresetBundle = {}, context: XbTavernContext = {}): void {
     const preset = asRecord(chatPreset.promptManager);
     const rawPreset = asRecord(preset.rawPreset);
-    const serviceSettings = asRecord(promptManager?.serviceSettings);
+    if (!promptManager?.serviceSettings || typeof promptManager.serviceSettings !== 'object') {
+        throw new Error('聊天预设未同步：未读取到 Prompt Manager 设置。');
+    }
+    const serviceSettings = promptManager.serviceSettings as Record<string, unknown>;
     const prompts = Array.isArray(preset.prompts)
         ? preset.prompts
         : Array.isArray(rawPreset.prompts)
             ? rawPreset.prompts
             : null;
-    if (prompts) {
-        serviceSettings.prompts = cloneJson(prompts);
+    if (!prompts?.length) {
+        throw new Error('聊天预设未同步：缺少 prompts。');
     }
+    serviceSettings.prompts = cloneJson(prompts);
     let promptOrder = Array.isArray(preset.promptOrder)
         ? cloneJson(preset.promptOrder)
         : Array.isArray(rawPreset.prompt_order)
@@ -421,9 +425,10 @@ function applyChatPresetPromptManager(chatPreset: TavernChatPromptPresetBundle =
     if (nativeCharacterId && activeOrder.length) {
         promptOrder = replacePromptOrderForCharacter(promptOrder, nativeCharacterId, activeOrder);
     }
-    if (Array.isArray(promptOrder)) {
-        serviceSettings.prompt_order = promptOrder;
+    if (!Array.isArray(promptOrder)) {
+        throw new Error('聊天预设未同步：缺少 prompt_order。');
     }
+    serviceSettings.prompt_order = promptOrder;
 }
 
 function applyPromptManagerActiveCharacter(context: XbTavernContext = {}): void {
