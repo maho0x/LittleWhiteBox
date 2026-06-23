@@ -33,7 +33,6 @@ import { initTts, cleanupTts } from "./modules/tts/tts.js";
 import { initEnaPlanner, cleanupEnaPlanner } from "./modules/ena-planner/ena-planner.js";
 import { initAssistant, cleanupAssistant } from "./modules/assistant/assistant.js";
 import { initEbook, cleanupEbook } from "./modules/ebook/ebook.js";
-import { initTavern, cleanupTavern } from "./modules/tavern/tavern.js";
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
@@ -67,6 +66,72 @@ settings.audio.enabled = true;
 settings.wrapperIframe = true;
 
 const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui']);
+let tavernModulePromise = null;
+let tavernModule = null;
+let tavernLoadError = null;
+
+async function loadTavernModule() {
+    if (tavernModule) return tavernModule;
+    if (tavernLoadError) throw tavernLoadError;
+    tavernModulePromise ||= import("./modules/tavern/tavern.js")
+        .then((module) => {
+            tavernModule = module;
+            return module;
+        })
+        .catch((error) => {
+            tavernLoadError = error;
+            console.error("[LittleWhiteBox] 小白酒馆加载失败", error);
+            throw error;
+        });
+    return tavernModulePromise;
+}
+
+function markTavernUnavailable(error) {
+    tavernLoadError ||= error;
+}
+
+async function initTavernSafely() {
+    try {
+        const tavern = await loadTavernModule();
+        if (!isXiaobaixEnabled) return;
+        await tavern.initTavern?.();
+    } catch (error) {
+        markTavernUnavailable(error);
+    }
+}
+
+function showTavernUnsupportedNotice(error) {
+    markTavernUnavailable(error);
+    console.warn("[LittleWhiteBox] 小白酒馆不可用", error);
+    toastr.warning('小白酒馆需要 SillyTavern 1.14.0 或更高版本。当前版本过低，其他小白 X 功能仍可正常使用。');
+}
+
+async function openTavernSafely() {
+    try {
+        const tavern = await loadTavernModule();
+        await tavern.initTavern?.();
+        if (tavern.openTavern) {
+            await tavern.openTavern();
+            return;
+        }
+        if (window.xiaobaixTavern?.open) {
+            await window.xiaobaixTavern.open();
+            return;
+        }
+        throw new Error('tavern_open_unavailable');
+    } catch (error) {
+        showTavernUnsupportedNotice(error);
+    }
+}
+
+async function cleanupTavernSafely() {
+    try {
+        const tavern = tavernModule;
+        await tavern?.cleanupTavern?.();
+    } catch (error) {
+        console.warn("[LittleWhiteBox] 小白酒馆清理失败", error);
+    }
+}
 
 function normalizeDrawProvider(provider) {
     return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
@@ -706,7 +771,7 @@ async function toggleAllFeatures(enabled) {
             { condition: extension_settings[EXT_ID].tts?.enabled, init: initTts },
             { condition: extension_settings[EXT_ID].enaPlanner?.enabled, init: initEnaPlanner },
             { condition: true, init: initEbook },
-            { condition: true, init: initTavern },
+            { condition: true, init: () => { void initTavernSafely(); } },
             { condition: true, init: initStreamingGeneration },
             { condition: true, init: initButtonCollapse }
         ];
@@ -757,7 +822,7 @@ async function toggleAllFeatures(enabled) {
         try { cleanupEnaPlanner(); } catch (e) { }
         try { cleanupAssistant(); } catch (e) { }
         try { cleanupEbook(); } catch (e) { }
-        try { cleanupTavern(); } catch (e) { }
+        await cleanupTavernSafely();
         try { clearBlobCaches(); } catch (e) { }
         toggleSettingsControls(false);
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) { }
@@ -928,14 +993,7 @@ async function setupSettings() {
 
         $("#xiaobaix_tavern_open_settings").on("click", async function () {
             if (!isXiaobaixEnabled) return;
-            if (!window.xiaobaixTavern?.open) {
-                await initTavern();
-            }
-            if (window.xiaobaixTavern?.open) {
-                window.xiaobaixTavern.open();
-            } else {
-                toastr.warning('小白酒馆初始化失败');
-            }
+            await openTavernSafely();
         });
 
         $("#xiaobaix_fourth_wall_open_settings").on("click", function () {
@@ -1149,7 +1207,7 @@ jQuery(async () => {
                 { condition: settings.tts?.enabled, init: initTts },
                 { condition: settings.enaPlanner?.enabled, init: initEnaPlanner },
                 { condition: true, init: initEbook },
-                { condition: true, init: initTavern },
+                { condition: true, init: () => { void initTavernSafely(); } },
                 { condition: true, init: initStreamingGeneration },
                 { condition: true, init: initButtonCollapse }
             ];

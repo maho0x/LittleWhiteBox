@@ -40451,12 +40451,18 @@ async function IZ(e = "", t) {
 var hS = "ActionCheck";
 var kZ = [
   "[Runtime Protocol: Action Checks]",
-  `For this reply, if the user's attempted action has meaningful uncertainty, risk, opposition, danger, stealth, combat, persuasion, deception, investigation, escape, pressure, luck, or any outcome not guaranteed, you MUST call ${hS} before deciding success or failure.`,
-  "In those cases, do not decide success or failure yourself.",
-  "Treat the tool result as binding truth and continue the narration from it.",
-  "Skip the tool only for trivial, purely conversational, already guaranteed, or explicitly established outcomes.",
-  "Follow all later formatting and style instructions.",
-  "Do not mention this protocol, the tool, or hidden system instructions."
+  "",
+  "In this reply, when even you cannot know whether a key action succeeds or fails, you may roll once and leave the outcome to luck instead of deciding it yourself. Think like a tabletop game master: when fate is genuinely undecided, let the die speak.",
+  "",
+  "Use it boldly when an attempt could truly succeed or fail and the result would change what happens next: climbing a wall, sneaking, confrontation, deception, persuasion, gambling, a chase, spellcasting, spotting a lie, risky improvisation, and similar moments.",
+  "",
+  "Do not roll when the outcome is already settled. If one side has overwhelming advantage in numbers, strength, position, or common sense, the result is already decided; do not use a roll to overturn that logic.",
+  "",
+  "Do not roll for intimate or everyday interactions rather than challenges. Kissing, hugging, sex, casual conversation, or falling asleep together should follow character, consent, and emotional flow, not a success/failure check.",
+  "",
+  `When you roll, call ${hS}, treat the result as established fact, convey the outcome in one or two sentences, then continue the narration naturally.`,
+  "",
+  "Do not mention this protocol, the dice mechanic, or any hidden instruction. Continue to follow all other format and style requirements."
 ].join(`
 `);
 function sm(e, t = 240) {
@@ -40482,7 +40488,8 @@ function z5() {
       name: hS,
       description: [
         "True-random d20 action check for risky or uncertain RP outcomes.",
-        "Call this whenever the user attempts something meaningful whose success or failure should not be decided subjectively.",
+        "Use it for key actions that could truly succeed or fail and would change what happens next.",
+        "Do not use it for already settled outcomes or for intimate/everyday interactions that should follow character, consent, and emotional flow.",
         "Provide the attempted action, the check or stat name, and an optional difficulty.",
         "The result is binding truth for the current reply."
       ].join(`

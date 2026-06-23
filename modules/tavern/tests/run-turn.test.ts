@@ -1010,6 +1010,9 @@ test('xb tavern run turn injects action-check protocol after current user and ex
     assert.ok(userIndex >= 0);
     assert.ok(protocolIndex > userIndex);
     assert.ok(afterHistoryIndex > protocolIndex);
+    const protocolContent = requestMessages[protocolIndex]?.content || '';
+    assert.match(protocolContent, /overwhelming advantage/);
+    assert.match(protocolContent, /Do not roll for intimate or everyday interactions/);
     assert.deepEqual(exposedToolNames, [ACTION_CHECK_TOOL_NAME]);
 });
 

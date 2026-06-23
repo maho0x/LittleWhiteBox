@@ -57,6 +57,20 @@ test('tavern source keeps cross-frame messages behind clone-safe wrappers', () =
     assert.match(hostSource, /function postToFrame[\s\S]*const message = cloneFramePayload\(\{ type, payload \}\);[\s\S]*postToIframe/);
 });
 
+test('tavern module is lazy-loaded so host import failures stay isolated', () => {
+    const indexSource = readRepoFile('index.js');
+
+    assert.doesNotMatch(indexSource, /^import\s+(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)\s+from\s+["']\.\/modules\/tavern\/tavern\.js["'];?$/m);
+    assert.doesNotMatch(indexSource, /^import\s+["']\.\/modules\/tavern\/tavern\.js["'];?$/m);
+    assert.match(indexSource, /tavernModulePromise \|\|= import\(["']\.\/modules\/tavern\/tavern\.js["']\)/);
+    assert.match(indexSource, /async function initTavernSafely\(\) \{[\s\S]*try \{[\s\S]*await loadTavernModule\(\);[\s\S]*if \(!isXiaobaixEnabled\) return;[\s\S]*await tavern\.initTavern\?\.\(\);[\s\S]*\} catch \(error\) \{[\s\S]*markTavernUnavailable\(error\);[\s\S]*\}/);
+    assert.match(indexSource, /async function openTavernSafely\(\) \{[\s\S]*await loadTavernModule\(\);[\s\S]*await tavern\.initTavern\?\.\(\);[\s\S]*await tavern\.openTavern\(\);[\s\S]*showTavernUnsupportedNotice\(error\);/);
+    assert.match(indexSource, /async function cleanupTavernSafely\(\) \{[\s\S]*const tavern = tavernModule;[\s\S]*await tavern\?\.cleanupTavern\?\.\(\);/);
+    assert.doesNotMatch(indexSource, /async function cleanupTavernSafely\(\)[\s\S]*loadTavernModule\(\)/);
+    assert.match(indexSource, /void initTavernSafely\(\);/);
+    assert.match(indexSource, /await openTavernSafely\(\);/);
+});
+
 test('tavern startup posts frame-ready before heavy app tasks and prewarms host config', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const hostSource = readRepoFile('modules/tavern/tavern.ts');
