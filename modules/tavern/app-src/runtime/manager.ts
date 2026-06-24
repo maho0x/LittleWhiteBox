@@ -398,10 +398,6 @@ function isSourceFileToolName(name = ''): boolean {
     return Object.values(TAVERN_SOURCE_FILE_TOOL_NAMES).includes(name as typeof TAVERN_SOURCE_FILE_TOOL_NAMES[keyof typeof TAVERN_SOURCE_FILE_TOOL_NAMES]);
 }
 
-function hasFailedTool(toolTrace: Array<Record<string, unknown>> = []): boolean {
-    return toolTrace.some((item) => item.ok === false);
-}
-
 function normalizeManagerThoughtBlocks(value: unknown): Array<{ label?: string; text?: string }> {
     if (!Array.isArray(value)) {return [];}
     const thoughts: Array<{ label: string; text: string }> = [];
@@ -805,7 +801,10 @@ async function runManagerAgentWithTools(input: {
     throw new Error(`工具轮次达到上限（${MAX_MANAGER_TOOL_ROUNDS}），已停止。`);
 }
 
-async function assertManagerSourceMessagesCurrent(input: XbTavernManagerRunInput): Promise<void> {
+async function resolveCurrentManagerSourceMessages(input: XbTavernManagerRunInput): Promise<{
+    userMessage: TavernMessageRecord;
+    assistantMessage: TavernMessageRecord;
+}> {
     if (Number.isFinite(Number(input.autoManagerEpoch))) {
         const currentEpoch = await getTavernAutoManagerEpoch(input.sessionId);
         if (currentEpoch !== Math.max(0, Math.floor(Number(input.autoManagerEpoch) || 0))) {
@@ -817,15 +816,17 @@ async function assertManagerSourceMessagesCurrent(input: XbTavernManagerRunInput
         getTavernMessage(input.sessionId, input.assistantMessage.order),
     ]);
     const userMatches = userMessage?.role === 'user'
-        && userMessage.error !== true
-        && userMessage.content === input.userMessage.content;
+        && userMessage.error !== true;
     const assistantMatches = assistantMessage?.role === 'assistant'
         && assistantMessage.error !== true
-        && !['aborted', 'error'].includes(String(assistantMessage.finishReason || '').trim())
-        && assistantMessage.content === input.assistantMessage.content;
+        && !['aborted', 'error'].includes(String(assistantMessage.finishReason || '').trim());
     if (!userMatches || !assistantMatches) {
         throw new Error('manager_source_messages_changed');
     }
+    return {
+        userMessage,
+        assistantMessage,
+    };
 }
 
 async function createOrUpdateManagerRun(input: {
@@ -883,7 +884,10 @@ async function finalizeManagerRun(record: TavernManagerRunRecord, patch: Partial
     return await updateTavernManagerRun(record.id, patch) || record;
 }
 
-async function buildAutoManagerMessages(input: XbTavernManagerRunInput): Promise<XbTavernMessage[]> {
+async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMessages: {
+    userMessage: TavernMessageRecord;
+    assistantMessage: TavernMessageRecord;
+}): Promise<XbTavernMessage[]> {
     const contractRuntime = resolveSessionContractRuntime(input.sessionContract);
     if (contractRuntime.includeMemoryFiles) {
         await ensureTavernMemoryDefaults(input.sessionId);
@@ -903,8 +907,8 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput): Promise
             role: 'user',
             content: buildAutoManagerUserPrompt({
                 turn: input.turn,
-                userMessage: input.userMessage,
-                assistantMessage: input.assistantMessage,
+                userMessage: sourceMessages.userMessage,
+                assistantMessage: sourceMessages.assistantMessage,
                 memoryFiles,
                 taskPoolBlock,
                 runtime: contractRuntime,
@@ -1040,9 +1044,6 @@ async function runManagerTask(input: {
         changedStates = result.changedStates;
         changedTasks = result.changedTasks;
         protocolMessages = result.protocolMessages;
-        if (input.caller !== 'auto' && hasFailedTool(toolTrace)) {
-            throw new Error('manager_memory_tool_failed');
-        }
         if (input.requireChangedFiles && !changedFiles.length) {
             throw new Error('manager_memory_tool_required');
         }
@@ -1304,26 +1305,33 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
         throw new Error('manager_run_missing');
     }
     try {
-        await assertManagerSourceMessagesCurrent(input);
-        const messages = await buildAutoManagerMessages(input);
+        const currentSourceMessages = await resolveCurrentManagerSourceMessages(input);
+        const currentInputSummary = buildInputSummary({
+            trigger: input.trigger || 'after_turn',
+            turn: input.turn,
+            userOrder: currentSourceMessages.userMessage.order,
+            assistantOrder: currentSourceMessages.assistantMessage.order,
+            text: currentSourceMessages.userMessage.content,
+        });
+        const messages = await buildAutoManagerMessages(input, currentSourceMessages);
         const result = await runManagerTask({
             sessionId,
             agentConfig: input.agentConfig,
             trigger: input.trigger || 'after_turn',
             turn: input.turn,
-            userOrder: input.userMessage.order,
-            assistantOrder: input.assistantMessage.order,
-            inputSummary,
+            userOrder: currentSourceMessages.userMessage.order,
+            assistantOrder: currentSourceMessages.assistantMessage.order,
+            inputSummary: currentInputSummary,
             messages,
             managerRunId: managerRun.id,
             caller: 'auto',
             requireChangedFiles: false,
             beforeWriteGuard: async () => {
                 throwIfManagerAborted(input.signal);
-                await assertManagerSourceMessagesCurrent(input);
+                await resolveCurrentManagerSourceMessages(input);
             },
             sessionContract: input.sessionContract,
-            contextSnapshot: input.contextSnapshot || input.assistantMessage.contextSnapshot || input.userMessage.contextSnapshot || {},
+            contextSnapshot: input.contextSnapshot || currentSourceMessages.assistantMessage.contextSnapshot || currentSourceMessages.userMessage.contextSnapshot || {},
             signal: input.signal,
             executeManagerOnce: input.executeManagerOnce,
             onProtocolEvent: input.onProtocolEvent,
@@ -1335,16 +1343,16 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
                 error: result.error,
             };
         }
-        await assertManagerSourceMessagesCurrent(input);
+        await resolveCurrentManagerSourceMessages(input);
         const changedFiles = [...(result.changedFiles || [])];
         let changedTasks = [...(result.changedTasks || [])];
         let completedRun = result.managerRun;
         if (contractRuntime.includeQuestOrchestration) {
-            const abandonedTasks = await abandonStaleTavernTasks(sessionId, input.assistantMessage.order, {
+            const abandonedTasks = await abandonStaleTavernTasks(sessionId, currentSourceMessages.assistantMessage.order, {
                 managerRunId: managerRun.id,
                 beforeWriteGuard: async () => {
                     throwIfManagerAborted(input.signal);
-                    await assertManagerSourceMessagesCurrent(input);
+                    await resolveCurrentManagerSourceMessages(input);
                 },
             });
             if (abandonedTasks.length) {

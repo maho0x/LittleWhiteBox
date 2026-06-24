@@ -4661,6 +4661,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
         movePreview: moveCharacterPreview,
         openCharacterWorldbook: openSelectedCharacterWorldbook,
         openSession: selectSession,
+        removeSession,
         pendingCharacterSessionKey,
         pendingError: pendingCharacterError,
         pendingPreviewCharacterKey: pendingCharacterPreviewKey,

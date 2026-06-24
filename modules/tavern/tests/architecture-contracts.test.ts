@@ -696,10 +696,21 @@ test('tavern edit and delete roll back accepted memory and event state together'
 
 test('tavern data rollback helpers keep paired state writes inside transactions', () => {
     const acceptedStateSource = readRepoFile('modules/tavern/shared/accepted-state.ts');
+    const managerSource = readRepoFile('modules/tavern/app-src/runtime/manager.ts');
     const taskSource = readRepoFile('modules/tavern/shared/tasks.ts');
     const memorySource = readRepoFile('modules/tavern/shared/memory-files.ts');
+    const memoryRetrievalSource = readRepoFile('modules/tavern/shared/memory-retrieval.ts');
 
     assert.match(acceptedStateSource, /db\.transaction\(\s*'rw'[\s\S]*saveTavernMemorySnapshot\(id, floor\)[\s\S]*saveTavernTaskSnapshot\(id, floor\)/);
+    assert.match(memoryRetrievalSource, /export function cleanSourceTextForManager[\s\S]*tavern-image\|img\|图片[\s\S]*\\s\*:/);
+    assert.match(managerSource, /async function resolveCurrentManagerSourceMessages/);
+    assert.match(managerSource, /const currentSourceMessages = await resolveCurrentManagerSourceMessages\(input\)/);
+    assert.match(managerSource, /buildAutoManagerMessages\(input, currentSourceMessages\)/);
+    assert.doesNotMatch(managerSource, /cleanSourceTextForManager\((?:userMessage|assistantMessage)\.content\) === cleanSourceTextForManager\(input\.(?:userMessage|assistantMessage)\.content\)/);
+    assert.doesNotMatch(managerSource, /\.(?:content)\s*===\s*input\.(?:userMessage|assistantMessage)\.content/);
+    assert.match(managerSource, /userMessage\?\.role === 'user'[\s\S]*userMessage\.error !== true/);
+    assert.match(managerSource, /assistantMessage\?\.role === 'assistant'[\s\S]*assistantMessage\.error !== true[\s\S]*finishReason/);
+    assert.doesNotMatch(managerSource, /function hasFailedTool|manager_memory_tool_failed/);
     assert.match(taskSource, /db\.transaction\('rw', tavernTasksTable, tavernTaskFingerprintStatesTable, tavernManagerTaskSnapshotsTable/);
     assert.match(taskSource, /ensureTavernManagerTaskSnapshot\(options\.managerRunId, sessionId\)[\s\S]*const result = await mutate\(\)[\s\S]*updateTavernManagerTaskSnapshotAfter\(options\.managerRunId, sessionId\)/);
     assert.match(memorySource, /db\.transaction\(\s*'rw'[\s\S]*ensureTavernManagerMemorySnapshot\(\{ managerRunId: options\.managerRunId, sessionId: id, path \}\)[\s\S]*writeTavernMemoryFile\(id, path/);
@@ -1212,6 +1223,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(conversationPanelSource, /createNewChatSession,[\s\S]*const composeMenuOpen = ref\(false\)/);
     assert.match(conversationPanelSource, /const sessionArchiveOpen = ref\(false\)/);
     assert.doesNotMatch(conversationPanelSource, /open-session-archive/);
+    assert.match(conversationPanelSource, /removeSession,/);
+    assert.match(conversationPanelSource, /function deleteArchivedSession\(sessionId: string, event: Event\)[\s\S]*removeSession\(sessionId, event\)/);
+    assert.match(conversationPanelSource, /v-for="session in currentChatCharacterSessions"[\s\S]*class="session-archive-open"[\s\S]*@click="openArchivedSession\(session\.id\)"[\s\S]*class="session-archive-delete"[\s\S]*aria-label="删除会话"[\s\S]*@click="deleteArchivedSession\(session\.id, \$event\)"/);
     assert.match(conversationPanelSource, /class="chat-compose-dock"[\s\S]*class="chat-compose-shell"[\s\S]*class="compose-menu-shell"[\s\S]*<form\s+class="chat-compose"/);
     assert.doesNotMatch(conversationPanelSource, /<form\s+class="chat-compose"[\s\S]*class="compose-menu-shell"/);
     assert.match(conversationPanelSource, /class="compose-menu-button"[\s\S]*aria-label="聊天操作"[\s\S]*aria-controls="xb-tavern-compose-menu"[\s\S]*@click\.stop="toggleComposeMenu"/);
@@ -1433,9 +1447,11 @@ test('tavern character archive separates new chat from existing session selectio
     assert.match(characterSource, /class="character-session-archive-overlay"/);
     assert.match(characterSource, /class="session-archive-close"[\s\S]*aria-label="关闭会话档案"[\s\S]*\/>/);
     assert.doesNotMatch(characterSource, /class="session-archive-close"[\s\S]*×[\s\S]*<\/button>/);
+    assert.match(characterSource, /removeSession,/);
+    assert.match(characterSource, /function deleteArchivedSession\(sessionId: string, event: Event\)[\s\S]*removeSession\(sessionId, event\)/);
     assert.match(appSource, /class="worldbook-picker-close"[\s\S]*aria-label="关闭"[\s\S]*\/>/);
     assert.match(characterSource, /v-for="session in selectedCharacterSessions"/);
-    assert.match(characterSource, /@click="openSession\(session\.id\)"/);
+    assert.match(characterSource, /class="session-archive-open"[\s\S]*@click="openSession\(session\.id\)"[\s\S]*class="session-archive-delete"[\s\S]*aria-label="删除会话"[\s\S]*@click="deleteArchivedSession\(session\.id, \$event\)"/);
     assert.match(characterSource, /@click="enterSelected"/);
     assert.match(characterSource, /<main\s+v-if="!selectedCharacter"\s+class="character-preview-panel dossier-empty"/);
     assert.doesNotMatch(characterSource, /@dblclick="\$emit\('enter-character'/);

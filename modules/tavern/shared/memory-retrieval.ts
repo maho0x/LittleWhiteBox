@@ -206,6 +206,7 @@ function cleanMemoryText(value: unknown = ''): string {
 export function cleanSourceTextForManager(value: unknown = ''): string {
     return applyMemoryTextFilterRules(String(value || ''), getConfiguredMemoryTextFilterRules())
         .replace(/\[tts:[^\]]*]/gi, ' ')
+        .replace(/\[(?:tavern-image|img|图片)\s*:[^\]]*]/gi, ' ')
         .replace(/<state>[\s\S]*?<\/state>/gi, ' ')
         .replace(/<status>[\s\S]*?<\/status>/gi, ' ')
         .replace(/<status[^>]*>[\s\S]*?<\/status>/gi, ' ')

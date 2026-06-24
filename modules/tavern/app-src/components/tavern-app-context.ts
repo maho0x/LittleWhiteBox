@@ -198,6 +198,7 @@ export interface TavernCharacterContext {
     movePreview: TavernCommand<[delta: number]>;
     openCharacterWorldbook: TavernCommand<[], Promise<void>>;
     openSession: TavernCommand<[sessionId: string], Promise<void>>;
+    removeSession: TavernCommand<[sessionId: string, event?: Event], Promise<void>>;
     pendingCharacterSessionKey: Ref<string>;
     pendingError: Ref<string>;
     pendingPreviewCharacterKey: Ref<string>;

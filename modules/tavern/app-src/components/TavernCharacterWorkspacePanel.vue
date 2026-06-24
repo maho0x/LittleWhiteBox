@@ -18,6 +18,7 @@ const {
     movePreview,
     openCharacterWorldbook,
     openSession: openSessionById,
+    removeSession,
     pendingCharacterSessionKey,
     pendingError,
     pendingPreviewCharacterKey,
@@ -168,6 +169,10 @@ function openSession(sessionId: string) {
     if (!id) {return;}
     closeSessionArchive();
     void openSessionById(id);
+}
+
+async function deleteArchivedSession(sessionId: string, event: Event) {
+    await removeSession(sessionId, event);
 }
 
 watch(
@@ -495,20 +500,40 @@ watch(
             v-if="selectedCharacterSessions.length"
             class="session-archive-list"
           >
-            <button
+            <div
               v-for="session in selectedCharacterSessions"
               :key="session.id"
-              type="button"
               class="session-archive-item"
-              @click="openSession(session.id)"
             >
-              <span class="session-archive-item-title">{{ sessionArchiveTitle(session) }}</span>
-              <span class="session-archive-item-meta">{{ sessionArchiveMeta(session) }}</span>
-              <span
-                v-if="session.summary"
-                class="session-archive-item-summary"
-              >{{ shortText(session.summary, 96) }}</span>
-            </button>
+              <button
+                type="button"
+                class="session-archive-open"
+                @click="openSession(session.id)"
+              >
+                <span class="session-archive-item-title">{{ sessionArchiveTitle(session) }}</span>
+                <span class="session-archive-item-meta">{{ sessionArchiveMeta(session) }}</span>
+                <span
+                  v-if="session.summary"
+                  class="session-archive-item-summary"
+                >{{ shortText(session.summary, 96) }}</span>
+              </button>
+              <button
+                type="button"
+                class="session-archive-delete"
+                title="删除会话"
+                aria-label="删除会话"
+                @click="deleteArchivedSession(session.id, $event)"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M6 6l1 15h10l1-15" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div
             v-else

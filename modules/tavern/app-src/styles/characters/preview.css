@@ -553,14 +553,16 @@
 
 .session-archive-item {
     display: grid;
-    gap: 5px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
     width: 100%;
     min-height: 58px;
     border: 1px solid var(--xb-rule);
     border-radius: 4px;
     background: var(--xb-paper-plain);
     color: var(--xb-ink);
-    padding: 10px 12px;
+    padding: 0;
     text-align: left;
     transition: border-color 0.16s ease, background 0.16s ease;
 }
@@ -568,6 +570,47 @@
 .session-archive-item:hover:not(:disabled) {
     border-color: var(--xb-ink);
     background: var(--xb-paper);
+}
+
+.session-archive-open {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 10px 12px;
+    text-align: left;
+}
+
+.session-archive-delete {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    margin-right: 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--xb-ink-faint);
+    padding: 0;
+}
+
+.session-archive-delete svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+}
+
+.session-archive-delete:hover,
+.session-archive-delete:focus-visible {
+    border-color: rgba(172, 78, 72, 0.42);
+    background: rgba(172, 78, 72, 0.12);
+    color: var(--xb-danger);
 }
 
 .session-archive-item-title {
