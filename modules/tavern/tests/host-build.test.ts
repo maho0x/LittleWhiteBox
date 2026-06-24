@@ -90,6 +90,7 @@ test('tavern chat typography follows host SillyTavern font metrics inside the if
     const baseCss = readRepoFile('modules/tavern/app-src/styles/base.css');
     const markdownCss = readRepoFile('modules/tavern/app-src/styles/chat/markdown.css');
     const composeCss = readRepoFile('modules/tavern/app-src/styles/chat/compose.css');
+    const managerCss = readRepoFile('modules/tavern/app-src/styles/chat/manager.css');
     const messagesCss = readRepoFile('modules/tavern/app-src/styles/chat/messages.css');
     const memoryCss = readRepoFile('modules/tavern/app-src/styles/chat/memory-editor.css');
 
@@ -135,6 +136,12 @@ test('tavern chat typography follows host SillyTavern font metrics inside the if
     assert.match(composeCss, /line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
     assert.match(messagesCss, /font-size: var\(--xb-tavern-reading-font-size, 15px\);/);
     assert.match(memoryCss, /line-height: var\(--xb-host-prose-line-height, 23px\);/);
+    assert.doesNotMatch(managerCss, /p:has\(\+ ul\)|p:has\(\+ ol\)|p \+ ul|p \+ ol|li > p/);
+    assert.doesNotMatch(markdownCss, /\.manager-message \.xb-tavern-markdown p \+ ul|\.manager-message \.xb-tavern-markdown p \+ ol/);
+    assert.doesNotMatch(markdownCss, /\.chat-bubble\.from-assistant \.xb-tavern-markdown li > p/);
+    assert.match(markdownCss, /\.xb-tavern-markdown li \{[\s\S]*font-size: inherit;[\s\S]*line-height: inherit;[\s\S]*white-space: normal;/);
+    assert.match(markdownCss, /\.xb-tavern-markdown li > p \{\r?\n\s+margin: 0;[\s\S]*?white-space: pre-wrap;/);
+    assert.match(markdownCss, /\.xb-tavern-markdown li > ul,\r?\n\.xb-tavern-markdown li > ol \{\r?\n\s+margin-top: 2px;\r?\n\s+margin-bottom: 2px;/);
 });
 
 test('tavern chat font size preference scales reading typography relative to host metrics', () => {
@@ -152,6 +159,8 @@ test('tavern chat font size preference scales reading typography relative to hos
     assert.match(markdownCss, /\[data-chat-font-size='large'\] \{[\s\S]*--xb-tavern-reading-font-offset: 2px;[\s\S]*--xb-tavern-reading-line-offset: 4px;/);
 
     assert.match(markdownCss, /\.xb-tavern-markdown \{[\s\S]*font-size: var\(--xb-tavern-reading-font-size, 15px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
+    assert.match(markdownCss, /\.xb-tavern-markdown p \{[\s\S]*font-size: inherit;[\s\S]*line-height: inherit;[\s\S]*white-space: pre-wrap;/);
+    assert.match(markdownCss, /\.xb-tavern-markdown li \{[\s\S]*font-size: inherit;[\s\S]*line-height: inherit;[\s\S]*white-space: normal;/);
     assert.match(composeCss, /\.chat-compose textarea \{[\s\S]*font-size: var\(--xb-tavern-reading-font-size, 15px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
     assert.match(messagesCss, /\.action-check-card-copy \{[\s\S]*font-size: var\(--xb-tavern-reading-font-size, 15px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
     assert.match(messagesCss, /\.action-check-card-stakes \{[\s\S]*font-size: calc\(var\(--xb-tavern-reading-font-size, 15px\) - 1px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);[\s\S]*overflow-wrap: anywhere;/);
@@ -166,7 +175,9 @@ test('tavern chat font size preference scales reading typography relative to hos
 test('tavern markdown blockquotes do not render showdown formatting whitespace as blank lines', () => {
     const markdownCss = readRepoFile('modules/tavern/app-src/styles/chat/markdown.css');
 
-    assert.match(markdownCss, /\.xb-tavern-markdown p,\r?\n\.xb-tavern-markdown li \{\r?\n\s+white-space: pre-wrap;/);
+    assert.match(markdownCss, /\.xb-tavern-markdown p \{[\s\S]*font-size: inherit;[\s\S]*line-height: inherit;[\s\S]*white-space: pre-wrap;/);
+    assert.match(markdownCss, /\.xb-tavern-markdown li \{[\s\S]*font-size: inherit;[\s\S]*line-height: inherit;[\s\S]*white-space: normal;/);
+    assert.match(markdownCss, /\.xb-tavern-markdown li > p \{[\s\S]*?white-space: pre-wrap;/);
     assert.doesNotMatch(markdownCss, /\.xb-tavern-markdown blockquote[^{]*\{[^}]*white-space:\s*pre-wrap/);
     assert.match(markdownCss, /\.xb-tavern-markdown blockquote \{[\s\S]*?white-space: normal;[\s\S]*?\n\}/);
 });

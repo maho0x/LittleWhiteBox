@@ -5,6 +5,9 @@ import {
     atlasGlyphForScale,
     getTavernGameIconGlyph,
     getTavernMapIconRenderSize,
+    gameIconScaleTransform,
+    gameIconTransform,
+    gameIconTranslateTransform,
     isTavernLegacyMapIcon,
 } from '../app-src/map-glyphs';
 import { getTavernMapDisplayViewBox, getTavernMapDocumentBounds } from '../app-src/map-display';
@@ -68,6 +71,12 @@ test('map glyph registry upgrades semantic icons while preserving legacy markers
     assert.equal(isTavernLegacyMapIcon('stairs-up'), true);
     assert.equal(isTavernLegacyMapIcon('skull'), false);
     assert.equal(getTavernMapIconRenderSize('heart') > getTavernMapIconRenderSize('x'), true);
+});
+
+test('game icon transforms keep at coordinates as the visual anchor', () => {
+    assert.equal(gameIconTranslateTransform(260, 292), 'translate(260, 292)');
+    assert.equal(gameIconScaleTransform(), 'scale(0.04688)');
+    assert.equal(gameIconTransform(260, 292), 'matrix(0.04688, 0, 0, 0.04688, 248, 280)');
 });
 
 test('atlas scale glyphs do not use road as a first-pass location default', () => {

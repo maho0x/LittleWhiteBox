@@ -24,6 +24,26 @@ function readRepoFile(path: string): string {
     return readFileSync(resolve(root, path), 'utf8');
 }
 
+function extractCssBlock(source: string, selector: string): string {
+    const start = source.indexOf(selector);
+    assert.notEqual(start, -1, `Missing CSS block: ${selector}`);
+    const open = source.indexOf('{', start);
+    assert.notEqual(open, -1, `Missing CSS block body: ${selector}`);
+    let depth = 0;
+    for (let index = open; index < source.length; index += 1) {
+        const char = source[index];
+        if (char === '{') {
+            depth += 1;
+        } else if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return source.slice(start, index + 1);
+            }
+        }
+    }
+    assert.fail(`Unclosed CSS block: ${selector}`);
+}
+
 const sourceFiles = collectSourceFiles(tavernRoot);
 
 function sourceMatches(pattern: RegExp): Array<{ path: string; line: number; text: string }> {
@@ -366,12 +386,31 @@ test('tavern runtime chat preset uses ST-confirmed active preset, never unsaved 
 });
 
 test('tavern map game icon animation does not override SVG transform attributes', () => {
+    const mapPanel = readRepoFile('modules/tavern/app-src/components/TavernMapPanel.vue');
     const mapCss = readRepoFile('modules/tavern/app-src/styles/chat/map.css');
-    const fillInKeyframes = mapCss.match(/@keyframes tavern-map-fill-in \{[\s\S]*?\n\}/)?.[0] || '';
-    const removeKeyframes = mapCss.match(/@keyframes tavern-map-remove \{[\s\S]*?\n\}/)?.[0] || '';
-    assert.match(mapCss, /\.tavern-chat\.xb-page \.map-line\.is-game-icon\.is-animated \{[\s\S]*tavern-map-fill-in/);
+    const glyphSource = readRepoFile('modules/tavern/app-src/map-glyphs.ts');
+    const fillInKeyframes = extractCssBlock(mapCss, '@keyframes tavern-map-fill-in');
+    const removeKeyframes = extractCssBlock(mapCss, '@keyframes tavern-map-remove');
+    assert.match(mapPanel, /glyphTransform\?: string/);
+    assert.match(mapPanel, /glyphScaleTransform\?: string/);
+    assert.match(mapPanel, /if \(gameIcon\) \{[\s\S]*transform: '',\s*glyphTransform: gameIconTranslateTransform\(element\.at\[0\], element\.at\[1\]\),\s*glyphScaleTransform: gameIconScaleTransform\(\)/);
+    assert.match(mapPanel, /const regularLineItems = computed\(\(\) => lineItems\.value\.filter\(\(item\) => !item\.gameIcon\)\)/);
+    assert.match(mapPanel, /const gameIconLineItems = computed\(\(\) => lineItems\.value\.filter\(\(item\) => item\.gameIcon\)\)/);
+    assert.match(mapPanel, /const regularRemovedLineItems = computed\(\(\) => removedLineItems\.value\.filter\(\(item\) => !item\.gameIcon\)\)/);
+    assert.match(mapPanel, /const gameIconRemovedLineItems = computed\(\(\) => removedLineItems\.value\.filter\(\(item\) => item\.gameIcon\)\)/);
+    assert.match(mapPanel, /v-for="item in regularLineItems"[\s\S]*:transform="item\.transform"/);
+    assert.match(mapPanel, /v-for="item in gameIconLineItems"[\s\S]*:transform="item\.glyphTransform"[\s\S]*:transform="item\.glyphScaleTransform"[\s\S]*transform="translate\(-256, -256\)"[\s\S]*class="map-game-icon-path"/);
+    assert.match(mapPanel, /v-for="item in regularRemovedLineItems"[\s\S]*:transform="item\.transform"/);
+    assert.match(mapPanel, /v-for="item in gameIconRemovedLineItems"[\s\S]*:transform="item\.glyphTransform"[\s\S]*:transform="item\.glyphScaleTransform"[\s\S]*transform="translate\(-256, -256\)"[\s\S]*class="map-game-icon-path"/);
+    assert.doesNotMatch(mapPanel, /<path\s+v-for="item in lineItems"/);
+    assert.doesNotMatch(mapPanel, /<path\s+v-for="item in removedLineItems"/);
+    assert.match(mapCss, /\.tavern-chat\.xb-page \.map-game-icon\.is-animated \{[\s\S]*tavern-map-fill-in/);
+    assert.doesNotMatch(mapCss, /\.map-line\.is-game-icon\.is-animated/);
     assert.doesNotMatch(fillInKeyframes, /transform:/);
     assert.doesNotMatch(removeKeyframes, /transform:/);
+    assert.match(glyphSource, /function gameIconTranslateTransform\(x: number, y: number\): string/);
+    assert.match(glyphSource, /function gameIconScaleTransform\(size = TAVERN_MAP_GAME_ICON_SIZE\): string/);
+    assert.match(glyphSource, /return `matrix\(\$\{Number\(scale\.toFixed\(5\)\)\}, 0, 0, \$\{Number\(scale\.toFixed\(5\)\)\}, \$\{left\}, \$\{top\}\)`/);
     const stateSource = readRepoFile('modules/tavern/shared/structured-state.ts');
     assert.match(stateSource, /SCENE_MAP_PLACE_SCALE_ICONS/);
     assert.match(stateSource, /assertSceneMapIconAllowed\(icon, id\)/);
@@ -643,8 +682,13 @@ test('tavern map update badge stays collapsed until requested', () => {
     assert.doesNotMatch(mapPanelSource, /mapBadgeExpanded\.value = true/);
     assert.match(mapPanelSource, /function toggleMapBadge\(\) \{[\s\S]*mapBadgeExpanded\.value = !mapBadgeExpanded\.value/);
     assert.match(mapPanelSource, /const mapPanOffset = ref<\[number, number\]>\(\[0, 0\]\)/);
+    assert.match(mapPanelSource, /const mapZoom = ref\(1\)/);
+    assert.match(mapPanelSource, /const zoomedWidth = width \/ zoom/);
+    assert.match(mapPanelSource, /function setMapZoom\(nextZoom: number, anchor\?: \{ clientX: number; clientY: number \}\)/);
+    assert.match(mapPanelSource, /function handleMapWheel\(event: WheelEvent\)[\s\S]*event\.preventDefault\(\)[\s\S]*setMapZoom/);
     assert.match(mapPanelSource, /function handleMapPointerDown\(event: PointerEvent\)/);
-    assert.match(mapPanelSource, /@pointerdown="handleMapPointerDown"[\s\S]*@pointermove="handleMapPointerMove"[\s\S]*@pointerup="handleMapPointerEnd"[\s\S]*@pointercancel="handleMapPointerEnd"/);
+    assert.match(mapPanelSource, /class="tavern-map-zoom-controls"[\s\S]*@click="zoomMapBy\(-0\.25\)"[\s\S]*{{ mapZoomLabel }}[\s\S]*@click="zoomMapBy\(0\.25\)"/);
+    assert.match(mapPanelSource, /@pointerdown="handleMapPointerDown"[\s\S]*@pointermove="handleMapPointerMove"[\s\S]*@pointerup="handleMapPointerEnd"[\s\S]*@pointercancel="handleMapPointerEnd"[\s\S]*@wheel="handleMapWheel"/);
     assert.match(mapPanelSource, /function pickPenAnimationItem[\s\S]*!item\.gameIcon[\s\S]*item\.layer !== 'label'[\s\S]*!!item\.path/);
     assert.match(mapPanelSource, /const animated = pickPenAnimationItem\(animatedItems\.value\)/);
     assert.doesNotMatch(mapPanelSource, /tavern-map-active-button|设为当前|activate-document/);
@@ -652,6 +696,9 @@ test('tavern map update badge stays collapsed until requested', () => {
     assert.doesNotMatch(contextSource, /activateMapDocument/);
     assert.match(mapCss, /\.tavern-chat\.xb-page \.tavern-map-canvas svg \{[\s\S]*cursor: grab;[\s\S]*touch-action: none;[\s\S]*user-select: none;/);
     assert.match(mapCss, /\.tavern-chat\.xb-page \.tavern-map-canvas\.is-panning svg \{[\s\S]*cursor: grabbing;/);
+    assert.match(mapCss, /\.tavern-chat\.xb-page \.tavern-map-zoom-controls \{[\s\S]*position: absolute;[\s\S]*right: 14px;[\s\S]*top: 14px;/);
+    assert.match(mapCss, /\.tavern-chat\.xb-page \.tavern-map-badge-shell \{[\s\S]*position: absolute;[\s\S]*top: 14px;[\s\S]*left: 16px;/);
+    assert.match(mapCss, /\.tavern-chat\.xb-page \.tavern-map-timeline-control \{[\s\S]*position: absolute;[\s\S]*left: 16px;[\s\S]*bottom: 16px;/);
     assert.doesNotMatch(mapCss, /tavern-map-active-button/);
 });
 
@@ -676,6 +723,13 @@ test('tavern atlas only opens scene maps that actually exist', () => {
     assert.match(atlasPanelSource, /displayMode\?: 'full' \| 'graph' \| 'detail'/);
     assert.match(atlasPanelSource, /const showGraph = computed\(\(\) => props\.displayMode !== 'detail'\)/);
     assert.match(atlasPanelSource, /const showDetail = computed\(\(\) => props\.displayMode !== 'graph'\)/);
+    assert.match(atlasPanelSource, /const atlasPanOffset = ref<\[number, number\]>\(\[0, 0\]\)/);
+    assert.match(atlasPanelSource, /const atlasZoom = ref\(1\)/);
+    assert.match(atlasPanelSource, /const atlasViewBoxArray = computed<\[number, number, number, number\]>/);
+    assert.match(atlasPanelSource, /function setAtlasZoom\(nextZoom: number, anchor\?: \{ clientX: number; clientY: number \}\)/);
+    assert.match(atlasPanelSource, /function handleAtlasWheel\(event: WheelEvent\)[\s\S]*event\.preventDefault\(\)[\s\S]*setAtlasZoom/);
+    assert.match(atlasPanelSource, /class="tavern-map-zoom-controls tavern-atlas-zoom-controls"[\s\S]*@click="zoomAtlasBy\(-0\.25\)"[\s\S]*{{ atlasZoomLabel }}[\s\S]*@click="zoomAtlasBy\(0\.25\)"/);
+    assert.match(atlasPanelSource, /ref="atlasSvgRef"[\s\S]*:viewBox="atlasViewBox"[\s\S]*@pointerdown="handleAtlasPointerDown"[\s\S]*@wheel="handleAtlasWheel"/);
     assert.match(atlasPanelSource, /已关联 \$\{docId\}，地图未创建/);
     assert.match(workspacePanelSource, /if \(atlasDocument\.value\.activeLocationKey\) \{return atlasActiveMapDocId\.value;\}/);
     assert.match(workspacePanelSource, /return String\(activeMapDocId\.value \|\| 'main'\)\.trim\(\)/);
@@ -1308,12 +1362,14 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(appSource, /runtimeError\.value = result\.error \|\| '';[\s\S]{0,160}showTavernToast/);
     assert.doesNotMatch(memoryEditorSource, /tavern-memory-directory-button|directoryOpen|directoryLabel|toggle-directory/);
     assert.match(workspacePanelSource, /class="tavern-memory-workspace"[\s\S]*:class="\{ 'is-memory-directory-open': memoryDirectoryOpen \}"[\s\S]*class="tavern-memory-selector"[\s\S]*:aria-expanded="memoryDirectoryOpen \? 'true' : 'false'"[\s\S]*aria-controls="xb-tavern-memory-directory"[\s\S]*@click="toggleMemoryDirectory"[\s\S]*id="xb-tavern-memory-directory"[\s\S]*class="tavern-memory-directory"[\s\S]*<TavernMemoryEditor/);
-    assert.match(workspacePanelSource, /v-if="group\.files\.length !== 1 \|\| memoryFileDisplayName\(group\.files\[0\]\) !== group\.title"/);
+    assert.match(appSource, /const memoryDirectoryGroups = computed\(\(\) => \{[\s\S]*const sortedFiles = \[\.\.\.memoryFiles\.value\][\s\S]*key: 'all'/);
+    assert.doesNotMatch(workspacePanelSource, /memory-file-group-title|group\.title/);
     assert.doesNotMatch(workspacePanelSource, /tavern-memory-directory-close|:directory-open="memoryDirectoryOpen"|@toggle-directory="toggleMemoryDirectory"/);
     assert.match(memoryCss, /\.tavern-chat\.xb-page \.tavern-memory-selector \{[\s\S]*grid-template-columns: auto minmax\(0, 1fr\) auto 18px;[\s\S]*border-bottom: 1px solid var\(--xb-rule\);/);
     assert.match(memoryCss, /\.tavern-chat\.xb-page \.tavern-memory-directory \{[\s\S]*max-height: 0;[\s\S]*overflow: hidden;[\s\S]*pointer-events: none;/);
     assert.match(memoryCss, /\.tavern-chat\.xb-page \.tavern-memory-workspace\.is-memory-directory-open \.tavern-memory-directory \{[\s\S]*max-height: min\(42vh, 380px\);[\s\S]*overflow: auto;[\s\S]*pointer-events: auto;/);
     assert.match(memoryCss, /\.tavern-chat\.xb-page \.tavern-memory-directory \.memory-file-group \{[\s\S]*display: grid;[\s\S]*gap: 6px;/);
+    assert.doesNotMatch(memoryCss, /memory-file-group-title/);
     assert.match(memoryCss, /\.tavern-chat\.xb-page \.tavern-memory-directory \.memory-file-tree \{[\s\S]*display: flex;[\s\S]*flex-wrap: wrap;/);
     assert.match(memoryCss, /@media \(max-width: 760px\) \{[\s\S]*\.tavern-chat\.xb-page \.tavern-memory-directory \.memory-file-tree \{[\s\S]*display: grid;/);
     assert.doesNotMatch(memoryCss, /\.tavern-chat\.xb-page \.tavern-memory-directory \{[^}]*position: absolute;|top: 58px|max-height: min\(62vh, 460px\)/);

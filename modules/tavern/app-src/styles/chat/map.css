@@ -115,9 +115,89 @@
     font-size: 11px;
 }
 
+.tavern-chat.xb-page .tavern-map-zoom-controls {
+    position: absolute;
+    right: 14px;
+    top: 14px;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: 26px minmax(44px, auto) 26px;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid rgba(70, 52, 31, 0.18);
+    border-radius: 7px;
+    background: rgba(230, 216, 174, 0.52);
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 248, 220, 0.18),
+        0 8px 18px rgba(58, 43, 25, 0.08);
+    backdrop-filter: blur(4px);
+}
+
+.tavern-chat.xb-page .tavern-map-zoom-controls button {
+    height: 26px;
+    min-width: 0;
+    border: 0;
+    border-right: 1px solid rgba(70, 52, 31, 0.14);
+    border-radius: 0;
+    background: transparent;
+    color: rgba(74, 55, 34, 0.82);
+    font: 760 12px/1 var(--xb-font-ui);
+    padding: 0 7px;
+}
+
+.tavern-chat.xb-page .tavern-map-zoom-controls button:last-child {
+    border-right: 0;
+}
+
+.tavern-chat.xb-page .tavern-map-zoom-controls button:hover:not(:disabled) {
+    background: rgba(76, 54, 31, 0.08);
+    color: rgba(50, 37, 23, 0.94);
+}
+
+.tavern-chat.xb-page .tavern-map-zoom-controls button:disabled {
+    color: rgba(74, 55, 34, 0.3);
+    cursor: default;
+}
+
+.tavern-chat.xb-page .tavern-map-zoom-controls .tavern-map-zoom-value {
+    color: rgba(77, 57, 34, 0.68);
+    font: 720 10px/1 var(--xb-font-mono);
+}
+
 .tavern-chat.xb-page .theme-dark .tavern-map-compact-controls,
 .tavern-chat.xb-page .theme-blueprint .tavern-map-compact-controls {
     color: rgba(221, 235, 245, 0.72);
+}
+
+.tavern-chat.xb-page .theme-dark .tavern-map-zoom-controls,
+.tavern-chat.xb-page .theme-blueprint .tavern-map-zoom-controls {
+    border-color: rgba(177, 205, 218, 0.18);
+    background: rgba(23, 35, 42, 0.42);
+    box-shadow:
+        inset 0 0 0 1px rgba(206, 230, 240, 0.06),
+        0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.tavern-chat.xb-page .theme-dark .tavern-map-zoom-controls button,
+.tavern-chat.xb-page .theme-blueprint .tavern-map-zoom-controls button {
+    border-right-color: rgba(177, 205, 218, 0.14);
+    color: rgba(214, 232, 238, 0.76);
+}
+
+.tavern-chat.xb-page .theme-dark .tavern-map-zoom-controls button:hover:not(:disabled),
+.tavern-chat.xb-page .theme-blueprint .tavern-map-zoom-controls button:hover:not(:disabled) {
+    background: rgba(214, 232, 238, 0.08);
+    color: rgba(235, 245, 248, 0.9);
+}
+
+.tavern-chat.xb-page .theme-dark .tavern-map-zoom-controls button:disabled,
+.tavern-chat.xb-page .theme-blueprint .tavern-map-zoom-controls button:disabled {
+    color: rgba(214, 232, 238, 0.26);
+}
+
+.tavern-chat.xb-page .theme-dark .tavern-map-zoom-controls .tavern-map-zoom-value,
+.tavern-chat.xb-page .theme-blueprint .tavern-map-zoom-controls .tavern-map-zoom-value {
+    color: rgba(214, 232, 238, 0.64);
 }
 
 .tavern-chat.xb-page .tavern-map-canvas svg {
@@ -227,13 +307,20 @@
         tavern-map-op-glow 1.4s ease-out calc(var(--map-delay) + 160ms) both;
 }
 
-.tavern-chat.xb-page .map-line.is-game-icon.is-animated {
+.tavern-chat.xb-page .map-game-icon {
+    opacity: 0.9;
+}
+
+.tavern-chat.xb-page .map-game-icon.is-animated {
     opacity: 0;
-    stroke-dasharray: none;
-    stroke-dashoffset: 0;
     animation:
         tavern-map-fill-in 1s ease-out calc(var(--map-delay) + 120ms) forwards,
         tavern-map-op-glow 1.4s ease-out calc(var(--map-delay) + 160ms) both;
+}
+
+.tavern-chat.xb-page .map-game-icon-path {
+    transform-box: fill-box;
+    transform-origin: center;
 }
 
 .tavern-chat.xb-page .map-fill.is-animated {
@@ -301,7 +388,7 @@
 .tavern-chat.xb-page .tavern-map-badge-shell {
     position: absolute;
     top: 14px;
-    right: 16px;
+    left: 16px;
     z-index: 6;
     display: flex;
     align-items: flex-start;
@@ -433,7 +520,7 @@
 .tavern-chat.xb-page .tavern-map-removed-stack {
     position: absolute;
     left: 18px;
-    bottom: 18px;
+    bottom: 58px;
     z-index: 6;
     display: grid;
     gap: 4px;
@@ -449,7 +536,7 @@
 
 .tavern-chat.xb-page .tavern-map-timeline-control {
     position: absolute;
-    right: 16px;
+    left: 16px;
     bottom: 16px;
     z-index: 7;
     display: flex;

@@ -10,7 +10,8 @@ import { createSeedMapDocument } from '../../shared/map-state-seed';
 import { applyTrustedMapPatchOps } from '../../shared/map-state-ops';
 import { getTavernMapDisplayViewBox, getTavernMapElementBounds, type TavernMapBounds } from '../map-display';
 import {
-    gameIconTransform,
+    gameIconScaleTransform,
+    gameIconTranslateTransform,
     getTavernGameIconGlyph,
     TAVERN_MAP_ICON_ATTRIBUTION,
 } from '../map-glyphs';
@@ -38,6 +39,8 @@ interface MapRenderItem {
     fontSize: number;
     anchor: string;
     transform: string;
+    glyphTransform?: string;
+    glyphScaleTransform?: string;
     fillRule: 'nonzero' | 'evenodd';
     gameIcon: boolean;
 }
@@ -76,6 +79,7 @@ const timelineIndex = ref(0);
 const localSelectedDocId = ref('');
 const mapSvgRef = ref<SVGSVGElement | null>(null);
 const mapPanOffset = ref<[number, number]>([0, 0]);
+const mapZoom = ref(1);
 const mapDrag = ref<{
     pointerId: number;
     startClientX: number;
@@ -186,14 +190,18 @@ const baseViewBoxArray = computed<[number, number, number, number]>(() => getTav
 const viewBoxArray = computed<[number, number, number, number]>(() => {
     const [x, y, width, height] = baseViewBoxArray.value;
     const [offsetX, offsetY] = mapPanOffset.value;
+    const zoom = Math.max(0.5, Math.min(4, mapZoom.value));
+    const zoomedWidth = width / zoom;
+    const zoomedHeight = height / zoom;
     return [
-        Number((x + offsetX).toFixed(2)),
-        Number((y + offsetY).toFixed(2)),
-        width,
-        height,
+        Number((x + offsetX + (width - zoomedWidth) / 2).toFixed(2)),
+        Number((y + offsetY + (height - zoomedHeight) / 2).toFixed(2)),
+        Number(zoomedWidth.toFixed(2)),
+        Number(zoomedHeight.toFixed(2)),
     ];
 });
 const viewBox = computed(() => viewBoxArray.value.join(' '));
+const mapZoomLabel = computed(() => `${Math.round(mapZoom.value * 100)}%`);
 const theme = computed(() => String(activeMapDocument.value?.meta?.theme || 'parchment'));
 const title = computed(() => String(replayMode.value === 'timeline'
     ? activeMapDocument.value?.meta?.name || selectedDocumentRecord.value?.title || '地图'
@@ -264,7 +272,37 @@ function clearTimelineTimer() {
 
 function resetMapPan() {
     mapPanOffset.value = [0, 0];
+    mapZoom.value = 1;
     mapDrag.value = null;
+}
+
+function setMapZoom(nextZoom: number, anchor?: { clientX: number; clientY: number }) {
+    const svg = mapSvgRef.value;
+    const bounds = svg?.getBoundingClientRect();
+    const [oldX, oldY, oldWidth, oldHeight] = viewBoxArray.value;
+    const [baseX, baseY, baseWidth, baseHeight] = baseViewBoxArray.value;
+    const clampedZoom = Number(Math.max(0.5, Math.min(4, nextZoom)).toFixed(2));
+    if (clampedZoom === mapZoom.value) {return;}
+
+    let anchorRatioX = 0.5;
+    let anchorRatioY = 0.5;
+    if (anchor && bounds && bounds.width > 0 && bounds.height > 0) {
+        anchorRatioX = Math.max(0, Math.min(1, (anchor.clientX - bounds.left) / bounds.width));
+        anchorRatioY = Math.max(0, Math.min(1, (anchor.clientY - bounds.top) / bounds.height));
+    }
+    const anchorMapX = oldX + oldWidth * anchorRatioX;
+    const anchorMapY = oldY + oldHeight * anchorRatioY;
+    const nextWidth = baseWidth / clampedZoom;
+    const nextHeight = baseHeight / clampedZoom;
+    mapZoom.value = clampedZoom;
+    mapPanOffset.value = [
+        Number((anchorMapX - nextWidth * anchorRatioX - baseX - (baseWidth - nextWidth) / 2).toFixed(2)),
+        Number((anchorMapY - nextHeight * anchorRatioY - baseY - (baseHeight - nextHeight) / 2).toFixed(2)),
+    ];
+}
+
+function zoomMapBy(step: number) {
+    setMapZoom(mapZoom.value + step);
 }
 
 function numberPair(value: unknown, fallback: [number, number] = [0, 0]): [number, number] {
@@ -519,7 +557,9 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
             y: 0,
             fontSize: 0,
             anchor: 'middle',
-            transform: gameIconTransform(element.at[0], element.at[1]),
+            transform: '',
+            glyphTransform: gameIconTranslateTransform(element.at[0], element.at[1]),
+            glyphScaleTransform: gameIconScaleTransform(),
             fillRule: gameIcon.fillRule,
             gameIcon: true,
         });
@@ -579,10 +619,14 @@ const renderItems = computed<MapRenderItem[]>(() => (activeMapDocument.value?.el
 
 const fillItems = computed(() => renderItems.value.filter((item) => item.layer === 'fill'));
 const lineItems = computed(() => renderItems.value.filter((item) => item.layer === 'line'));
+const regularLineItems = computed(() => lineItems.value.filter((item) => !item.gameIcon));
+const gameIconLineItems = computed(() => lineItems.value.filter((item) => item.gameIcon));
 const labelItems = computed(() => renderItems.value.filter((item) => item.layer === 'label'));
 const removedRenderItems = computed(() => removedElements.value.flatMap((element, index) => buildRenderItemsForElement(element, index, 'remove')));
 const removedFillItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'fill'));
 const removedLineItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'line'));
+const regularRemovedLineItems = computed(() => removedLineItems.value.filter((item) => !item.gameIcon));
+const gameIconRemovedLineItems = computed(() => removedLineItems.value.filter((item) => item.gameIcon));
 const removedLabelItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'label'));
 const animatedItems = computed(() => renderItems.value.filter((item) => replayMode.value === 'full' || item.opKind !== 'stable'));
 const totalAnimationMs = computed(() => {
@@ -627,7 +671,7 @@ function itemStyle(item: MapRenderItem) {
 function itemClass(item: MapRenderItem) {
     return [
         'map-element',
-        `map-${item.layer}`,
+        item.gameIcon ? 'map-game-icon' : `map-${item.layer}`,
         `cat-${item.element.cat || 'wall'}`,
         `op-${item.opKind}`,
         {
@@ -731,6 +775,13 @@ function handleMapPointerEnd(event: PointerEvent) {
     }
     mapDrag.value = null;
 }
+
+function handleMapWheel(event: WheelEvent) {
+    if (!mapSvgRef.value) {return;}
+    event.preventDefault();
+    const direction = event.deltaY > 0 ? -1 : 1;
+    setMapZoom(mapZoom.value + direction * 0.18, { clientX: event.clientX, clientY: event.clientY });
+}
 </script>
 
 <template>
@@ -817,6 +868,35 @@ function handleMapPointerEnd(event: PointerEvent) {
           </option>
         </select>
       </div>
+      <div
+        class="tavern-map-zoom-controls"
+        aria-label="地图缩放"
+      >
+        <button
+          type="button"
+          aria-label="缩小地图"
+          :disabled="mapZoom <= 0.5"
+          @click="zoomMapBy(-0.25)"
+        >
+          -
+        </button>
+        <button
+          type="button"
+          class="tavern-map-zoom-value"
+          aria-label="重置地图缩放"
+          @click="resetMapPan"
+        >
+          {{ mapZoomLabel }}
+        </button>
+        <button
+          type="button"
+          aria-label="放大地图"
+          :disabled="mapZoom >= 4"
+          @click="zoomMapBy(0.25)"
+        >
+          +
+        </button>
+      </div>
       <svg
         ref="mapSvgRef"
         :key="replayKey"
@@ -829,6 +909,7 @@ function handleMapPointerEnd(event: PointerEvent) {
         @pointerup="handleMapPointerEnd"
         @pointercancel="handleMapPointerEnd"
         @dblclick="resetMapPan"
+        @wheel="handleMapWheel"
       >
         <defs>
           <filter
@@ -885,7 +966,7 @@ function handleMapPointerEnd(event: PointerEvent) {
           filter="url(#tavern-map-sketch)"
         >
           <path
-            v-for="item in lineItems"
+            v-for="item in regularLineItems"
             :key="item.id"
             :d="item.path"
             :fill="item.fill"
@@ -899,6 +980,23 @@ function handleMapPointerEnd(event: PointerEvent) {
             :class="itemClass(item)"
             :style="itemStyle(item)"
           />
+          <g
+            v-for="item in gameIconLineItems"
+            :key="item.id"
+            :transform="item.glyphTransform"
+            :class="itemClass(item)"
+            :style="itemStyle(item)"
+          >
+            <g :transform="item.glyphScaleTransform">
+              <path
+                :d="item.path"
+                :fill="item.fill"
+                :fill-rule="item.fillRule"
+                transform="translate(-256, -256)"
+                class="map-game-icon-path"
+              />
+            </g>
+          </g>
         </g>
         <g class="map-label-layer">
           <text
@@ -927,7 +1025,7 @@ function handleMapPointerEnd(event: PointerEvent) {
             :style="itemStyle(item)"
           />
           <path
-            v-for="item in removedLineItems"
+            v-for="item in regularRemovedLineItems"
             :key="`removed-line-${item.id}`"
             :d="item.path"
             :fill="item.fill"
@@ -941,6 +1039,23 @@ function handleMapPointerEnd(event: PointerEvent) {
             :class="itemClass(item)"
             :style="itemStyle(item)"
           />
+          <g
+            v-for="item in gameIconRemovedLineItems"
+            :key="`removed-game-icon-${item.id}`"
+            :transform="item.glyphTransform"
+            :class="itemClass(item)"
+            :style="itemStyle(item)"
+          >
+            <g :transform="item.glyphScaleTransform">
+              <path
+                :d="item.path"
+                :fill="item.fill"
+                :fill-rule="item.fillRule"
+                transform="translate(-256, -256)"
+                class="map-game-icon-path"
+              />
+            </g>
+          </g>
           <text
             v-for="item in removedLabelItems"
             :key="`removed-label-${item.id}`"

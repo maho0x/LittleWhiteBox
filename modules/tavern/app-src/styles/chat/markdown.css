@@ -95,9 +95,16 @@
     margin-bottom: 10px;
 }
 
-.xb-tavern-markdown p,
-.xb-tavern-markdown li {
+.xb-tavern-markdown p {
+    font-size: inherit;
+    line-height: inherit;
     white-space: pre-wrap;
+}
+
+.xb-tavern-markdown li {
+    font-size: inherit;
+    line-height: inherit;
+    white-space: normal;
 }
 
 .xb-os-shell.theme-dark .xb-tavern-markdown blockquote {
@@ -178,6 +185,17 @@
     margin-top: 5px;
     margin-bottom: 5px;
     padding-left: 1.45em;
+}
+
+.xb-tavern-markdown li > p {
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+.xb-tavern-markdown li > ul,
+.xb-tavern-markdown li > ol {
+    margin-top: 2px;
+    margin-bottom: 2px;
 }
 
 .xb-tavern-markdown blockquote {

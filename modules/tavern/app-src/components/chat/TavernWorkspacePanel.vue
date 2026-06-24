@@ -382,13 +382,6 @@ function selectDirectoryMemoryFile(path: string) {
             :key="group.key"
             class="memory-file-group"
           >
-            <div
-              v-if="group.files.length !== 1 || memoryFileDisplayName(group.files[0]) !== group.title"
-              class="memory-file-group-title"
-            >
-              <span>{{ group.title }}</span>
-              <em>{{ group.totalCount }}</em>
-            </div>
             <div class="memory-file-tree">
               <button
                 v-for="file in group.files"

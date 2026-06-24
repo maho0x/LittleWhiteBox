@@ -717,10 +717,6 @@
     gap: 6px;
 }
 
-.tavern-chat.xb-page .tavern-memory-directory .memory-file-group-title {
-    min-height: 20px;
-}
-
 .tavern-chat.xb-page .tavern-memory-directory .memory-file-tree {
     display: flex;
     flex-wrap: wrap;

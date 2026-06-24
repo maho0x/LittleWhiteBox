@@ -396,11 +396,19 @@ export function getTavernMapIconRenderSize(icon: TavernMapIconName | string | un
     return getTavernGameIconGlyph(icon) ? TAVERN_MAP_GAME_ICON_SIZE : TAVERN_MAP_LEGACY_ICON_SIZE;
 }
 
+export function gameIconTranslateTransform(x: number, y: number): string {
+    return `translate(${Number(x.toFixed(2))}, ${Number(y.toFixed(2))})`;
+}
+
+export function gameIconScaleTransform(size = TAVERN_MAP_GAME_ICON_SIZE): string {
+    return `scale(${Number((size / 512).toFixed(5))})`;
+}
+
 export function gameIconTransform(x: number, y: number, size = TAVERN_MAP_GAME_ICON_SIZE): string {
     const scale = size / 512;
     const left = Number((x - size / 2).toFixed(2));
     const top = Number((y - size / 2).toFixed(2));
-    return `translate(${left} ${top}) scale(${Number(scale.toFixed(5))})`;
+    return `matrix(${Number(scale.toFixed(5))}, 0, 0, ${Number(scale.toFixed(5))}, ${left}, ${top})`;
 }
 
 export function atlasGlyphForScale(scale: TavernAtlasLocationScale | string | undefined): TavernGameMapIconName {

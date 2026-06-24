@@ -1090,8 +1090,21 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-markdown h1,
         .xb-assistant-markdown h2,
         .xb-assistant-markdown h3,
-        .xb-assistant-markdown h4 {
+        .xb-assistant-markdown h4,
+        .xb-assistant-markdown h5,
+        .xb-assistant-markdown h6 {
             margin: 0 0 0.8em;
+        }
+        .xb-assistant-markdown h1,
+        .xb-assistant-markdown h2,
+        .xb-assistant-markdown h3,
+        .xb-assistant-markdown h4,
+        .xb-assistant-markdown h5,
+        .xb-assistant-markdown h6 {
+            color: #203249;
+            font: inherit;
+            font-weight: 700;
+            line-height: inherit;
         }
         .xb-assistant-markdown code {
             padding: 0.12em 0.38em;

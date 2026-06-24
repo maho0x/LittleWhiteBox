@@ -1059,63 +1059,31 @@ function expandMemoryFileGroup(groupKey = '') {
 }
 
 const memoryDirectoryGroups = computed(() => {
-    const groups = [
-        {
-            key: 'core',
-            title: '会话记忆',
-            files: [] as TavernMemoryIndexFileEntry[],
-        },
-        {
-            key: 'characters',
-            title: '人物记忆',
-            files: [] as TavernMemoryIndexFileEntry[],
-        },
-    ];
-    const rest: TavernMemoryIndexFileEntry[] = [];
-    [...memoryFiles.value]
+    const sortedFiles = [...memoryFiles.value]
         .sort((left, right) => (
             memoryFileSortWeight(left.path) - memoryFileSortWeight(right.path)
             || String(left.path || '').localeCompare(String(right.path || ''))
-        ))
-        .forEach((file) => {
-            if (file.path === 'memory/state.md') {
-                groups[0].files.push(file);
-            } else if (file.path.startsWith('memory/characters/')) {
-                groups[1].files.push(file);
-            } else {
-                rest.push(file);
-            }
-        });
-    const visible = groups.filter((group) => group.files.length);
-    if (rest.length) {
-        visible.push({
-            key: 'other',
-            title: '其他档案',
-            files: rest,
-        });
-    }
+        ));
     const query = normalizedSearchText(memoryFileSearchText.value);
     const selectedPath = String(selectedMemoryFilePath.value || '').trim();
-    return visible
-        .map((group) => {
-            const filtered = query
-                ? group.files.filter((file) => memoryFileSearchCorpus(file).includes(query))
-                : group.files;
-            const limit = memoryFileVisibleLimitForGroup(group.key);
-            const files = filtered.slice(0, limit);
-            if (selectedPath && !files.some((file) => file.path === selectedPath)) {
-                const selected = filtered.find((file) => file.path === selectedPath);
-                if (selected) {files.unshift(selected);}
-            }
-            return {
-                ...group,
-                files,
-                totalCount: group.files.length,
-                filteredCount: filtered.length,
-                hiddenCount: Math.max(0, filtered.length - files.length),
-            };
-        })
-        .filter((group) => group.filteredCount || !query);
+    const filtered = query
+        ? sortedFiles.filter((file) => memoryFileSearchCorpus(file).includes(query))
+        : sortedFiles;
+    if (!filtered.length && query) {return [];}
+    const limit = memoryFileVisibleLimitForGroup('all');
+    const files = filtered.slice(0, limit);
+    if (selectedPath && !files.some((file) => file.path === selectedPath)) {
+        const selected = filtered.find((file) => file.path === selectedPath);
+        if (selected) {files.unshift(selected);}
+    }
+    return [{
+        key: 'all',
+        title: '',
+        files,
+        totalCount: sortedFiles.length,
+        filteredCount: filtered.length,
+        hiddenCount: Math.max(0, filtered.length - files.length),
+    }];
 });
 const memoryEditorDocumentAvailable = computed(() => !!selectedMemoryFileEntry.value || !!memoryEditorLoadedPath.value);
 const memoryEditorReadOnly = computed(() => false);
