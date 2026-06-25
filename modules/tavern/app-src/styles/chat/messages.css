@@ -174,7 +174,6 @@
 }
 
 .chat-bubble.from-user {
-    border-right: 4px solid var(--xb-stamp);
     background:
         linear-gradient(180deg, rgba(var(--xb-accent-rgb), 0.026), transparent 64%),
         var(--xb-paper-plain);

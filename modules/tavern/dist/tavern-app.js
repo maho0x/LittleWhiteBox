@@ -7298,9 +7298,9 @@ function yO(e) {
       const ut = document.createElement("span");
       ut.className = "xb-tavern-image-failed-actions";
       const Ft = document.createElement("button");
-      Ft.type = "button", Ft.dataset.action = "refresh-image", Ft.textContent = "🔄 重新生成";
+      Ft.type = "button", Ft.dataset.action = "refresh-image", Ft.textContent = "⟳ 重新生成";
       const Jt = document.createElement("button");
-      Jt.type = "button", Jt.dataset.action = "edit-tags", Jt.textContent = "✏️ 编辑TAG", ut.append(Ft, Jt), Qe.append(ut);
+      Jt.type = "button", Jt.dataset.action = "edit-tags", Jt.textContent = "✐ 编辑TAG", ut.append(Ft, Jt), Qe.append(ut);
       const { editPanel: j, openEditor: oe } = De(q, he, Q, {
         inline: !0,
         saveLabel: "保存并重试",
@@ -7361,7 +7361,7 @@ function yO(e) {
       {
         action: "edit-tags",
         title: "编辑TAG",
-        label: "✐️"
+        label: "✐"
       },
       {
         action: "delete-image",

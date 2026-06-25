@@ -1069,6 +1069,9 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(markdownToolsSource, /xb-tavern-image-failed-icon/);
     assert.match(markdownToolsSource, /xb-tavern-image-failed-title/);
     assert.match(markdownToolsSource, /xb-tavern-image-failed-desc/);
+    assert.match(markdownToolsSource, /retryButton\.textContent = '⟳ 重新生成';/);
+    assert.match(markdownToolsSource, /editButton\.textContent = '✐ 编辑TAG';/);
+    assert.doesNotMatch(markdownToolsSource, /🔄 重新生成|✏️ 编辑TAG/);
     // Failed-state "保存并重试" persists edited tags then regenerates, and falls back to the
     // edited result when the regeneration transport rejects.
     assert.match(markdownToolsSource, /retryAfterSave: true/);

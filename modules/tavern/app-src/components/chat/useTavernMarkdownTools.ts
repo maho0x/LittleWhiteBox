@@ -1098,12 +1098,12 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             const retryButton = document.createElement('button');
             retryButton.type = 'button';
             retryButton.dataset.action = 'refresh-image';
-            retryButton.textContent = '🔄 重新生成';
+            retryButton.textContent = '⟳ 重新生成';
 
             const editButton = document.createElement('button');
             editButton.type = 'button';
             editButton.dataset.action = 'edit-tags';
-            editButton.textContent = '✏️ 编辑TAG';
+            editButton.textContent = '✐ 编辑TAG';
             actions.append(retryButton, editButton);
             wrap.append(actions);
 
@@ -1212,7 +1212,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         const menuItems = [
             ...(!result.saved ? [{ action: 'save-image', title: '保存到服务器', label: '⬇' }] : []),
             { action: 'refresh-image', title: '重新生成', label: '⟳' },
-            { action: 'edit-tags', title: '编辑TAG', label: '✐️' },
+            { action: 'edit-tags', title: '编辑TAG', label: '✐' },
             { action: 'delete-image', title: '删除', label: '✕' },
         ];
         menuItems.forEach((item) => {
