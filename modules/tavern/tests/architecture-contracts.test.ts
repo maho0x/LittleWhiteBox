@@ -1220,15 +1220,42 @@ test('tavern live stream rendering is frame-batched without bypassing display re
     assert.match(conversationSource, /:data-markdown-signature="liveAssistantRenderState\.signature"/);
 });
 
-test('tavern draw progress keeps a local cooldown ticker instead of freezing the first frame', () => {
+test('tavern draw jobs are message-queued and route progress by host request', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const canDrawSource = appSource.match(/function canDrawMessage\(message: TavernMessageRecord\) \{[\s\S]*?\n\}/)?.[0] || '';
+    const insertMarkersSource = appSource.match(/function insertTavernImageMarkers\(content = '', images: unknown\[] = \[]\) \{[\s\S]*?\n\}\n\nfunction formatDrawProgress/)?.[0] || '';
+
+    assert.match(appSource, /const drawJobs = ref<Record<string, TavernDrawJob>>\(\{\}\);/);
+    assert.match(appSource, /const drawQueue = ref<string\[]>\(\[]\);/);
+    assert.match(appSource, /const drawRequestJobKeys = new Map<string, string>\(\);/);
+    assert.match(appSource, /type TavernDrawJobStatus = 'queued' \| 'running' \| 'success' \| 'failed' \| 'cancelled';/);
+    assert.doesNotMatch(appSource, /drawingMessageKey|drawStatusMessageKey|tavernDrawController/);
+
+    assert.match(appSource, /function requestHost\(type: string, payload: Record<string, unknown> = \{\}, options: \{ signal\?: AbortSignal; requestId\?: string \} = \{\}\)/);
+    assert.match(appSource, /const requestId = String\(options\.requestId \|\| ''\)\.trim\(\) \|\| createHostRequestId\(\);/);
+    assert.match(appSource, /const requestId = createHostRequestId\('draw'\);[\s\S]*drawRequestJobKeys\.set\(requestId, jobKey\);[\s\S]*requestHost\('xb-tavern:draw-generate'[\s\S]*\{ signal: controller\.signal, requestId \}/);
+
+    assert.match(appSource, /function enqueueDrawMessageJob\(message: TavernMessageRecord\): void \{[\s\S]*status: 'queued'[\s\S]*drawQueue\.value = \[\.\.\.drawQueue\.value\.filter/);
+    assert.match(appSource, /async function processNextDrawJob\(\): Promise<void> \{[\s\S]*if \(runningDrawJobKey\(\)\) \{return;\}[\s\S]*await runDrawJob\(nextKey\);/);
+    assert.match(appSource, /async function runDrawJob\(jobKey = ''\): Promise<void> \{[\s\S]*const currentMessage = await getTavernMessage\(job\.sessionId, job\.order\);[\s\S]*const latestMessage = await getTavernMessage\(job\.sessionId, job\.order\);[\s\S]*insertTavernImageMarkers\(latestMessage!\.content \|\| '', images\);/);
+    assert.match(appSource, /const latestMessage = await getTavernMessage\(job\.sessionId, job\.order\);[\s\S]*if \(controller\.signal\.aborted\) \{[\s\S]*progressText: '配图已取消'[\s\S]*return;[\s\S]*const result = \(resultPayload\.result \|\| resultPayload\)/);
+
+    assert.ok(canDrawSource);
+    assert.match(canDrawSource, /if \(isDrawingMessage\(message\)\) \{return true;\}/);
+    assert.match(canDrawSource, /if \(isEditingMessage\(message\) \|\| message\.error\) \{return false;\}/);
+    assert.doesNotMatch(canDrawSource, /isRunning\.value|drawingMessageKey/);
+
+    assert.ok(insertMarkersSource);
+    assert.match(insertMarkersSource, /if \(!image\.slotId\) \{return;\}/);
+    assert.doesNotMatch(insertMarkersSource, /success === false/);
+
     assert.match(appSource, /let drawCooldownTimer: number \| null = null;/);
     assert.match(appSource, /const DRAW_COOLDOWN_TICK_MS = 100;/);
     assert.match(appSource, /function clearDrawCooldownTimer\(\) \{[\s\S]*window\.clearInterval\(drawCooldownTimer\);/);
-    assert.match(appSource, /function startDrawCooldownCountdown\(messageKeyValue: string, data: Record<string, unknown> = \{\}\) \{[\s\S]*const endsAt = Date\.now\(\) \+ duration;[\s\S]*remainingMs[\s\S]*formatDrawProgress\('cooldown'/);
-    assert.match(appSource, /if \(payload\.state === 'cooldown'\) \{[\s\S]*startDrawCooldownCountdown\(drawingMessageKey\.value, payload\.data \|\| \{\}\);[\s\S]*\} else \{[\s\S]*clearDrawCooldownTimer\(\);[\s\S]*drawProgressText\.value = formatDrawProgress/);
-    assert.match(appSource, /function showDrawMessageStatus\([\s\S]*clearDrawCooldownTimer\(\);[\s\S]*drawStatusMessageKey\.value = messageKey\(message\);/);
+    assert.match(appSource, /function startDrawCooldownCountdown\(jobKey: string, data: Record<string, unknown> = \{\}\) \{[\s\S]*const job = drawJobs\.value\[jobKey\];[\s\S]*remainingMs[\s\S]*formatDrawProgress\('cooldown'/);
+    assert.match(appSource, /const jobKey = drawRequestJobKeys\.get\(requestId\);[\s\S]*if \(jobKey && drawJobs\.value\[jobKey\]\) \{[\s\S]*startDrawCooldownCountdown\(jobKey, payload\.data \|\| \{\}\);[\s\S]*setDrawJob\(jobKey, \{[\s\S]*progressText: formatDrawProgress\(state, payload\.data \|\| \{\}\)/);
     assert.match(appSource, /onUnmounted\(\(\) => \{[\s\S]*clearDrawCooldownTimer\(\);/);
+    assert.match(appSource, /onUnmounted\(\(\) => \{[\s\S]*abortAllDrawJobs\(\);/);
 });
 
 test('tavern memory editor actions live outside the app controller', () => {
