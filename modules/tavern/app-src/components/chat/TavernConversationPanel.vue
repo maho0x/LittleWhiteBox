@@ -51,6 +51,7 @@ const {
     displayMessageThoughtBlocks,
     displayRuntimeRenderProjection,
     displayRuntimeThoughtBlocks,
+    drawLatestAssistantMessage,
     drawMessage,
     drawMessageStatusClass,
     drawMessageStatusText,
@@ -90,6 +91,12 @@ const {
     showChatScrollBottom,
     showChatScrollTop,
     startEditMessage,
+    tavernDrawCapsuleIcon,
+    tavernDrawCapsuleMainDisabled,
+    tavernDrawCapsuleStatusClass,
+    tavernDrawCapsuleTitle,
+    tavernDrawCapsuleVisible,
+    openTavernDrawSettings,
     thoughtBlocks,
     thoughtSummaryLabel,
     visibleCharacterAvatar,
@@ -340,6 +347,43 @@ watch(isMobileActionTrayViewport, (isMobile) => {
         </div>
       </div>
       <div class="chat-head-actions">
+        <div
+          v-if="tavernDrawCapsuleVisible"
+          class="tavern-draw-capsule"
+          :class="[
+            tavernDrawCapsuleStatusClass,
+            {
+              'is-disabled': tavernDrawCapsuleMainDisabled,
+              'is-working': tavernDrawCapsuleIcon === '■',
+            },
+          ]"
+          role="group"
+          aria-label="画图"
+        >
+          <button
+            type="button"
+            class="tavern-draw-main"
+            :disabled="tavernDrawCapsuleMainDisabled"
+            :title="tavernDrawCapsuleTitle"
+            :aria-label="tavernDrawCapsuleTitle"
+            @click="drawLatestAssistantMessage"
+          >
+            <span aria-hidden="true">{{ tavernDrawCapsuleIcon }}</span>
+          </button>
+          <span
+            class="tavern-draw-divider"
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            class="tavern-draw-settings"
+            title="画图设置"
+            aria-label="画图设置"
+            @click="openTavernDrawSettings"
+          >
+            <span aria-hidden="true">⚙</span>
+          </button>
+        </div>
         <button
           type="button"
           class="contract-trigger"

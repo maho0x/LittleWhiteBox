@@ -334,6 +334,7 @@ export interface TavernChatContext {
     displayRuntimeThoughtBlocks: TavernCommand<[thoughts?: Array<{ label?: string; text?: string }>], Array<{ label?: string; text?: string }>>;
     displayCharacterName: TavernReadable<string>;
     drawMessage: TavernCommand<[message: TavernMessageRecord], Promise<void>>;
+    drawLatestAssistantMessage: TavernCommand<[], Promise<void>>;
     drawMessageStatusClass: TavernCommand<[message: TavernMessageRecord], string>;
     drawMessageStatusText: TavernCommand<[message: TavernMessageRecord], string>;
     drawMessageTitle: TavernCommand<[message: TavernMessageRecord], string>;
@@ -353,6 +354,7 @@ export interface TavernChatContext {
     htmlRenderEnabled: Ref<boolean>;
     messageKey: TavernCommand<[message: TavernMessageRecord], string>;
     normalizeTavernSessionState: TavernCommand<[value?: unknown], { turn?: number }>;
+    openTavernDrawSettings: TavernCommand<[], Promise<void>>;
     removeSession: TavernCommand<[sessionId: string, event?: Event], Promise<void>>;
     renderChatMarkdown: TavernCommand<[text?: string, options?: { roleplay?: boolean; userName?: string; characterName?: string }], string>;
     rerunFromMessage: TavernCommand<[message: TavernMessageRecord], Promise<void>>;
@@ -375,6 +377,12 @@ export interface TavernChatContext {
     showChatScrollBottom: Ref<boolean>;
     showChatScrollTop: Ref<boolean>;
     startEditMessage: TavernCommand<[message: TavernMessageRecord]>;
+    tavernDrawCapsuleIcon: TavernReadable<string>;
+    tavernDrawCapsuleMainDisabled: TavernReadable<boolean>;
+    tavernDrawCapsuleStatusClass: TavernReadable<string>;
+    tavernDrawCapsuleStatusText: TavernReadable<string>;
+    tavernDrawCapsuleTitle: TavernReadable<string>;
+    tavernDrawCapsuleVisible: TavernReadable<boolean>;
     thoughtBlocks: TavernCommand<[messageOrThoughts: unknown], Array<{ label?: string; text?: string }>>;
     thoughtSummaryLabel: TavernCommand<[messageOrThoughts: unknown, streaming?: boolean], string>;
     updateChatScrollButtons: TavernCommand;

@@ -938,6 +938,45 @@ const chatMessageWindow = computed(() => {
     };
 });
 const visibleChatMessages = computed(() => loadedSessionMessages.value);
+const latestDrawableAssistantMessage = computed(() => findLatestDrawableAssistantMessage());
+const tavernDrawCapsuleVisible = computed(() => (
+    tavernDrawStatus.value.enabled === true
+    && String(tavernDrawStatus.value.provider || 'disabled') !== 'disabled'
+));
+const tavernDrawCapsuleStatusText = computed(() => {
+    const message = latestDrawableAssistantMessage.value;
+    return message ? drawMessageStatusText(message) : '';
+});
+const tavernDrawCapsuleStatusClass = computed(() => {
+    const message = latestDrawableAssistantMessage.value;
+    return message ? drawMessageStatusClass(message) : '';
+});
+const tavernDrawCapsuleWorking = computed(() => {
+    const message = latestDrawableAssistantMessage.value;
+    return !!message && isDrawingMessage(message);
+});
+const tavernDrawCapsuleMainDisabled = computed(() => (
+    tavernDrawCapsuleVisible.value
+    && !tavernDrawStatus.value.ready
+    && !tavernDrawCapsuleWorking.value
+));
+const tavernDrawCapsuleTitle = computed(() => {
+    const message = latestDrawableAssistantMessage.value;
+    if (message) {
+        const statusText = tavernDrawCapsuleStatusText.value;
+        if (statusText) {return statusText;}
+        if (tavernDrawCapsuleWorking.value) {return drawMessageTitle(message);}
+    }
+    if (!tavernDrawStatus.value.ready) {return '画图模块初始化中';}
+    return message ? '为最新回复画图' : '没有可配图的回复';
+});
+const tavernDrawCapsuleIcon = computed(() => {
+    if (tavernDrawCapsuleWorking.value) {return '■';}
+    const statusClass = tavernDrawCapsuleStatusClass.value;
+    if (statusClass.includes('success')) {return '✓';}
+    if (statusClass.includes('error')) {return '!';}
+    return '🎨';
+});
 const {
     archivedManagerRuns,
     currentManagerWorkRun,
@@ -3371,6 +3410,15 @@ function canDrawMessage(message: TavernMessageRecord) {
     return !!stripTavernImageMarkers(message.content || '');
 }
 
+function findLatestDrawableAssistantMessage(): TavernMessageRecord | null {
+    const messages = [...loadedSessionMessages.value].sort((left, right) => right.order - left.order);
+    return messages.find((message) => (
+        message.sessionId === selectedSessionId.value
+        && message.role === 'assistant'
+        && canDrawMessage(message)
+    )) || null;
+}
+
 function drawSourceTextHash(content = ''): string {
     return markdownSignature(stripTavernImageMarkers(content));
 }
@@ -3390,6 +3438,36 @@ function drawMessageTitle(message: TavernMessageRecord) {
         return '为这条消息画图';
     }
     return '为这条消息画图';
+}
+
+async function drawLatestAssistantMessage(): Promise<void> {
+    if (!tavernDrawCapsuleVisible.value) {return;}
+    const message = latestDrawableAssistantMessage.value;
+    if (!message) {
+        showTavernToast('没有可配图的回复', { tone: 'info', durationMs: 2200 });
+        return;
+    }
+    if (isDrawingMessage(message)) {
+        await drawMessage(message);
+        return;
+    }
+    if (!tavernDrawStatus.value.ready) {
+        const status = await refreshTavernDrawStatus();
+        if (!status.ready) {
+            showTavernToast('画图模块初始化中', { tone: 'info', durationMs: 2200 });
+            return;
+        }
+    }
+    await drawMessage(message);
+}
+
+async function openTavernDrawSettings(): Promise<void> {
+    try {
+        await requestHost('xb-tavern:draw-open-settings', {});
+        void refreshTavernDrawStatus();
+    } catch (error) {
+        showTavernToast(`打开画图设置失败：${describeError(error)}`, { tone: 'warning', durationMs: 4200 });
+    }
 }
 
 async function copyTextWithFallback(text = '') {
@@ -4966,6 +5044,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
         displayRuntimeThoughtBlocks,
         displayCharacterName,
         drawMessage,
+        drawLatestAssistantMessage,
         drawMessageStatusClass,
         drawMessageStatusText,
         drawMessageTitle,
@@ -4985,6 +5064,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
         htmlRenderEnabled,
         messageKey,
         normalizeTavernSessionState,
+        openTavernDrawSettings,
         removeSession,
         renderChatMarkdown,
         rerunFromMessage,
@@ -5007,6 +5087,12 @@ provide(TAVERN_APP_UI_CONTEXT, {
         showChatScrollBottom,
         showChatScrollTop,
         startEditMessage,
+        tavernDrawCapsuleIcon,
+        tavernDrawCapsuleMainDisabled,
+        tavernDrawCapsuleStatusClass,
+        tavernDrawCapsuleStatusText,
+        tavernDrawCapsuleTitle,
+        tavernDrawCapsuleVisible,
         thoughtBlocks,
         thoughtSummaryLabel,
         updateChatScrollButtons,
@@ -5187,6 +5273,7 @@ onMounted(async () => {
     syncApiSettingsConfigFromAgentConfig();
     await nextTick();
     postToHost('xb-tavern:frame-ready');
+    void refreshTavernDrawStatus();
 });
 
 onUnmounted(() => {

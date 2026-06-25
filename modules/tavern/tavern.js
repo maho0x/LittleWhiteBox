@@ -340,6 +340,37 @@ function handleDrawStatus(payload = {}) {
     ...getDrawStatus()
   });
 }
+function getDrawProviderSettingsFacade(provider = "") {
+  const key = String(provider || "").trim().toLowerCase();
+  if (key === "novelai" || key === "novel") {
+    return window.xiaobaixNovelDraw;
+  }
+  if (key === "sd-webui" || key === "sd" || key === "stable-diffusion") {
+    return window.xiaobaixSdDraw;
+  }
+  if (key === "comfyui" || key === "comfy") {
+    return window.xiaobaixComfyDraw;
+  }
+  return void 0;
+}
+async function handleDrawOpenSettings(payload = {}) {
+  const requestId = String(payload.requestId || "");
+  try {
+    const status = getDrawStatus();
+    const provider = String(status.provider || "disabled");
+    const settingsFacade = getDrawProviderSettingsFacade(provider);
+    if (typeof settingsFacade?.openSettings !== "function") {
+      throw new Error("\u753B\u56FE\u8BBE\u7F6E\u4E0D\u53EF\u7528");
+    }
+    await settingsFacade.openSettings();
+    replyHostResult(requestId, {
+      ok: true,
+      provider
+    });
+  } catch (error) {
+    replyHostResult(requestId, hostErrorPayload(error, "draw_settings_failed"));
+  }
+}
 async function handleDrawGenerate(payload = {}) {
   const requestId = String(payload.requestId || "");
   const controller = new AbortController();
@@ -1058,6 +1089,9 @@ function handleFrameMessage(event) {
       break;
     case "xb-tavern:draw-status":
       handleDrawStatus(data.payload || {});
+      break;
+    case "xb-tavern:draw-open-settings":
+      void handleDrawOpenSettings(data.payload || {});
       break;
     case "xb-tavern:draw-generate":
       void handleDrawGenerate(data.payload || {});

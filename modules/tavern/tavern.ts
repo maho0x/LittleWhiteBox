@@ -53,6 +53,10 @@ interface TavernFacade {
     refreshRenderSettings: () => void;
 }
 
+interface DrawProviderSettingsFacade {
+    openSettings?: () => void | Promise<void>;
+}
+
 declare global {
     interface Window {
         xiaobaixTavern?: TavernFacade;
@@ -64,6 +68,9 @@ declare global {
             generateImage?: (input: Record<string, unknown>) => Promise<string | Record<string, unknown>>;
             generateImagesFromText?: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
         };
+        xiaobaixNovelDraw?: DrawProviderSettingsFacade;
+        xiaobaixSdDraw?: DrawProviderSettingsFacade;
+        xiaobaixComfyDraw?: DrawProviderSettingsFacade;
     }
 }
 
@@ -435,6 +442,39 @@ function handleDrawStatus(payload: Record<string, unknown> = {}): void {
         ok: true,
         ...getDrawStatus(),
     });
+}
+
+function getDrawProviderSettingsFacade(provider = ''): DrawProviderSettingsFacade | undefined {
+    const key = String(provider || '').trim().toLowerCase();
+    if (key === 'novelai' || key === 'novel') {
+        return window.xiaobaixNovelDraw;
+    }
+    if (key === 'sd-webui' || key === 'sd' || key === 'stable-diffusion') {
+        return window.xiaobaixSdDraw;
+    }
+    if (key === 'comfyui' || key === 'comfy') {
+        return window.xiaobaixComfyDraw;
+    }
+    return undefined;
+}
+
+async function handleDrawOpenSettings(payload: Record<string, unknown> = {}): Promise<void> {
+    const requestId = String(payload.requestId || '');
+    try {
+        const status = getDrawStatus();
+        const provider = String(status.provider || 'disabled');
+        const settingsFacade = getDrawProviderSettingsFacade(provider);
+        if (typeof settingsFacade?.openSettings !== 'function') {
+            throw new Error('画图设置不可用');
+        }
+        await settingsFacade.openSettings();
+        replyHostResult(requestId, {
+            ok: true,
+            provider,
+        });
+    } catch (error) {
+        replyHostResult(requestId, hostErrorPayload(error, 'draw_settings_failed'));
+    }
 }
 
 async function handleDrawGenerate(payload: Record<string, unknown> = {}): Promise<void> {
@@ -1180,6 +1220,9 @@ function handleFrameMessage(event: MessageEvent): void {
             break;
         case 'xb-tavern:draw-status':
             handleDrawStatus(data.payload || {});
+            break;
+        case 'xb-tavern:draw-open-settings':
+            void handleDrawOpenSettings(data.payload || {});
             break;
         case 'xb-tavern:draw-generate':
             void handleDrawGenerate(data.payload || {});

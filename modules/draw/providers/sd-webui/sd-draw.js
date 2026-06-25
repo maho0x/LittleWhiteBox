@@ -765,7 +765,7 @@ async function createOverlay() {
 
     overlayElement = document.createElement('div');
     overlayElement.id = 'xiaobaix-sd-draw-overlay';
-    overlayElement.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:99999!important;display:none;overflow:hidden!important;`;
+    overlayElement.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:100002!important;display:none;overflow:hidden!important;`;
     const backdrop = document.createElement('div');
     backdrop.className = 'sd-draw-backdrop';
     backdrop.addEventListener('click', hideSettings);

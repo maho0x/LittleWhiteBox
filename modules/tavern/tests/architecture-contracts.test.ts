@@ -1272,6 +1272,54 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     assert.match(appSource, /onUnmounted\(\(\) => \{[\s\S]*abortAllDrawJobs\(\);/);
 });
 
+test('tavern draw capsule stays in-app and opens native provider settings', () => {
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
+    const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
+    const chatPageSource = readRepoFile('modules/tavern/app-src/components/chat/TavernChatPage.vue');
+    const layoutCss = readRepoFile('modules/tavern/app-src/styles/chat/layout.css');
+    const tavernHostSource = readRepoFile('modules/tavern/tavern.ts');
+    const novelDrawSource = readRepoFile('modules/draw/providers/novelai/novel-draw.js');
+    const sdDrawSource = readRepoFile('modules/draw/providers/sd-webui/sd-draw.js');
+    const comfyDrawSource = readRepoFile('modules/draw/providers/comfyui/comfy-draw.js');
+
+    const capsuleBlock = extractCssBlock(layoutCss, '.tavern-chat.xb-page .tavern-draw-capsule');
+    assert.match(capsuleBlock, /width:\s*74px;/);
+    assert.match(capsuleBlock, /min-width:\s*74px;/);
+    assert.match(capsuleBlock, /height:\s*34px;/);
+    assert.match(capsuleBlock, /min-height:\s*34px;/);
+    assert.match(capsuleBlock, /border-radius:\s*17px;/);
+    assert.match(layoutCss, /\.tavern-chat\.xb-page \.tavern-draw-settings \{[\s\S]*width:\s*24px;[\s\S]*min-width:\s*24px;[\s\S]*height:\s*100%;/);
+    assert.match(layoutCss, /\.tavern-chat\.xb-page \.tavern-draw-divider \{[\s\S]*width:\s*1px;[\s\S]*height:\s*12px;/);
+
+    assert.match(contextSource, /drawLatestAssistantMessage: TavernCommand<\[], Promise<void>>;/);
+    assert.match(contextSource, /openTavernDrawSettings: TavernCommand<\[], Promise<void>>;/);
+    assert.match(contextSource, /tavernDrawCapsuleVisible: TavernReadable<boolean>;/);
+    assert.match(appSource, /const latestDrawableAssistantMessage = computed\(\(\) => findLatestDrawableAssistantMessage\(\)\);/);
+    assert.match(appSource, /function findLatestDrawableAssistantMessage\(\): TavernMessageRecord \| null \{[\s\S]*message\.role === 'assistant'[\s\S]*canDrawMessage\(message\)/);
+    assert.match(appSource, /async function drawLatestAssistantMessage\(\): Promise<void> \{[\s\S]*showTavernToast\('没有可配图的回复'[\s\S]*if \(isDrawingMessage\(message\)\) \{[\s\S]*await drawMessage\(message\);[\s\S]*showTavernToast\('画图模块初始化中'/);
+    assert.match(appSource, /async function openTavernDrawSettings\(\): Promise<void> \{[\s\S]*requestHost\('xb-tavern:draw-open-settings'/);
+    assert.match(appSource, /postToHost\('xb-tavern:frame-ready'\);[\s\S]*void refreshTavernDrawStatus\(\);/);
+
+    assert.match(conversationSource, /<div class="chat-head-actions">[\s\S]*class="tavern-draw-capsule"[\s\S]*class="contract-trigger"/);
+    assert.match(chatPageSource, /class="chat-mobile-action-group">[\s\S]*v-if="chatFocus === 'chat' && tavernDrawCapsuleVisible"[\s\S]*class="tavern-draw-capsule tavern-draw-capsule-mobile"[\s\S]*class="chat-mobile-icon-button chat-mobile-utility-button"/);
+    assert.doesNotMatch(`${appSource}\n${conversationSource}\n${chatPageSource}`, /nd-capsule|nd-floating|floating-panel/);
+
+    assert.match(tavernHostSource, /case 'xb-tavern:draw-open-settings':[\s\S]*void handleDrawOpenSettings\(data\.payload \|\| \{\}\);/);
+    const openSettingsSource = tavernHostSource.match(/async function handleDrawOpenSettings\(payload: Record<string, unknown> = \{\}\): Promise<void> \{[\s\S]*?\n\}\n\nasync function handleDrawGenerate/)?.[0] || '';
+    assert.ok(openSettingsSource);
+    assert.match(openSettingsSource, /getDrawProviderSettingsFacade\(provider\)/);
+    assert.match(openSettingsSource, /await settingsFacade\.openSettings\(\);/);
+    assert.doesNotMatch(openSettingsSource, /closeTavern|xb-tavern:close|querySelector|nd-capsule/);
+    assert.match(tavernHostSource, /xiaobaixNovelDraw\?: DrawProviderSettingsFacade;/);
+    assert.match(tavernHostSource, /xiaobaixSdDraw\?: DrawProviderSettingsFacade;/);
+    assert.match(tavernHostSource, /xiaobaixComfyDraw\?: DrawProviderSettingsFacade;/);
+
+    assert.match(novelDrawSource, /z-index:100002!important/);
+    assert.match(sdDrawSource, /z-index:100002!important/);
+    assert.match(comfyDrawSource, /z-index:100002!important/);
+});
+
 test('tavern memory editor actions live outside the app controller', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const memoryWorkspaceSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMemoryWorkspace.ts');

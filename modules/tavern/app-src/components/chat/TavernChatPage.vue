@@ -50,8 +50,15 @@ const {
     chatMessageWindow,
     chatScrollRef,
     currentAuthorNote,
+    drawLatestAssistantMessage,
+    openTavernDrawSettings,
     saveCurrentAuthorNote,
     messageKey,
+    tavernDrawCapsuleIcon,
+    tavernDrawCapsuleMainDisabled,
+    tavernDrawCapsuleStatusClass,
+    tavernDrawCapsuleTitle,
+    tavernDrawCapsuleVisible,
     updateChatScrollButtons,
     visibleChatMessages,
 } = chat;
@@ -555,6 +562,43 @@ onUpdated(() => {
           </button>
         </div>
         <div class="chat-mobile-action-group">
+          <div
+            v-if="chatFocus === 'chat' && tavernDrawCapsuleVisible"
+            class="tavern-draw-capsule tavern-draw-capsule-mobile"
+            :class="[
+              tavernDrawCapsuleStatusClass,
+              {
+                'is-disabled': tavernDrawCapsuleMainDisabled,
+                'is-working': tavernDrawCapsuleIcon === '■',
+              },
+            ]"
+            role="group"
+            aria-label="画图"
+          >
+            <button
+              type="button"
+              class="tavern-draw-main"
+              :disabled="tavernDrawCapsuleMainDisabled"
+              :title="tavernDrawCapsuleTitle"
+              :aria-label="tavernDrawCapsuleTitle"
+              @click="drawLatestAssistantMessage"
+            >
+              <span aria-hidden="true">{{ tavernDrawCapsuleIcon }}</span>
+            </button>
+            <span
+              class="tavern-draw-divider"
+              aria-hidden="true"
+            />
+            <button
+              type="button"
+              class="tavern-draw-settings"
+              title="画图设置"
+              aria-label="画图设置"
+              @click="openTavernDrawSettings"
+            >
+              <span aria-hidden="true">⚙</span>
+            </button>
+          </div>
           <button
             type="button"
             class="chat-mobile-icon-button chat-mobile-utility-button"

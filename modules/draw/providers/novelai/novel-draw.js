@@ -3132,7 +3132,7 @@ function createOverlay() {
     const overlay = document.createElement('div');
     overlay.id = 'xiaobaix-novel-draw-overlay';
 
-    overlay.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:99999!important;display:none;overflow:hidden!important;`;
+    overlay.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:100002!important;display:none;overflow:hidden!important;`;
 
     const updateHeight = () => {
         if (overlay.style.display !== 'none') {
