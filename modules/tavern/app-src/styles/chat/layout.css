@@ -875,21 +875,28 @@
     }
 }
 
-.tavern-chat.xb-page .tavern-draw-capsule {
+.tavern-chat.xb-page .tavern-draw-float {
+    position: relative;
     width: 74px;
     min-width: 74px;
     height: 34px;
     min-height: 34px;
-    display: flex;
-    align-items: center;
-    justify-content: stretch;
+    color: var(--xb-ink-soft);
+    user-select: none;
+}
+
+.tavern-chat.xb-page .tavern-draw-capsule {
+    position: relative;
+    width: 74px;
+    min-width: 74px;
+    height: 34px;
+    min-height: 34px;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--xb-rule);
     border-radius: 17px;
-    background: rgba(0, 0, 0, 0.55);
-    color: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.18);
-    backdrop-filter: blur(16px);
+    background: rgba(255, 255, 255, 0.26);
+    box-shadow: 0 4px 14px rgba(42, 32, 22, 0.055);
+    backdrop-filter: blur(14px) saturate(1.02);
     transition:
         border-color 0.18s ease,
         background-color 0.18s ease,
@@ -897,30 +904,117 @@
         transform 0.18s ease;
 }
 
-.tavern-chat.xb-page .tavern-draw-capsule:hover {
-    border-color: rgba(255, 255, 255, 0.18);
-    background: rgba(0, 0, 0, 0.68);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-float {
+    color: rgba(220, 210, 190, 0.74);
 }
 
-.tavern-chat.xb-page .tavern-draw-capsule.is-running {
-    border-color: rgba(240, 180, 41, 0.5);
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-capsule {
+    border-color: rgba(220, 210, 190, 0.13);
+    background: rgba(255, 255, 255, 0.035);
+    box-shadow: none;
 }
 
-.tavern-chat.xb-page .tavern-draw-capsule.is-success {
-    border-color: rgba(62, 207, 142, 0.62);
-    background: rgba(35, 126, 89, 0.28);
+.tavern-chat.xb-page .tavern-draw-float:hover .tavern-draw-capsule,
+.tavern-chat.xb-page .tavern-draw-float:focus-within .tavern-draw-capsule {
+    border-color: rgba(120, 112, 98, 0.28);
+    background: rgba(255, 255, 255, 0.38);
+    color: var(--xb-ink);
+    box-shadow: 0 6px 16px rgba(42, 32, 22, 0.08);
 }
 
-.tavern-chat.xb-page .tavern-draw-capsule.is-error {
-    border-color: rgba(248, 113, 113, 0.62);
-    background: rgba(125, 45, 45, 0.3);
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-float:hover .tavern-draw-capsule,
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-float:focus-within .tavern-draw-capsule {
+    border-color: rgba(220, 210, 190, 0.22);
+    background: rgba(255, 255, 255, 0.055);
+    color: rgba(244, 238, 224, 0.88);
+    box-shadow: none;
+}
+
+.tavern-chat.xb-page .tavern-draw-float.is-running .tavern-draw-capsule,
+.tavern-chat.xb-page .tavern-draw-float.is-working .tavern-draw-capsule {
+    border-color: rgba(184, 150, 62, 0.54);
+    background: linear-gradient(180deg, rgba(184, 150, 62, 0.18), rgba(184, 150, 62, 0.07));
+    color: #8a6a1f;
+}
+
+.tavern-chat.xb-page .tavern-draw-float.is-success .tavern-draw-capsule {
+    border-color: rgba(75, 143, 101, 0.50);
+    background: linear-gradient(180deg, rgba(75, 143, 101, 0.16), rgba(75, 143, 101, 0.06));
+    color: #2f754d;
+}
+
+.tavern-chat.xb-page .tavern-draw-float.is-error .tavern-draw-capsule {
+    border-color: rgba(150, 54, 54, 0.54);
+    background: linear-gradient(180deg, rgba(150, 54, 54, 0.17), rgba(150, 54, 54, 0.07));
+    color: #8c2a2a;
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-float.is-success .tavern-draw-capsule {
+    color: #9bd6af;
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-float.is-error .tavern-draw-capsule {
+    color: #efaaa0;
+}
+
+.tavern-chat.xb-page .tavern-draw-inner {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    grid-template-areas: "stack";
+}
+
+.tavern-chat.xb-page .tavern-draw-layer {
+    grid-area: stack;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    margin: 0;
+    line-height: 1;
+    box-shadow: none;
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+}
+
+.tavern-chat.xb-page .tavern-draw-layer-idle {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.tavern-chat.xb-page .tavern-draw-layer-active {
+    justify-content: center;
+    gap: 5px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(100%);
+    cursor: pointer;
+    font: 800 11px/1 var(--xb-font-ui);
+}
+
+.tavern-chat.xb-page .tavern-draw-float.has-active-layer .tavern-draw-layer-idle {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-100%);
+}
+
+.tavern-chat.xb-page .tavern-draw-float.has-active-layer .tavern-draw-layer-active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
 }
 
 .tavern-chat.xb-page .tavern-draw-main,
-.tavern-chat.xb-page .tavern-draw-settings,
+.tavern-chat.xb-page .tavern-draw-menu-button,
 .tavern-chat.xb-page .chat-head-actions .tavern-draw-main,
-.tavern-chat.xb-page .chat-head-actions .tavern-draw-settings {
+.tavern-chat.xb-page .chat-head-actions .tavern-draw-menu-button {
     min-width: 0;
     min-height: 0;
     display: grid;
@@ -941,50 +1035,363 @@
 }
 
 .tavern-chat.xb-page .tavern-draw-main {
+    position: relative;
     flex: 1 1 auto;
     height: 100%;
-    font: 700 16px/1 var(--xb-font-ui);
+    font: 800 14px/1 var(--xb-font-ui);
 }
 
-.tavern-chat.xb-page .tavern-draw-settings {
+.tavern-chat.xb-page .tavern-draw-menu-button {
     width: 24px;
     min-width: 24px;
     height: 100%;
-    font: 700 11px/1 var(--xb-font-ui);
+    font: 800 8px/1 var(--xb-font-ui);
+    color: inherit;
+    opacity: 0.68;
+}
+
+.tavern-chat.xb-page .tavern-draw-arrow {
+    transition: transform 0.18s ease;
+}
+
+.tavern-chat.xb-page .tavern-draw-float.is-expanded .tavern-draw-arrow {
+    transform: rotate(180deg);
 }
 
 .tavern-chat.xb-page .tavern-draw-divider {
     width: 1px;
     min-width: 1px;
     height: 12px;
-    background: rgba(255, 255, 255, 0.18);
+    background: rgba(120, 112, 98, 0.18);
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-divider {
+    background: rgba(220, 210, 190, 0.12);
 }
 
 .tavern-chat.xb-page .tavern-draw-main:hover:not(:disabled),
 .tavern-chat.xb-page .tavern-draw-main:focus-visible:not(:disabled),
-.tavern-chat.xb-page .tavern-draw-settings:hover,
-.tavern-chat.xb-page .tavern-draw-settings:focus-visible {
+.tavern-chat.xb-page .tavern-draw-menu-button:hover,
+.tavern-chat.xb-page .tavern-draw-menu-button:focus-visible {
     outline: none;
-    background: rgba(255, 255, 255, 0.11);
+    background: rgba(120, 112, 98, 0.10);
+    opacity: 1;
 }
 
-.tavern-chat.xb-page .tavern-draw-main:active:not(:disabled) {
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-main:hover:not(:disabled),
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-main:focus-visible:not(:disabled),
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-menu-button:hover,
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-menu-button:focus-visible {
+    background: rgba(223, 177, 163, 0.08);
+}
+
+.tavern-chat.xb-page .tavern-draw-main:active:not(:disabled),
+.tavern-chat.xb-page .tavern-draw-layer-active:active {
     transform: scale(0.92);
 }
 
-.tavern-chat.xb-page .tavern-draw-settings:active {
+.tavern-chat.xb-page .tavern-draw-menu-button:active {
     transform: scale(0.94);
 }
 
-.tavern-chat.xb-page .tavern-draw-capsule.is-disabled .tavern-draw-main,
+.tavern-chat.xb-page .tavern-draw-float.is-disabled .tavern-draw-main,
 .tavern-chat.xb-page .tavern-draw-main:disabled {
     opacity: 0.46;
     cursor: not-allowed;
 }
 
-.xb-os-shell.theme-light .tavern-chat.xb-page .tavern-draw-capsule {
-    border-color: rgba(55, 44, 34, 0.16);
-    background: rgba(32, 28, 24, 0.72);
-    color: rgba(255, 255, 255, 0.94);
-    box-shadow: 0 8px 24px rgba(42, 32, 22, 0.16);
+.tavern-chat.xb-page .tavern-draw-auto-dot {
+    position: absolute;
+    top: 7px;
+    right: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #4b8f65;
+    box-shadow: 0 0 7px rgba(75, 143, 101, 0.38);
+    opacity: 0;
+    transform: scale(0);
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+}
+
+.tavern-chat.xb-page .tavern-draw-float.is-auto-on .tavern-draw-auto-dot {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.tavern-chat.xb-page .tavern-draw-status-text {
+    max-width: 48px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tavern-draw-popover-layer.tavern-draw-detail,
+.tavern-draw-popover-layer.tavern-draw-menu {
+    z-index: 100120;
+    border: 1px solid rgba(120, 112, 98, 0.18);
+    border-radius: 10px;
+    background: #f7f5ee;
+    box-shadow: 0 14px 38px rgba(42, 32, 22, 0.18);
+    backdrop-filter: blur(18px) saturate(1.04);
+}
+
+.tavern-draw-popover-layer.theme-dark.tavern-draw-detail,
+.tavern-draw-popover-layer.theme-dark.tavern-draw-menu {
+    border-color: rgba(220, 210, 190, 0.12);
+    background: #1b1916;
+    box-shadow: 0 16px 42px rgba(0, 0, 0, 0.36);
+}
+
+.tavern-draw-popover-layer.tavern-draw-detail {
+    display: grid;
+    gap: 6px;
+    width: 244px;
+    max-width: min(244px, calc(100vw - 16px));
+    padding: 10px 12px;
+    color: #5c5a56;
+    font: 700 11px/1.35 var(--xb-font-ui);
+    pointer-events: none;
+    transform: translateY(0) scale(1);
+    transform-origin: top right;
+    transition:
+        opacity 0.16s ease,
+        transform 0.16s ease;
+}
+
+.tavern-draw-popover-layer.theme-dark.tavern-draw-detail {
+    color: rgba(220, 210, 190, 0.68);
+}
+
+.tavern-draw-popover-layer .tavern-draw-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tavern-draw-popover-layer .tavern-draw-detail-heading {
+    color: rgba(92, 90, 86, 0.82);
+    font: 800 10px/1 var(--xb-font-ui);
+    letter-spacing: 0.08em;
+}
+
+.tavern-draw-popover-layer .tavern-draw-detail-icon {
+    margin-left: auto;
+    color: #33302a;
+    font: 800 14px/1 var(--xb-font-ui);
+}
+
+.tavern-draw-popover-layer .tavern-draw-detail-summary {
+    color: #33302a;
+    font: 800 12px/1.45 var(--xb-font-ui);
+    word-break: break-word;
+}
+
+.tavern-draw-popover-layer .tavern-draw-detail-note {
+    margin: 0;
+    color: rgba(92, 90, 86, 0.84);
+    font: 700 10px/1.45 var(--xb-font-ui);
+    word-break: break-word;
+}
+
+.tavern-draw-popover-layer.theme-dark .tavern-draw-detail-heading,
+.tavern-draw-popover-layer.theme-dark .tavern-draw-detail-note {
+    color: rgba(220, 210, 190, 0.72);
+}
+
+.tavern-draw-popover-layer.theme-dark .tavern-draw-detail-icon,
+.tavern-draw-popover-layer.theme-dark .tavern-draw-detail-summary {
+    color: rgba(244, 238, 224, 0.88);
+}
+
+.tavern-draw-popover-layer.tavern-draw-menu {
+    width: 198px;
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+}
+
+.tavern-draw-popover-layer .tavern-draw-menu-card {
+    display: grid;
+    gap: 4px;
+}
+
+.tavern-draw-popover-layer .tavern-draw-menu-row {
+    min-height: 34px;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    color: #5c5a56;
+    font: 700 11px/1 var(--xb-font-ui);
+}
+
+.tavern-draw-popover-layer.theme-dark .tavern-draw-menu-row {
+    color: rgba(220, 210, 190, 0.68);
+}
+
+.tavern-draw-popover-layer .tavern-draw-menu-row select {
+    width: 100%;
+    min-width: 0;
+    height: 30px;
+    border: 1px solid rgba(120, 112, 98, 0.18);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.28);
+    color: #1a1a1a;
+    padding: 0 7px;
+    font: 700 11px/1 var(--xb-font-ui);
+    outline: none;
+}
+
+.tavern-draw-popover-layer.theme-dark .tavern-draw-menu-row select {
+    border-color: rgba(220, 210, 190, 0.12);
+    background: rgba(255, 255, 255, 0.045);
+    color: rgba(244, 238, 224, 0.88);
+    color-scheme: dark;
+}
+
+.tavern-draw-popover-layer.theme-dark .tavern-draw-menu-row select option,
+.tavern-draw-popover-layer.theme-dark .tavern-draw-menu-row select optgroup {
+    background: #1b1916;
+    color: rgba(244, 238, 224, 0.92);
+}
+
+.tavern-draw-popover-layer .tavern-draw-menu-row select:focus {
+    border-color: rgba(120, 112, 98, 0.38);
+}
+
+.tavern-draw-popover-layer.theme-dark .tavern-draw-menu-row select:focus {
+    border-color: rgba(244, 238, 224, 0.28);
+}
+
+.tavern-draw-popover-layer .tavern-draw-menu-row select.is-size {
+    font-family: var(--xb-font-mono);
+}
+
+.tavern-draw-popover-layer .tavern-draw-menu-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
+}
+
+.tavern-draw-popover-layer .tavern-draw-auto-toggle,
+.tavern-draw-popover-layer .tavern-draw-gear {
+    min-width: 0;
+    min-height: 34px;
+    border: 1px solid rgba(120, 112, 98, 0.18);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.22);
+    color: #5c5a56;
+    padding: 0;
+    cursor: pointer;
+    transition:
+        border-color 0.16s ease,
+        background-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.16s ease;
+}
+
+.tavern-draw-popover-layer.theme-dark .tavern-draw-auto-toggle,
+.tavern-draw-popover-layer.theme-dark .tavern-draw-gear {
+    border-color: rgba(220, 210, 190, 0.12);
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(220, 210, 190, 0.68);
+}
+
+.tavern-draw-popover-layer .tavern-draw-auto-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    font: 800 12px/1 var(--xb-font-ui);
+}
+
+.tavern-draw-popover-layer .tavern-draw-auto-toggle span {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(120, 112, 98, 0.34);
+}
+
+.tavern-draw-popover-layer .tavern-draw-auto-toggle.is-on {
+    border-color: rgba(75, 143, 101, 0.38);
+    background: rgba(75, 143, 101, 0.10);
+    color: #2f754d;
+}
+
+.tavern-draw-popover-layer .tavern-draw-auto-toggle.is-on span {
+    background: #4b8f65;
+    box-shadow: 0 0 8px rgba(75, 143, 101, 0.38);
+}
+
+.tavern-draw-popover-layer .tavern-draw-gear {
+    display: grid;
+    place-items: center;
+    font: 800 14px/1 var(--xb-font-ui);
+}
+
+.tavern-draw-popover-layer .tavern-draw-auto-toggle:hover:not(:disabled),
+.tavern-draw-popover-layer .tavern-draw-auto-toggle:focus-visible:not(:disabled),
+.tavern-draw-popover-layer .tavern-draw-gear:hover,
+.tavern-draw-popover-layer .tavern-draw-gear:focus-visible {
+    outline: none;
+    border-color: rgba(120, 112, 98, 0.34);
+    background: rgba(120, 112, 98, 0.10);
+    color: #33302a;
+}
+
+.tavern-draw-popover-layer.theme-dark .tavern-draw-auto-toggle:hover:not(:disabled),
+.tavern-draw-popover-layer.theme-dark .tavern-draw-auto-toggle:focus-visible:not(:disabled),
+.tavern-draw-popover-layer.theme-dark .tavern-draw-gear:hover,
+.tavern-draw-popover-layer.theme-dark .tavern-draw-gear:focus-visible {
+    border-color: rgba(244, 238, 224, 0.18);
+    background: rgba(244, 238, 224, 0.08);
+    color: rgba(244, 238, 224, 0.9);
+}
+
+.tavern-draw-popover-layer .tavern-draw-auto-toggle:active:not(:disabled),
+.tavern-draw-popover-layer .tavern-draw-gear:active {
+    transform: translateY(1px);
+}
+
+@media (max-width: 760px) {
+    .tavern-chat.xb-page .tavern-draw-float.tavern-draw-capsule-mobile,
+    .tavern-chat.xb-page .tavern-draw-float.tavern-draw-capsule-mobile .tavern-draw-capsule {
+        width: 68px;
+        min-width: 68px;
+        height: 30px;
+        min-height: 30px;
+        border-radius: 999px;
+    }
+
+    .tavern-chat.xb-page .tavern-draw-float.tavern-draw-capsule-mobile {
+        color: var(--xb-ink-faint);
+    }
+
+    .tavern-chat.xb-page .tavern-draw-float.tavern-draw-capsule-mobile .tavern-draw-capsule {
+        background: var(--xb-chat-pop-bg);
+        box-shadow: 0 3px 12px rgba(26, 26, 26, 0.035);
+    }
+
+    .xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-draw-float.tavern-draw-capsule-mobile .tavern-draw-capsule {
+        box-shadow: none;
+    }
+
+    .tavern-chat.xb-page .tavern-draw-float.tavern-draw-capsule-mobile .tavern-draw-main {
+        font-size: 14px;
+    }
+
+    .tavern-chat.xb-page .tavern-draw-float.tavern-draw-capsule-mobile .tavern-draw-menu-button {
+        width: 22px;
+        min-width: 22px;
+    }
+
+    .tavern-chat.xb-page .tavern-draw-float.tavern-draw-capsule-mobile .tavern-draw-auto-dot {
+        top: 6px;
+        right: 7px;
+        width: 5px;
+        height: 5px;
+    }
 }

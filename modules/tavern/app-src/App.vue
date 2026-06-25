@@ -211,6 +211,18 @@ const runtimePendingUserMessage = ref('');
 const isRunning = ref(false);
 const isCancellingRun = ref(false);
 const tavernDrawStatus = ref({ provider: 'disabled', enabled: false, ready: false });
+const DEFAULT_TAVERN_DRAW_QUICK_SETTINGS: TavernDrawQuickSettings = {
+    provider: 'disabled',
+    providerLabel: '',
+    available: false,
+    auto: false,
+    presets: [],
+    selectedPresetId: '',
+    sizeOptions: [],
+    selectedSize: '',
+};
+const tavernDrawQuickSettings = ref<TavernDrawQuickSettings>({ ...DEFAULT_TAVERN_DRAW_QUICK_SETTINGS });
+const tavernDrawQuickSettingsLoading = ref(false);
 const drawJobs = ref<Record<string, TavernDrawJob>>({});
 const drawQueue = ref<string[]>([]);
 const drawRequestJobKeys = new Map<string, string>();
@@ -325,6 +337,20 @@ interface PendingRuntimeDisplayRegexRequest {
     inFlight: boolean;
 }
 type TavernDrawJobStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
+interface TavernDrawQuickOption {
+    value: string;
+    label: string;
+}
+interface TavernDrawQuickSettings {
+    provider: string;
+    providerLabel: string;
+    available: boolean;
+    auto: boolean;
+    presets: TavernDrawQuickOption[];
+    selectedPresetId: string;
+    sizeOptions: TavernDrawQuickOption[];
+    selectedSize: string;
+}
 interface TavernDrawJob {
     key: string;
     sessionId: string;
@@ -1596,16 +1622,90 @@ function applyTavernDrawStatus(payload: Record<string, unknown> = {}) {
         enabled: payload.enabled === true,
         ready: payload.ready === true,
     };
+    if (!tavernDrawStatus.value.enabled || tavernDrawStatus.value.provider === 'disabled') {
+        tavernDrawQuickSettings.value = { ...DEFAULT_TAVERN_DRAW_QUICK_SETTINGS };
+    }
 }
 
 async function refreshTavernDrawStatus() {
     try {
         const result = await requestHost('xb-tavern:draw-status', {});
         applyTavernDrawStatus(result);
+        if (tavernDrawCapsuleVisible.value) {
+            void refreshTavernDrawQuickSettings();
+        }
     } catch {
         applyTavernDrawStatus({ provider: 'disabled', enabled: false, ready: false });
     }
     return tavernDrawStatus.value;
+}
+
+function normalizeDrawQuickOption(value: unknown): TavernDrawQuickOption | null {
+    if (!value || typeof value !== 'object') {return null;}
+    const source = value as Record<string, unknown>;
+    const optionValue = String(source.value || '').trim();
+    if (!optionValue) {return null;}
+    return {
+        value: optionValue,
+        label: String(source.label || optionValue).trim() || optionValue,
+    };
+}
+
+function normalizeTavernDrawQuickSettings(payload: Record<string, unknown> = {}): TavernDrawQuickSettings {
+    const source = payload.result && typeof payload.result === 'object'
+        ? payload.result as Record<string, unknown>
+        : payload;
+    const presets = Array.isArray(source.presets)
+        ? source.presets.map(normalizeDrawQuickOption).filter((item): item is TavernDrawQuickOption => !!item)
+        : [];
+    const sizeOptions = Array.isArray(source.sizeOptions)
+        ? source.sizeOptions.map(normalizeDrawQuickOption).filter((item): item is TavernDrawQuickOption => !!item)
+        : [];
+    const selectedPresetId = String(source.selectedPresetId || presets[0]?.value || '').trim();
+    const selectedSize = String(source.selectedSize || sizeOptions[0]?.value || '').trim();
+    return {
+        provider: String(source.provider || tavernDrawStatus.value.provider || 'disabled'),
+        providerLabel: String(source.providerLabel || '').trim(),
+        available: source.available === true && presets.length > 0 && sizeOptions.length > 0,
+        auto: source.auto === true,
+        presets,
+        selectedPresetId,
+        sizeOptions,
+        selectedSize,
+    };
+}
+
+async function refreshTavernDrawQuickSettings(): Promise<TavernDrawQuickSettings> {
+    if (!tavernDrawCapsuleVisible.value) {
+        tavernDrawQuickSettings.value = { ...DEFAULT_TAVERN_DRAW_QUICK_SETTINGS };
+        return tavernDrawQuickSettings.value;
+    }
+    tavernDrawQuickSettingsLoading.value = true;
+    try {
+        const result = await requestHost('xb-tavern:draw-quick-settings', {});
+        tavernDrawQuickSettings.value = normalizeTavernDrawQuickSettings(result);
+    } catch {
+        tavernDrawQuickSettings.value = {
+            ...DEFAULT_TAVERN_DRAW_QUICK_SETTINGS,
+            provider: tavernDrawStatus.value.provider,
+        };
+    } finally {
+        tavernDrawQuickSettingsLoading.value = false;
+    }
+    return tavernDrawQuickSettings.value;
+}
+
+async function updateTavernDrawQuickSettings(patch: Record<string, unknown> = {}): Promise<void> {
+    if (!tavernDrawCapsuleVisible.value || tavernDrawQuickSettingsLoading.value) {return;}
+    tavernDrawQuickSettingsLoading.value = true;
+    try {
+        const result = await requestHost('xb-tavern:draw-update-quick-settings', { payload: patch });
+        tavernDrawQuickSettings.value = normalizeTavernDrawQuickSettings(result);
+    } catch (error) {
+        showTavernToast(`画图快捷设置保存失败：${describeError(error)}`, { tone: 'warning', durationMs: 3600 });
+    } finally {
+        tavernDrawQuickSettingsLoading.value = false;
+    }
 }
 
 async function applyTavernRegex(items: TavernApplyRegexItem[]): Promise<TavernApplyRegexResult> {
@@ -2370,6 +2470,9 @@ function onHostMessage(event: MessageEvent) {
     }
     if (data.type === 'xb-tavern:draw-status-changed') {
         applyTavernDrawStatus(data.payload || {});
+        if (tavernDrawCapsuleVisible.value) {
+            void refreshTavernDrawQuickSettings();
+        }
         return;
     }
     if (data.type === 'xb-tavern:draw-progress') {
@@ -3727,10 +3830,11 @@ async function runDrawJob(jobKey = ''): Promise<void> {
         const total = Number(result.total) || images.length;
         const allFailed = total > 0 && success === 0;
         const fallbackText = insertion.appended ? `，${insertion.appended} 张追加到末尾` : '';
+        const failureText = total > 0 ? `配图失败：${total} 张都失败了` : '配图失败';
         finishDrawJobStatus(jobKey, {
             status: allFailed ? 'failed' : 'success',
             statusKind: allFailed ? 'error' : 'success',
-            progressText: allFailed ? '配图失败' : `${DRAW_COMPLETION_NOTICE_TEXT}${fallbackText}`,
+            progressText: allFailed ? failureText : `${DRAW_COMPLETION_NOTICE_TEXT}${fallbackText}`,
         }, allFailed ? 4200 : 2600);
         flashMessageAction(updated || latestMessage!, 'draw', !allFailed && !!updated);
         void nextTick(enhanceChatMarkdown);
@@ -5073,6 +5177,7 @@ provide(TAVERN_APP_UI_CONTEXT, {
         messageKey,
         normalizeTavernSessionState,
         openTavernDrawSettings,
+        refreshTavernDrawQuickSettings,
         removeSession,
         renderChatMarkdown,
         rerunFromMessage,
@@ -5101,9 +5206,12 @@ provide(TAVERN_APP_UI_CONTEXT, {
         tavernDrawCapsuleStatusText,
         tavernDrawCapsuleTitle,
         tavernDrawCapsuleVisible,
+        tavernDrawQuickSettings,
+        tavernDrawQuickSettingsLoading,
         thoughtBlocks,
         thoughtSummaryLabel,
         updateChatScrollButtons,
+        updateTavernDrawQuickSettings,
         visibleCharacterAvatar,
         visibleChatMessages,
         visibleUserAvatar,
