@@ -49543,7 +49543,7 @@ function Sde(e, t) {
   return i * e.height + u * e.width;
 }
 function Ade(e) {
-  const t = Math.max(18, Math.min(72, e.width * 0.42)), n = Math.max(16, Math.min(46, e.height * 1.15));
+  const t = Math.max(16, Math.min(42, e.height * 1.45)), n = Math.max(14, Math.min(32, e.height * 1.08));
   return [
     [0, 0],
     [0, -n],

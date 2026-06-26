@@ -10,6 +10,10 @@ function overlaps(left: TavernMapLabelBounds, right: TavernMapLabelBounds) {
     return !(left.maxX <= right.minX || left.minX >= right.maxX || left.maxY <= right.minY || left.minY >= right.maxY);
 }
 
+function distanceFrom(item: { x: number; y: number }, x: number, y: number) {
+    return Math.hypot(item.x - x, item.y - y);
+}
+
 test('map label layout deterministically moves overlapping labels apart', () => {
     const labels = [
         { id: 'a', text: '玩家', x: 120, y: 120, fontSize: 14, anchor: 'middle' },
@@ -52,4 +56,15 @@ test('map label layout keeps labels inside the viewBox when possible', () => {
 
     assert.ok(bounds.minX >= 0);
     assert.ok(bounds.minY >= 0);
+});
+
+test('map label layout keeps candidate moves visually close to the anchor', () => {
+    const labels = [
+        { id: 'a', text: '非常非常长的地图标注一', x: 120, y: 120, fontSize: 14, anchor: 'middle' },
+        { id: 'b', text: '非常非常长的地图标注二', x: 120, y: 120, fontSize: 14, anchor: 'middle' },
+    ];
+
+    const laidOut = layoutTavernMapLabels(labels, [0, 0, 320, 240]);
+
+    assert.ok(Math.max(...laidOut.map((item) => distanceFrom(item, 120, 120))) <= 48);
 });

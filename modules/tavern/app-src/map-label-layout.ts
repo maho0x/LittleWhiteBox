@@ -72,8 +72,8 @@ function overflowArea(bounds: TavernMapLabelBounds, viewBox: [number, number, nu
 }
 
 function labelCandidateOffsets(bounds: TavernMapLabelBounds): Array<[number, number]> {
-    const side = Math.max(18, Math.min(72, bounds.width * 0.42));
-    const vertical = Math.max(16, Math.min(46, bounds.height * 1.15));
+    const side = Math.max(16, Math.min(42, bounds.height * 1.45));
+    const vertical = Math.max(14, Math.min(32, bounds.height * 1.08));
     return [
         [0, 0],
         [0, -vertical],
