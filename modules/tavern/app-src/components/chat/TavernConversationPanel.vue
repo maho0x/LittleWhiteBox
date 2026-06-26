@@ -838,25 +838,25 @@ watch(isMobileActionTrayViewport, (isMobile) => {
           class="session-archive-list"
         >
           <div
-            v-for="session in currentChatCharacterSessions"
-            :key="session.id"
+            v-for="archivedSession in currentChatCharacterSessions"
+            :key="archivedSession.id"
             class="session-archive-item"
-            :class="{ active: session.id === selectedSessionId }"
+            :class="{ active: archivedSession.id === selectedSessionId }"
           >
             <button
               type="button"
               class="session-archive-open"
-              @click="openArchivedSession(session.id)"
+              @click="openArchivedSession(archivedSession.id)"
             >
-              <span class="session-archive-item-title">{{ sessionDisplayTitle(session) || '未命名会话' }}</span>
-              <span class="session-archive-item-meta">{{ sessionFloorLabel(session) }}</span>
+              <span class="session-archive-item-title">{{ sessionDisplayTitle(archivedSession) || '未命名会话' }}</span>
+              <span class="session-archive-item-meta">{{ sessionFloorLabel(archivedSession) }}</span>
             </button>
             <button
               type="button"
               class="session-archive-delete"
               title="删除会话"
               aria-label="删除会话"
-              @click="deleteArchivedSession(session.id, $event)"
+              @click="deleteArchivedSession(archivedSession.id, $event)"
             >
               <svg
                 aria-hidden="true"
@@ -879,4 +879,3 @@ watch(isMobileActionTrayViewport, (isMobile) => {
     </div>
   </section>
 </template>
-
