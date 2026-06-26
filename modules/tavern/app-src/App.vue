@@ -2987,6 +2987,7 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rollback
         await restoreAcceptedMemoryAndTaskStateBeforeMessage(message.sessionId, message.order);
     }
     if (updated && selectedSessionId.value) {
+        chatRunController.resolveDeferredAssistantCommit({ sessionId: message.sessionId });
         await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
         if (shouldRollbackState) {
             await refreshManagerRecords(selectedSessionId.value);
@@ -3059,6 +3060,10 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
         await restoreAcceptedMemoryAndTaskStateBeforeMessage(message.sessionId, fromOrder);
     }
     if (selectedSessionId.value) {
+        chatRunController.resolveDeferredAssistantCommit({
+            sessionId: message.sessionId,
+            discardOrders: deleted > 0 ? ordersToDelete : [],
+        });
         await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
         await refreshManagerRecords(selectedSessionId.value);
     }

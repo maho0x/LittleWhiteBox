@@ -25,6 +25,12 @@ export interface TavernChatRunOptions {
     rerollRuntimeEvents?: boolean;
 }
 
+export interface TavernDeferredAssistantResolutionOptions {
+    discardFromOrder?: number;
+    discardOrders?: number[];
+    sessionId?: string;
+}
+
 export interface TavernChatRunState {
     currentUserMessage: Ref<string>;
     isCancellingRun: Ref<boolean>;
@@ -179,13 +185,32 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         return !!state.runtimeFinalizedAssistantMessage.value;
     }
 
-    function flushDeferredAssistantCommit() {
+    function resolveDeferredAssistantCommit(resolveOptions: TavernDeferredAssistantResolutionOptions = {}) {
         const message = state.runtimeFinalizedAssistantMessage.value;
         if (!message) {return false;}
+        const targetSessionId = String(resolveOptions.sessionId || message.sessionId || '').trim();
+        if (targetSessionId && message.sessionId !== targetSessionId) {return false;}
+        const messageOrder = Number(message.order);
+        const discardFromOrder = Number(resolveOptions.discardFromOrder);
+        const discardOrders = Array.isArray(resolveOptions.discardOrders)
+            ? resolveOptions.discardOrders.map((order) => Number(order)).filter((order) => Number.isFinite(order))
+            : [];
+        const shouldDiscard = Number.isFinite(messageOrder) && (
+            (Number.isFinite(discardFromOrder) && messageOrder >= discardFromOrder)
+            || discardOrders.includes(messageOrder)
+        );
+        if (shouldDiscard) {
+            clearRuntimeAssistantLiveState();
+            return true;
+        }
         options.upsertLoadedSessionMessage(message);
         options.touchSessionLocally(message.sessionId, message.createdAt);
         clearRuntimeAssistantLiveState();
         return true;
+    }
+
+    function flushDeferredAssistantCommit() {
+        return resolveDeferredAssistantCommit();
     }
 
     function abortActiveRun() {
@@ -239,7 +264,6 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         state.isRunning.value = true;
         state.isCancellingRun.value = false;
         state.runtimeError.value = '';
-        flushDeferredAssistantCommit();
         cancelPendingRuntimeStreamFrame();
         pendingRuntimeStreamSnapshot = null;
         state.runtimeText.value = '';
@@ -256,6 +280,10 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
 
         const reusedUserMessageOrder = Number(runOptions.reuseUserMessageOrder);
         const isReusedUserMessageRun = Number.isFinite(reusedUserMessageOrder);
+        resolveDeferredAssistantCommit({
+            sessionId: options.selectedSessionId.value,
+            discardFromOrder: isReusedUserMessageRun ? reusedUserMessageOrder + 1 : undefined,
+        });
         const defaultChatMessageWindowLimit = options.normalizeHiddenOutsideCount(options.hiddenOutsideCount.value);
         if (isReusedUserMessageRun && Number(options.chatMessageWindowLimit.value) !== defaultChatMessageWindowLimit) {
             options.setSuppressNextChatWindowLimitReload();
@@ -439,6 +467,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         flushRuntimeStreamSnapshotNow,
         flushDeferredAssistantCommit,
         handleChatSubmit,
+        resolveDeferredAssistantCommit,
         resetChatRunPreviewState,
         runOnce,
         scheduleRuntimeStreamSnapshot,
