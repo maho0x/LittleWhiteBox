@@ -2045,7 +2045,7 @@ function handleInlineImageProgressHostMessage(data: TavernHostMessageData) {
 
 function handleConfigHostMessage(data: TavernHostMessageData) {
     if (data.type === 'xb-tavern:config') {
-        reportStartupProgress(80, 'applyHostPayload');
+        reportStartupProgress(88, 'applyHostPayload');
         applyHostPayload(hostMessagePayload(data));
         initialConfigApplied = true;
         startPostReadyStartupTasksAfterInitialConfig();
@@ -4118,7 +4118,7 @@ const appUiContext = {
 provide(TAVERN_APP_UI_CONTEXT, appUiContext);
 
 async function runPostReadyStartupTasks() {
-    reportStartupProgress(85, 'refreshPresets');
+    reportStartupProgress(92, 'refreshPresets');
     const startupResults = await Promise.allSettled([
         refreshPresets(),
         refreshSessions(),

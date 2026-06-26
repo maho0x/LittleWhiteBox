@@ -45564,7 +45564,7 @@ function pne(e, t) {
     e.loadedSessionMessages.value = [], e.selectedSessionMessageTotal.value = 0, e.loadedSessionMessageStartOrder.value = null, e.loadedSessionMessageEndOrder.value = null, e.selectedSessionLatestAssistantOrder.value = -1;
   }
   async function f(b = {}) {
-    t.reportStartupProgress(92, "loadSelectedSessionMessageWindow");
+    t.reportStartupProgress(96, "loadSelectedSessionMessageWindow");
     const E = String(b.sessionId || e.selectedSessionId.value || "").trim(), k = n + 1;
     if (n = k, !E) {
       d();
@@ -45628,7 +45628,7 @@ function pne(e, t) {
     e.selectedSessionId.value = "", b.clearCharacterError !== !1 && (t.selectedSessionCharacterError.value = ""), d(), b.persist && await C(""), b.refreshManager && await t.refreshManagerRecords("");
   }
   async function N() {
-    t.reportStartupProgress(88, "refreshSessions"), e.sessions.value = await MU();
+    t.reportStartupProgress(94, "refreshSessions"), e.sessions.value = await MU();
     const b = String(await PU() || "").trim();
     e.selectedSessionId.value = e.sessions.value.some((E) => E.id === b) ? b : "", b && !e.selectedSessionId.value && await C(""), await f(), await t.refreshManagerRecords(e.selectedSessionId.value), e.selectedSessionId.value && t.syncSessionCharacterContextSafely({ sessionId: e.selectedSessionId.value });
   }
@@ -55814,7 +55814,7 @@ var Dge = ["data-chat-font-size"], Oge = { class: "xb-os-stage" }, Fge = { class
       return A.type === "xb-tavern:inline-image-progress" ? (window.dispatchEvent(new CustomEvent(rb, { detail: Sh(A) })), !0) : !1;
     }
     function AN(A) {
-      return A.type === "xb-tavern:config" ? (Po(80, "applyHostPayload"), uy(Sh(A)), fh = !0, bN(), !0) : A.type === "xb-tavern:context" ? (uy(Sh(A)), !0) : A.type === "xb-tavern:config-saved" ? (ph(Sh(A)), !0) : !1;
+      return A.type === "xb-tavern:config" ? (Po(88, "applyHostPayload"), uy(Sh(A)), fh = !0, bN(), !0) : A.type === "xb-tavern:context" ? (uy(Sh(A)), !0) : A.type === "xb-tavern:config-saved" ? (ph(Sh(A)), !0) : !1;
     }
     Ks.addMessageHandler((A) => fa.handleHostMessage(A)), Ks.addMessageHandler(SN), Ks.addMessageHandler(AN);
     function TA() {
@@ -57247,7 +57247,7 @@ var Dge = ["data-chat-font-size"], Oge = { class: "xb-os-stage" }, Fge = { class
       settings: se
     });
     async function Q$() {
-      Po(85, "refreshPresets");
+      Po(92, "refreshPresets");
       const A = (await Promise.allSettled([zv(), Th()])).find((M) => M.status === "rejected");
       A?.status === "rejected" && (b.value = pa(A.reason)), Ee(), Ft.value === "settings" && zn.value === "api" && await Bt(xc), Ft.value === "settings" && zn.value === "chatPreset" && Le(), Ft.value === "settings" && zn.value === "worldbooks" && mt(), Ft.value === "settings" && zn.value === "regex" && Ic(), Ft.value === "settings" && zn.value === "base" && Hv(), Ft.value === "settings" && zn.value === "characters" && cy(), ie.value && SA({
         sessionId: ie.value,

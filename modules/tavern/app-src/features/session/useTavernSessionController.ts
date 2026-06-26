@@ -181,7 +181,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
     }
 
     async function loadSelectedSessionMessageWindow(loadOptions: { reset?: boolean; sessionId?: string } = {}) {
-        options.reportStartupProgress(92, 'loadSelectedSessionMessageWindow');
+        options.reportStartupProgress(96, 'loadSelectedSessionMessageWindow');
         const sessionId = String(loadOptions.sessionId || state.selectedSessionId.value || '').trim();
         const sequence = selectedMessageWindowLoadSequence + 1;
         selectedMessageWindowLoadSequence = sequence;
@@ -316,7 +316,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
     }
 
     async function refreshSessions() {
-        options.reportStartupProgress(88, 'refreshSessions');
+        options.reportStartupProgress(94, 'refreshSessions');
         state.sessions.value = await listTavernSessions();
         const storedSessionId = String(await getSelectedTavernSessionId() || '').trim();
         state.selectedSessionId.value = state.sessions.value.some((session) => session.id === storedSessionId)

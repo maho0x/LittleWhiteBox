@@ -259,8 +259,10 @@ async function buildFrameConfigPayload(options = {}) {
     ...options,
     onStartupProgress: postStartupProgress
   });
-  postStartupProgress({ percent: 75, action: "buildTavernFrameConfig" });
-  return await buildTavernFrameConfig(contextPayload);
+  postStartupProgress({ percent: 60, action: "buildTavernFrameConfig" });
+  return await buildTavernFrameConfig(contextPayload, {
+    onStartupProgress: postStartupProgress
+  });
 }
 function prepareInitialConfig() {
   const promise = buildFrameConfigPayload();
@@ -275,7 +277,7 @@ async function sendInitialConfigToFrame() {
   const promise = initialConfigPromise || buildFrameConfigPayload();
   initialConfigPromise = null;
   const configPayload = await promise;
-  postStartupProgress({ percent: 78, action: "sendInitialConfigToFrame" });
+  postStartupProgress({ percent: 84, action: "sendInitialConfigToFrame" });
   postToFrame("xb-tavern:config", configPayload);
 }
 async function sendConfigToFrame(options = {}) {
@@ -1193,7 +1195,7 @@ function handleFrameMessage(event) {
       break;
     case "xb-tavern:frame-ready":
       frameReady = true;
-      postStartupProgress({ percent: Math.max(latestStartupProgress.percent, 72), action: "frameReady" });
+      postStartupProgress({ percent: Math.max(latestStartupProgress.percent, 20), action: "frameReady" });
       void sendInitialConfigToFrame().catch((error) => {
         console.warn("[LittleWhiteBox][Tavern] failed to send initial config", error);
       }).finally(flushPendingMessages);

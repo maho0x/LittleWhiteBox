@@ -11,6 +11,10 @@ import { loadTavernDisplaySettings } from './display-settings.js';
 
 const SERVER_FILE_KEY = 'settings';
 
+interface TavernFrameConfigOptions {
+    onStartupProgress?: (payload: { percent: number; action: string }) => void;
+}
+
 export async function loadTavernAgentConfig(): Promise<Record<string, unknown>> {
     try {
         return normalizeAgentSettings(await AssistantStorage.get(SERVER_FILE_KEY, null) || {});
@@ -69,18 +73,26 @@ export async function saveTavernAgentConfig(patch: Record<string, unknown> = {},
     }
 }
 
-export async function buildTavernFrameConfig(contextPayload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+export async function buildTavernFrameConfig(
+    contextPayload: Record<string, unknown> = {},
+    options: TavernFrameConfigOptions = {},
+): Promise<Record<string, unknown>> {
+    options.onStartupProgress?.({ percent: 62, action: 'loadFrameSettings' });
     const [agentConfig, tavernDisplaySettings] = await Promise.all([
         loadTavernAgentConfig(),
         loadTavernDisplaySettings(),
     ]);
+    options.onStartupProgress?.({ percent: 68, action: 'buildChatPreset' });
     const chatPresetList = listTavernChatPresetBundles();
+    options.onStartupProgress?.({ percent: 74, action: 'attachHostHeaders' });
+    const hostRequestHeaders = getRequestHeaders?.() || {};
+    options.onStartupProgress?.({ percent: 80, action: 'frameConfigReady' });
     return {
         agentConfig,
         tavernDisplaySettings,
         chatPreset: chatPresetList.active,
         chatPresetList,
-        hostRequestHeaders: getRequestHeaders?.() || {},
+        hostRequestHeaders,
         ...contextPayload,
     };
 }
