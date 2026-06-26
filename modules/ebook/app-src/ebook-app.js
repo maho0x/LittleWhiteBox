@@ -86,8 +86,13 @@ export function captureScrollState(root, selector) {
                 && item.rect.top <= containerRect.bottom - 1
             ))
         : [];
-    const anchor = visibleAnchors.find((item) => !isVolatileScrollAnchorKey(selector, item.key))
-        || visibleAnchors[0]
+    const stableAnchors = visibleAnchors.filter((item) => !isVolatileScrollAnchorKey(selector, item.key));
+    const anchors = [...stableAnchors, ...visibleAnchors.filter((item) => isVolatileScrollAnchorKey(selector, item.key))]
+        .map((item) => ({
+            key: item.key,
+            topOffset: item.rect ? item.rect.top - containerRect.top : 0,
+        }));
+    const anchor = anchors[0]
         || null;
     return {
         selector,
@@ -97,7 +102,8 @@ export function captureScrollState(root, selector) {
         scrollHeight: node.scrollHeight,
         clientHeight: node.clientHeight,
         anchorKey: anchor?.key || '',
-        anchorTopOffset: anchor?.rect ? anchor.rect.top - containerRect.top : 0,
+        anchorTopOffset: anchor?.topOffset || 0,
+        anchors,
     };
 }
 
@@ -118,22 +124,33 @@ export function restoreScrollState(root, snapshot, defaultSelector = null, optio
     }
     if (options.preserveScrollTop) {
         node.scrollTop = Math.min(Math.max(0, snapshot.scrollTop), node.scrollHeight);
-        if (snapshot.anchorKey && options.preserveAnchor !== false) {
+        const anchors = snapshot.anchors?.length
+            ? snapshot.anchors
+            : snapshot.anchorKey
+                ? [{ key: snapshot.anchorKey, topOffset: snapshot.anchorTopOffset }]
+                : [];
+        if (anchors.length && options.preserveAnchor !== false) {
             const anchorConfig = getScrollAnchorConfig(selector);
             const containerRect = typeof node.getBoundingClientRect === 'function'
                 ? node.getBoundingClientRect()
                 : null;
-            const anchorNode = anchorConfig
+            const currentAnchors = anchorConfig
                 ? Array.from(node.querySelectorAll?.(`[${anchorConfig.attr}]`) || [])
-                    .find((item) => item?.dataset?.[anchorConfig.datasetKey] === snapshot.anchorKey)
-                : null;
-            const anchorRect = typeof anchorNode?.getBoundingClientRect === 'function'
-                ? anchorNode.getBoundingClientRect()
-                : null;
-            if (containerRect && anchorRect) {
-                const nextOffset = anchorRect.top - containerRect.top;
+                : [];
+            const matchedAnchor = anchors
+                .map((anchorItem) => {
+                    const anchorNode = currentAnchors
+                        .find((item) => item?.dataset?.[anchorConfig.datasetKey] === anchorItem.key);
+                    const anchorRect = typeof anchorNode?.getBoundingClientRect === 'function'
+                        ? anchorNode.getBoundingClientRect()
+                        : null;
+                    return anchorRect ? { rect: anchorRect, topOffset: anchorItem.topOffset } : null;
+                })
+                .find(Boolean);
+            if (containerRect && matchedAnchor) {
+                const nextOffset = matchedAnchor.rect.top - containerRect.top;
                 node.scrollTop = Math.min(
-                    Math.max(0, node.scrollTop + nextOffset - Number(snapshot.anchorTopOffset || 0)),
+                    Math.max(0, node.scrollTop + nextOffset - Number(matchedAnchor.topOffset || 0)),
                     node.scrollHeight,
                 );
             }
@@ -532,7 +549,6 @@ export function createEbookApp(options = {}) {
             forceBottom: shouldAutoScrollAgent,
             defaultToBottom: shouldAutoScrollAgent,
             preserveScrollTop: !shouldAutoScrollAgent,
-            preserveAnchor: false,
         });
         state.agentForceScrollBottomOnce = false;
         updateAgentScrollButtons(root);

@@ -5435,6 +5435,73 @@ test('Book app uses stable message anchors instead of the history gate', () => {
 
     assert.equal(snapshot.anchorKey, 'message:7');
     assert.equal(snapshot.anchorTopOffset, 28);
+    assert.deepEqual(snapshot.anchors.map((anchor) => anchor.key), ['message:7', 'history-gate:12']);
+});
+
+test('Book app restores manual agent scroll by the next visible anchor when the top anchor disappears', () => {
+    let messageThreeDocumentTop = 500;
+    let messageFourDocumentTop = 620;
+    const messageThree = {
+        dataset: { agentUnitKey: 'message:3' },
+        getBoundingClientRect() {
+            return {
+                top: messageThreeDocumentTop - agentMain.scrollTop,
+                bottom: messageThreeDocumentTop - agentMain.scrollTop + 80,
+            };
+        },
+    };
+    const messageFour = {
+        dataset: { agentUnitKey: 'message:4' },
+        getBoundingClientRect() {
+            return {
+                top: messageFourDocumentTop - agentMain.scrollTop,
+                bottom: messageFourDocumentTop - agentMain.scrollTop + 90,
+            };
+        },
+    };
+    let anchors = [messageThree, messageFour];
+    const agentMain = {
+        scrollTop: 500,
+        scrollHeight: 2000,
+        clientHeight: 400,
+        getBoundingClientRect() {
+            return { top: 0, bottom: 400 };
+        },
+        querySelectorAll(selector) {
+            return selector === '[data-agent-unit-key]' ? anchors : [];
+        },
+    };
+    const root = {
+        querySelector(selector) {
+            return selector === '.xb-agent-main' ? agentMain : null;
+        },
+    };
+
+    const snapshot = captureScrollState(root, '.xb-agent-main');
+
+    assert.equal(snapshot.anchorKey, 'message:3');
+    assert.deepEqual(snapshot.anchors.map((anchor) => anchor.key), ['message:3', 'message:4']);
+    assert.equal(snapshot.anchors[1].topOffset, 120);
+
+    anchors = [messageFour];
+    messageFourDocumentTop = 500;
+    agentMain.scrollTop = 0;
+    restoreScrollState(root, snapshot, '.xb-agent-main', {
+        defaultToBottom: false,
+        preserveScrollTop: true,
+    });
+
+    assert.equal(agentMain.scrollTop, 380);
+});
+
+test('Book agent partial render keeps anchor restoration enabled for detached markdown reflow', () => {
+    const appSource = readFileSync(new URL('../app-src/ebook-app.js', import.meta.url), 'utf8');
+    const renderAgentStart = appSource.indexOf('function renderAgentSurface()');
+    const renderToolStart = appSource.indexOf('function renderToolTraceSurface()', renderAgentStart);
+    const renderAgentSource = appSource.slice(renderAgentStart, renderToolStart);
+
+    assert.match(renderAgentSource, /restoreScrollState\(root, agentScroll, '\.xb-agent-main'/);
+    assert.doesNotMatch(renderAgentSource, /preserveAnchor:\s*false/);
 });
 
 test('Book app does not force bottom when auto-scroll state is stale but the viewport is not near bottom', () => {
