@@ -252,6 +252,7 @@ test('tavern html iframe height updates ignore zero probes and apply measured he
     const listeners = new Map<string, Array<(event: Record<string, unknown>) => void>>();
     const frames = new Map<number, () => void>();
     let nextFrameId = 1;
+    let preserveCalls = 0;
 
     const fakeWindow = {
         location: { origin: 'https://tavern.local' },
@@ -303,6 +304,10 @@ test('tavern html iframe height updates ignore zero probes and apply measured he
             alertDialog: async () => {},
             confirmDialog: async () => true,
             requestHost: async () => ({}),
+            preserveChatScroll: (mutation) => {
+                preserveCalls += 1;
+                return mutation();
+            },
         });
         const dispatchMessage = (event: Record<string, unknown>) => {
             for (const listener of listeners.get('message') || []) {
@@ -318,6 +323,7 @@ test('tavern html iframe height updates ignore zero probes and apply measured he
 
         assert.equal(frames.size, 0);
         assert.equal(iframe.style.height, '');
+        assert.equal(preserveCalls, 0);
 
         dispatchMessage({
             source: innerWindow,
@@ -330,6 +336,7 @@ test('tavern html iframe height updates ignore zero probes and apply measured he
             callback();
         }
         assert.equal(iframe.style.height, '43px');
+        assert.equal(preserveCalls, 1);
     } finally {
         host.window = previousWindow;
     }

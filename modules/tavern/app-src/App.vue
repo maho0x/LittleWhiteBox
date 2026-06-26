@@ -8,6 +8,7 @@ import {
 import { normalizeTavernDisplaySettings, type TavernDisplaySettings } from '../shared/settings';
 import { TAVERN_INLINE_IMAGE_PROGRESS_EVENT, useTavernMarkdownTools } from './components/chat/useTavernMarkdownTools';
 import { useTavernScrollPane } from './components/chat/useTavernScrollPane';
+import { captureElementScrollState, restoreElementScrollState, type ElementScrollSnapshot } from './scroll-state';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 import {
     normalizeXbTavernAuthorNote,
@@ -605,6 +606,38 @@ const {
     reportStartupProgress,
     requestHost,
 } = hostBridge;
+const chatScrollAnchorConfig = {
+    itemSelector: '.chat-bubble[data-chat-anchor-key], .chat-history-gate[data-chat-anchor-key]',
+    datasetKey: 'chatAnchorKey',
+};
+
+function restoreDetachedChatScrollAfterMarkdown(snapshot: ElementScrollSnapshot | null) {
+    if (!snapshot || chatAutoScroll.value !== false) {return;}
+    restoreElementScrollState(chatScrollRef.value, snapshot, chatScrollAnchorConfig, {
+        preserveScrollTop: true,
+    });
+    chatScrollPane.updateScrollButtons();
+}
+
+function preserveDetachedChatScrollDuringMarkdown<T>(mutation: () => T): T {
+    const snapshot = chatAutoScroll.value === false
+        ? captureElementScrollState(chatScrollRef.value, chatScrollAnchorConfig)
+        : null;
+    try {
+        return mutation();
+    } finally {
+        restoreDetachedChatScrollAfterMarkdown(snapshot);
+        if (snapshot && typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => {
+                restoreDetachedChatScrollAfterMarkdown(snapshot);
+                window.requestAnimationFrame(() => {
+                    restoreDetachedChatScrollAfterMarkdown(snapshot);
+                });
+            });
+        }
+    }
+}
+
 const {
     clearMarkdownCache,
     disposeMarkdownTools,
@@ -624,6 +657,7 @@ const {
     confirmDialog: confirmTavernDialog,
     requestHost,
     showToast: showTavernToast,
+    preserveChatScroll: preserveDetachedChatScrollDuringMarkdown,
     getHtmlFrameAvatarUrls: () => ({
         user: String(effectiveContext.value.user?.avatar || ''),
         char: String(effectiveContext.value.character?.avatar || ''),

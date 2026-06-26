@@ -1076,7 +1076,6 @@ test('tavern manager display projection stays out of the app controller', () => 
 });
 
 test('tavern accepted-turn manager maintenance runs in background after the next user send starts', () => {
-    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const sessionSource = readRepoFile('modules/tavern/app-src/features/session/useTavernSessionController.ts');
     const runOnceSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
@@ -1150,6 +1149,7 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.doesNotMatch(appSource, /function enhanceChatMarkdown/);
     assert.match(markdownToolsSource, /function renderChatMarkdown/);
     assert.match(markdownToolsSource, /function enhanceChatMarkdown/);
+    assert.match(markdownToolsSource, /function enhanceChatMarkdown\(\) \{[\s\S]*preserveChatScroll\(\(\) => \{/);
     assert.match(markdownToolsSource, /function enhanceActionCheckMarkers/);
     assert.match(markdownToolsSource, /createTavernDrawMarkdownImageEnhancer/);
     assert.match(markdownToolsSource, /drawImageEnhancer\.enhanceTavernImageMarkers\(node\)/);

@@ -24,6 +24,7 @@ export interface TavernMarkdownToolsOptions {
     requestHost: (type: string, payload?: { payload?: object }) => Promise<{ result?: unknown } & Record<string, unknown>>;
     getHtmlFrameAvatarUrls?: () => { user?: string; char?: string };
     showToast?: (message: string, options?: { tone?: 'info' | 'warning' | 'danger'; durationMs?: number }) => void;
+    preserveChatScroll?: <T>(mutation: () => T) => T;
 }
 
 export interface TavernRoleplayMarkdownOptions {
@@ -188,6 +189,10 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     const htmlGenerateRelays = new Map<string, { iframe: HTMLIFrameElement; targetOrigin: string; timeoutId: number }>();
     const htmlIframeHeights = new WeakMap<HTMLIFrameElement, number>();
     const htmlIframeHeightFrames = new WeakMap<HTMLIFrameElement, number>();
+
+    function preserveChatScroll<T>(mutation: () => T): T {
+        return options.preserveChatScroll ? options.preserveChatScroll(mutation) : mutation();
+    }
 
     function isHiddenMarkdownNode(node: Element | null) {
         return !node || !!node.closest('[hidden], [aria-hidden="true"]');
@@ -356,7 +361,9 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             }
             htmlIframeHeights.delete(iframe);
         }
-        wrapper.remove();
+        preserveChatScroll(() => {
+            wrapper.remove();
+        });
     }
 
     function applyTavernHtmlIframeHeight(iframe: HTMLIFrameElement, height: unknown, force = false) {
@@ -373,7 +380,9 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         const frameId = window.requestAnimationFrame(() => {
             htmlIframeHeightFrames.delete(iframe);
             if (!iframe.isConnected) {return;}
-            iframe.style.height = `${rounded}px`;
+            preserveChatScroll(() => {
+                iframe.style.height = `${rounded}px`;
+            });
         });
         htmlIframeHeightFrames.set(iframe, frameId);
     }
@@ -732,11 +741,13 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     }
 
     function setInlineImageSlotStatus(slot: HTMLElement, text: string, state = 'loading') {
-        slot.dataset.state = state;
-        const placeholder = document.createElement('span');
-        placeholder.className = `xb-tavern-inline-image-placeholder is-${state}`;
-        placeholder.textContent = text;
-        slot.replaceChildren(placeholder);
+        preserveChatScroll(() => {
+            slot.dataset.state = state;
+            const placeholder = document.createElement('span');
+            placeholder.className = `xb-tavern-inline-image-placeholder is-${state}`;
+            placeholder.textContent = text;
+            slot.replaceChildren(placeholder);
+        });
     }
 
     function renderInlineImageSlot(slot: HTMLElement, base64 = '') {
@@ -744,35 +755,39 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         if (!src) {
             throw new Error('image_data_missing');
         }
-        slot.dataset.loaded = '1';
-        slot.dataset.loading = '';
-        slot.dataset.state = 'loaded';
-        const image = document.createElement('img');
-        image.className = 'xb-tavern-inline-image-img';
-        image.src = src;
-        image.loading = 'lazy';
-        image.addEventListener('click', () => window.open(src, '_blank'));
-        slot.replaceChildren(image);
+        preserveChatScroll(() => {
+            slot.dataset.loaded = '1';
+            slot.dataset.loading = '';
+            slot.dataset.state = 'loaded';
+            const image = document.createElement('img');
+            image.className = 'xb-tavern-inline-image-img';
+            image.src = src;
+            image.loading = 'lazy';
+            image.addEventListener('click', () => window.open(src, '_blank'));
+            slot.replaceChildren(image);
+        });
     }
 
     function renderInlineImageError(slot: HTMLElement, tags = '', error: unknown) {
-        slot.dataset.loaded = '1';
-        slot.dataset.loading = '';
-        slot.dataset.state = 'error';
-        const wrap = document.createElement('span');
-        wrap.className = 'xb-tavern-inline-image-error';
-        const label = document.createElement('span');
-        label.textContent = error instanceof Error ? error.message : String(error || '生成失败');
-        const retry = document.createElement('button');
-        retry.type = 'button';
-        retry.textContent = '重试';
-        retry.addEventListener('click', (event) => {
-            event.stopPropagation();
-            slot.dataset.loaded = '';
-            void loadInlineImageSlot(slot, tags);
+        preserveChatScroll(() => {
+            slot.dataset.loaded = '1';
+            slot.dataset.loading = '';
+            slot.dataset.state = 'error';
+            const wrap = document.createElement('span');
+            wrap.className = 'xb-tavern-inline-image-error';
+            const label = document.createElement('span');
+            label.textContent = error instanceof Error ? error.message : String(error || '生成失败');
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.textContent = '重试';
+            retry.addEventListener('click', (event) => {
+                event.stopPropagation();
+                slot.dataset.loaded = '';
+                void loadInlineImageSlot(slot, tags);
+            });
+            wrap.append(label, retry);
+            slot.replaceChildren(wrap);
         });
-        wrap.append(label, retry);
-        slot.replaceChildren(wrap);
     }
 
     function formatInlineImageProgress(status = '', payload: Record<string, unknown> = {}) {
@@ -1072,25 +1087,27 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     }
 
     function enhanceChatMarkdown() {
-        const root = options.chatScrollRef.value;
-        if (!root?.querySelectorAll) {return;}
-        root.querySelectorAll<HTMLElement>('.xb-tavern-markdown').forEach((node) => {
-            if (!canEnhanceMarkdownRoot(node)) {return;}
-            const signature = node.dataset.markdownSignature || '';
-            if (node.dataset.markdownEnhanced === signature) {return;}
-            enhanceTavernHtmlCodeBlocks(node);
-            enhanceMarkdownContent(node, {
-                codeBlockClassName: 'xb-tavern-codeblock',
-                codeCopyClassName: 'xb-tavern-code-copy',
-                flattenPreCode: true,
-                htmlBlockMode: options.htmlRenderEnabled.value ? 'preview' : 'code',
-                skipPreSelector: TAVERN_HTML_PRE_SELECTOR,
+        preserveChatScroll(() => {
+            const root = options.chatScrollRef.value;
+            if (!root?.querySelectorAll) {return;}
+            root.querySelectorAll<HTMLElement>('.xb-tavern-markdown').forEach((node) => {
+                if (!canEnhanceMarkdownRoot(node)) {return;}
+                const signature = node.dataset.markdownSignature || '';
+                if (node.dataset.markdownEnhanced === signature) {return;}
+                enhanceTavernHtmlCodeBlocks(node);
+                enhanceMarkdownContent(node, {
+                    codeBlockClassName: 'xb-tavern-codeblock',
+                    codeCopyClassName: 'xb-tavern-code-copy',
+                    flattenPreCode: true,
+                    htmlBlockMode: options.htmlRenderEnabled.value ? 'preview' : 'code',
+                    skipPreSelector: TAVERN_HTML_PRE_SELECTOR,
+                });
+                drawImageEnhancer.enhanceTavernImageMarkers(node);
+                enhanceInlineImageTokens(node);
+                enhanceRoleplayDialogue(node);
+                enhanceActionCheckMarkers(node);
+                node.dataset.markdownEnhanced = signature;
             });
-            drawImageEnhancer.enhanceTavernImageMarkers(node);
-            enhanceInlineImageTokens(node);
-            enhanceRoleplayDialogue(node);
-            enhanceActionCheckMarkers(node);
-            node.dataset.markdownEnhanced = signature;
         });
     }
 
