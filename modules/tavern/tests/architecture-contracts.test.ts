@@ -135,6 +135,7 @@ test('tavern event panel renders title-based directions without user hooks', () 
 
 test('tavern startup posts frame-ready before heavy app tasks and prewarms host config', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const hostSource = readRepoFile('modules/tavern/tavern.ts');
     const htmlSource = readRepoFile('modules/tavern/tavern.html');
     const mountedIndex = appSource.indexOf('onMounted(async () => {');
@@ -150,7 +151,9 @@ test('tavern startup posts frame-ready before heavy app tasks and prewarms host 
     assert.match(appSource, /function reportStartupProgress\(percent: number, action: string\)[\s\S]*postToHost\('xb-tavern:startup-progress', \{ percent, action \}\)/);
     assert.match(appSource, /async function runPostReadyStartupTasks\(\) \{[\s\S]*reportStartupProgress\(85, 'refreshPresets'\);[\s\S]*Promise\.allSettled\(\[\s*refreshPresets\(\),\s*refreshSessions\(\),\s*\]\)[\s\S]*reportStartupProgress\(100, 'enterTavern'\);/);
     assert.doesNotMatch(appSource, /scheduleMemoryTokenizerWarmup|promoteMemoryTokenizerWarmup|preloadXbTavernMemoryTokenizer|getXbTavernMemoryTokenizerStatus/);
-    assert.match(appSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*isRunning\.value = true;[\s\S]*const runtimeContext = await resolveRuntimeContextForSession/);
+    assert.match(appSource, /const chatRunController = useTavernChatRunController\(\{/);
+    assert.doesNotMatch(appSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*isRunning\.value = true;[\s\S]*const runtimeContext = await resolveRuntimeContextForSession/);
+    assert.match(chatRunSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*state\.isRunning\.value = true;[\s\S]*const runtimeContext = await options\.resolveRuntimeContextForSession/);
     assert.match(appSource, /async function handleManagerSubmit\(\) \{[\s\S]*isManagerAssistantRunning\.value = true;[\s\S]*managerInputStatus\.value = '准备中';[\s\S]*await sendManagerQuestion\(managerSessionId, text\);/);
     assert.match(htmlSource, /<span class="xb-frame-boot-percent">5%<\/span>/);
     assert.match(htmlSource, /<span class="xb-frame-boot-stage">等待启动<\/span>/);
@@ -401,6 +404,7 @@ test('tavern chat preset bridge only writes native prompt fields, never API para
 test('tavern runtime chat preset uses ST-confirmed active preset, never unsaved draft', () => {
     const controllerSource = readRepoFile('modules/tavern/app-src/components/settings/useTavernSettingsController.ts');
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const nativeSource = readRepoFile('modules/tavern/host/native-prompt.ts');
 
     assert.match(controllerSource, /const runtimeChatPreset = computed\(\(\) => normalizeTavernChatPromptPresetBundle\(activeChatPreset\.value\)\)/);
@@ -408,7 +412,7 @@ test('tavern runtime chat preset uses ST-confirmed active preset, never unsaved 
     assert.match(controllerSource, /async function syncChatPresetFromHost\(\)[\s\S]*applyActiveChatPreset\(payload\.active as Partial<TavernChatPromptPresetBundle>, \{[\s\S]*replaceDraft: !presetDirty\.value/);
     assert.match(controllerSource, /async function refreshRuntimeChatPresetFromHost\(\)[\s\S]*xb-tavern:get-chat-preset[\s\S]*applyActiveChatPreset\(payload, \{[\s\S]*replaceDraft: !presetDirty\.value/);
     assert.match(appSource, /const runtimePreset = await refreshRuntimeChatPresetFromHost\(\);[\s\S]*simulateXbTavernRequest\(\{[\s\S]*chatPreset: runtimePreset/);
-    assert.match(appSource, /const runtimePreset = await refreshRuntimeChatPresetFromHost\(\);[\s\S]*runXbTavernTurn\(\{[\s\S]*chatPreset: runtimePreset/);
+    assert.match(chatRunSource, /const runtimePreset = await options\.refreshRuntimeChatPresetFromHost\(\);[\s\S]*runXbTavernTurn\(\{[\s\S]*chatPreset: runtimePreset/);
     assert.match(nativeSource, /throw new Error\('聊天预设未同步：缺少 prompts。'\)/);
     assert.match(nativeSource, /throw new Error\('聊天预设未同步：缺少 prompt_order。'\)/);
 });
@@ -446,6 +450,7 @@ test('tavern map game icon animation does not override SVG transform attributes'
 
 test('tavern request log is sourced from runtime request snapshots', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const runtimeSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
     const hostSource = readRepoFile('modules/tavern/tavern.ts');
     const nativePromptSource = readRepoFile('modules/tavern/host/native-prompt.ts');
@@ -453,14 +458,14 @@ test('tavern request log is sourced from runtime request snapshots', () => {
     assert.match(appSource, /lastRequestSnapshot\.value\?\.rawRequestJson \|\| lastRequestSnapshot\.value\?\.rawMessagesJson/);
     assert.match(appSource, /simulateRequestJson\.value = result\.requestSnapshot\.rawRequestJson \|\| result\.requestSnapshot\.rawMessagesJson/);
     assert.match(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: runtimePreset/);
-    assert.match(appSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: runtimePreset/);
+    assert.match(chatRunSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: runtimePreset/);
     assert.doesNotMatch(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
-    assert.doesNotMatch(appSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
-    assert.match(appSource, /runXbTavernTurn\(\{[\s\S]*buildNativeChatPrompt,/);
+    assert.doesNotMatch(chatRunSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
+    assert.match(chatRunSource, /runXbTavernTurn\(\{[\s\S]*buildNativeChatPrompt: options\.buildNativeChatPrompt,/);
     assert.match(appSource, /xb-tavern:build-native-chat-prompt[\s\S]*signal: input\.signal/);
     assert.doesNotMatch(appSource, /host_request_timeout|HOST_REQUEST_TIMEOUT_MS|const timeoutMs =/);
     assert.match(appSource, /postToHost\('xb-tavern:cancel-request', \{ requestId \}\);/);
-    assert.match(appSource, /runtimePendingUserMessage\.value = messageText/);
+    assert.match(chatRunSource, /state\.runtimePendingUserMessage\.value = messageText/);
     assert.match(conversationSource, /class="chat-bubble from-user pending-user"/);
     assert.match(runtimeSource, /async function applyNativeChatPromptBuild/);
     assert.match(runtimeSource, /stage: 'simulate_native_prompt_build'/);
@@ -993,6 +998,7 @@ test('tavern manager display projection stays out of the app controller', () => 
 
 test('tavern accepted-turn manager maintenance runs in background after the next user send starts', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const runOnceSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
     const managerSource = readRepoFile('modules/tavern/app-src/runtime/manager.ts');
     const memoryFilesSource = readRepoFile('modules/tavern/shared/memory-files.ts');
@@ -1003,7 +1009,7 @@ test('tavern accepted-turn manager maintenance runs in background after the next
     const runTurnStart = runOnceSource.indexOf('export async function runXbTavernTurn');
     const schedulerSource = runOnceSource.slice(schedulerStart, runTurnStart);
     const runTurnSource = runOnceSource.slice(runTurnStart);
-    const productionRunTurnCall = appSource.match(/const result = await runXbTavernTurn\(\{[\s\S]*?runManager: true,[\s\S]*?onManagerRunSaved:[\s\S]*?\n[ ]{8}\}\);/);
+    const productionRunTurnCall = chatRunSource.match(/const result = await runXbTavernTurn\(\{[\s\S]*?runManager: true,[\s\S]*?onManagerRunSaved:[\s\S]*?\n[ ]{12}\}\);/);
     const removeSessionBody = appSource.match(/async function removeSession\(sessionId: string, event\?: Event\) \{[\s\S]*?const removed = await deleteTavernSession\(id\);/);
 
     assert.match(runOnceSource, /markXbTavernManagerTurnPending/);
@@ -1386,6 +1392,7 @@ test('tavern roleplay html previews use stable code anchors and a local iframe b
 
 test('tavern live stream rendering is frame-batched without bypassing display regex', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
     const liveEnhanceMatch = markdownToolsSource.match(/function enhanceLiveChatMarkdown\(\) \{[\s\S]*?\n {4}\}/);
@@ -1398,10 +1405,12 @@ test('tavern live stream rendering is frame-batched without bypassing display re
     assert.match(liveEnhanceMatch[0], /enhanceActionCheckMarkers\(node\);/);
     assert.doesNotMatch(liveEnhanceMatch[0], /enhanceTavernHtmlCodeBlocks/);
 
-    assert.match(appSource, /let runtimeStreamFrame = 0;/);
-    assert.match(appSource, /let pendingRuntimeStreamSnapshot: TavernRunStreamSnapshot \| null = null;/);
-    assert.match(appSource, /function scheduleRuntimeStreamSnapshot\(snapshot: TavernRunStreamSnapshot\)[\s\S]*window\.requestAnimationFrame\(\(\) => \{[\s\S]*flushRuntimeStreamSnapshotNow\(\);/);
-    assert.match(appSource, /onStreamProgress: \(snapshot\) => \{[\s\S]*scheduleRuntimeStreamSnapshot\(snapshot\);[\s\S]*\},/);
+    assert.doesNotMatch(appSource, /let runtimeStreamFrame = 0;/);
+    assert.doesNotMatch(appSource, /let pendingRuntimeStreamSnapshot: TavernRunStreamSnapshot \| null = null;/);
+    assert.match(chatRunSource, /let runtimeStreamFrame = 0;/);
+    assert.match(chatRunSource, /let pendingRuntimeStreamSnapshot: TavernRunStreamSnapshot \| null = null;/);
+    assert.match(chatRunSource, /function scheduleRuntimeStreamSnapshot\(snapshot: TavernRunStreamSnapshot\)[\s\S]*window\.requestAnimationFrame\(\(\) => \{[\s\S]*flushRuntimeStreamSnapshotNow\(\);/);
+    assert.match(chatRunSource, /onStreamProgress: \(snapshot\) => \{[\s\S]*scheduleRuntimeStreamSnapshot\(snapshot\);[\s\S]*\},/);
     assert.doesNotMatch(appSource, /onStreamProgress: \(snapshot\) => \{[\s\S]{0,240}runtimeText\.value = snapshot\.text;/);
     assert.match(appSource, /function displayRuntimeRenderProjection/);
     assert.match(appSource, /scheduleRuntimeDisplayRegexText\('runtime:message', request\);/);
@@ -1410,7 +1419,7 @@ test('tavern live stream rendering is frame-batched without bypassing display re
     assert.match(appSource, /function runRuntimeDisplayRegexRequest\(slot: string\) \{[\s\S]*current\.latest\.key !== input\.key[\s\S]*runRuntimeDisplayRegexRequest\(slot\);/);
     assert.match(appSource, /function rememberDisplayRegexText\(key: string, text: string\)[\s\S]*if \(isRunning\.value\) \{[\s\S]*enhanceLiveChatMarkdown\(\);[\s\S]*\} else \{[\s\S]*enhanceChatMarkdown\(\);/);
     assert.match(appSource, /if \(isRunning\.value\) \{[\s\S]*enhanceLiveChatMarkdown\(\);[\s\S]*\} else \{[\s\S]*enhanceChatMarkdown\(\);[\s\S]*\}/);
-    assert.match(appSource, /isRunning\.value = false;[\s\S]*void nextTick\(\(\) => \{[\s\S]*enhanceChatMarkdown\(\);/);
+    assert.match(chatRunSource, /state\.isRunning\.value = false;[\s\S]*void nextTick\(\(\) => \{[\s\S]*options\.enhanceChatMarkdown\(\);/);
     assert.match(appSource, /enhanceLiveChatMarkdown,/);
     assert.doesNotMatch(conversationSource, /:key="`live-assistant:\$\{liveAssistantRenderState\.signature\}`"/);
     assert.match(conversationSource, /:data-markdown-signature="liveAssistantRenderState\.signature"/);
@@ -1419,6 +1428,7 @@ test('tavern live stream rendering is frame-batched without bypassing display re
 test('tavern draw jobs are message-queued and route progress by host request', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const drawSource = readRepoFile('modules/tavern/app-src/features/draw/useTavernDrawController.ts');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const canDrawSource = drawSource.match(/function canDrawMessage\(message: TavernMessageRecord\) \{[\s\S]*?\n {4}\}/)?.[0] || '';
     const insertMarkersSource = drawSource.match(/function insertTavernImageMarkers\(content = '', images: unknown\[] = \[]\) \{[\s\S]*?\n\}\n\nfunction formatDrawProgress/)?.[0] || '';
 
@@ -1453,7 +1463,8 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     assert.match(appSource, /async function removeSession\(sessionId: string, event\?: Event\) \{[\s\S]*drawContext\.cancelJobsForSession\(id\);[\s\S]*await cancelAndRollbackXbTavernManagersForMessageRange\(id, 0\);/);
     assert.match(appSource, /async function deleteMessageTurn\(message: TavernMessageRecord\) \{[\s\S]*const fromOrder = Math\.min\(\.\.\.ordersToDelete\);[\s\S]*drawContext\.cancelJobsForMessageRange\(message\.sessionId, fromOrder\);/);
     assert.match(appSource, /async function rerunFromMessage\(message: TavernMessageRecord\) \{[\s\S]*drawContext\.cancelJobsForMessageRange\(message\.sessionId, userMessage\.order \+ 1\);[\s\S]*await runOnce/);
-    assert.match(appSource, /async function runOnce\(options: \{ messageText\?: string; reuseUserMessageOrder\?: number; rerollRuntimeEvents\?: boolean \} = \{\}\) \{[\s\S]*if \(isReusedUserMessageRun && selectedSessionId\.value\) \{[\s\S]*drawContext\.cancelJobsForMessageRange\(selectedSessionId\.value, reusedUserMessageOrder \+ 1\);[\s\S]*pruneLoadedSessionMessagesFromOrder/);
+    assert.match(appSource, /cancelDrawJobsForMessageRange: drawContext\.cancelJobsForMessageRange/);
+    assert.match(chatRunSource, /async function runOnce\(runOptions: TavernChatRunOptions = \{\}\) \{[\s\S]*if \(isReusedUserMessageRun && options\.selectedSessionId\.value\) \{[\s\S]*options\.cancelDrawJobsForMessageRange\(options\.selectedSessionId\.value, reusedUserMessageOrder \+ 1\);[\s\S]*options\.pruneLoadedSessionMessagesFromOrder/);
     assert.match(appSource, /async function saveEditMessage\(message: TavernMessageRecord[\s\S]*drawContext\.cancelJob\(messageKey\(message\)\);[\s\S]*const updated = await updateTavernMessage/);
 
     assert.ok(canDrawSource);
@@ -1607,6 +1618,7 @@ test('tavern memory editor actions live outside the app controller', () => {
 
 test('tavern streaming action-check UI renders from live runtime events and keeps dark card styling aligned', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const chatPageSource = readRepoFile('modules/tavern/app-src/components/chat/TavernChatPage.vue');
     const conversationPanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     const managerPanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernManagerPanel.vue');
@@ -1627,29 +1639,31 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(conversationPanelSource, /hasRenderableLiveAssistantMarkdown/);
     assert.match(conversationPanelSource, /runtimeActionCheckEvents/);
     assert.match(contextSource, /runtimeUserMessageVisible: Ref<boolean>/);
-    assert.match(appSource, /const runtimeUserMessageVisible = ref\(false\)/);
+    assert.match(appSource, /const chatRunState = createTavernChatRunState\(\);/);
+    assert.match(chatRunSource, /runtimeUserMessageVisible: ref\(false\)/);
     assert.match(markdownToolsSource, /const stakes = String\(event\.stakes \|\| ''\)\.trim\(\);/);
     assert.match(markdownToolsSource, /stakes \? `风险：\$\{stakes\}。` : ''/);
     assert.match(markdownToolsSource, /if \(event\.stakes\) \{[\s\S]*className = 'action-check-card-stakes'[\s\S]*textContent = event\.stakes/);
-    assert.match(appSource, /function clearRuntimeAssistantLiveState\(\) \{[\s\S]*runtimeText\.value = '';[\s\S]*runtimeThoughts\.value = \[\];[\s\S]*runtimeActionCheckEvents\.value = \[\];[\s\S]*runtimeUserMessageVisible\.value = false;/);
-    assert.match(appSource, /runtimeUserMessageVisible\.value = false;[\s\S]*runtimeProvider\.value = ''/);
+    assert.match(chatRunSource, /function clearRuntimeAssistantLiveState\(\) \{[\s\S]*state\.runtimeText\.value = '';[\s\S]*state\.runtimeThoughts\.value = \[\];[\s\S]*state\.runtimeActionCheckEvents\.value = \[\];[\s\S]*state\.runtimeUserMessageVisible\.value = false;/);
+    assert.match(chatRunSource, /state\.runtimeUserMessageVisible\.value = false;[\s\S]*state\.runtimeProvider\.value = ''/);
     assert.match(appSource, /function upsertLoadedSessionMessage\(message: TavernMessageRecord\) \{[\s\S]*messageOrder >= tailOrder[\s\S]*loadedSessionMessages\.value = \[\.\.\.currentMessages, message\];/);
     assert.match(appSource, /function pruneLoadedSessionMessagesFromOrder\(sessionId = '', fromOrder = Number\.POSITIVE_INFINITY\): number \{[\s\S]*Number\(message\.order\) < firstRemovedOrder[\s\S]*loadedSessionMessages\.value = remainingMessages;[\s\S]*selectedSessionLatestAssistantOrder\.value = remainingMessages/);
     assert.doesNotMatch(appSource, /\[\.\.\.loadedSessionMessages\.value, message\]\.sort\(\(left, right\) => left\.order - right\.order\)/);
     assert.match(appSource, /let suppressNextChatWindowLimitReload = false;/);
-    assert.match(appSource, /const reusedUserMessageOrder = Number\(options\.reuseUserMessageOrder\);[\s\S]*const isReusedUserMessageRun = Number\.isFinite\(reusedUserMessageOrder\);[\s\S]*suppressNextChatWindowLimitReload = true;[\s\S]*resetChatMessageWindowState\(\);[\s\S]*pruneLoadedSessionMessagesFromOrder\(selectedSessionId\.value, reusedUserMessageOrder \+ 1\);[\s\S]*runtimeUserMessageVisible\.value = true;/);
+    assert.match(appSource, /setSuppressNextChatWindowLimitReload: \(\) => \{[\s\S]*suppressNextChatWindowLimitReload = true;/);
+    assert.match(chatRunSource, /const reusedUserMessageOrder = Number\(runOptions\.reuseUserMessageOrder\);[\s\S]*const isReusedUserMessageRun = Number\.isFinite\(reusedUserMessageOrder\);[\s\S]*options\.setSuppressNextChatWindowLimitReload\(\);[\s\S]*options\.resetChatMessageWindowState\(\);[\s\S]*options\.pruneLoadedSessionMessagesFromOrder\(options\.selectedSessionId\.value, reusedUserMessageOrder \+ 1\);[\s\S]*state\.runtimeUserMessageVisible\.value = true;/);
     assert.match(appSource, /watch\(\(\) => chatMessageWindowLimit\.value, \(\) => \{[\s\S]*if \(suppressNextChatWindowLimitReload\) \{[\s\S]*suppressNextChatWindowLimitReload = false;[\s\S]*return;[\s\S]*void loadSelectedSessionMessageWindow\(\);/);
-    assert.match(appSource, /catch \(error\) \{[\s\S]*clearRuntimeAssistantLiveState\(\);[\s\S]*if \(isReusedUserMessageRun && selectedSessionId\.value\) \{[\s\S]*await loadSelectedSessionMessageWindow\(\{ sessionId: selectedSessionId\.value \}\);/);
-    const userSavedCallback = appSource.match(/onUserMessageSaved: async \(sessionId, message\) => \{[\s\S]*?\n[ ]{12}\},\n[ ]{12}onAssistantMessageSaved/);
+    assert.match(chatRunSource, /catch \(error\) \{[\s\S]*clearRuntimeAssistantLiveState\(\);[\s\S]*if \(isReusedUserMessageRun && options\.selectedSessionId\.value\) \{[\s\S]*await options\.loadSelectedSessionMessageWindow\(\{ sessionId: options\.selectedSessionId\.value \}\);/);
+    const userSavedCallback = chatRunSource.match(/onUserMessageSaved: async \(sessionId, message\) => \{[\s\S]*?\n[ ]{16}\},\n[ ]{16}onAssistantMessageSaved/);
     assert.ok(userSavedCallback);
-    assert.match(userSavedCallback[0], /upsertLoadedSessionMessage\(message\);[\s\S]*touchSessionLocally\(sessionId, message\.createdAt\);[\s\S]*runtimePendingUserMessage\.value = '';[\s\S]*await setSelectedTavernSessionId\(sessionId\)/);
+    assert.match(userSavedCallback[0], /options\.upsertLoadedSessionMessage\(message\);[\s\S]*options\.touchSessionLocally\(sessionId, message\.createdAt\);[\s\S]*state\.runtimePendingUserMessage\.value = '';[\s\S]*await options\.persistSelectedSessionId\(sessionId\)/);
     assert.doesNotMatch(userSavedCallback[0], /refreshSessions\(\)/);
-    const assistantSavedCallback = appSource.match(/onAssistantMessageSaved: async \(sessionId, message\) => \{[\s\S]*?\n[ ]{12}\},\n[ ]{12}onManagerRunSaved/);
+    const assistantSavedCallback = chatRunSource.match(/onAssistantMessageSaved: async \(sessionId, message\) => \{[\s\S]*?\n[ ]{16}\},\n[ ]{16}onManagerRunSaved/);
     assert.ok(assistantSavedCallback);
-    assert.match(assistantSavedCallback[0], /flushRuntimeStreamSnapshotNow\(\);[\s\S]*upsertLoadedSessionMessage\(message\);[\s\S]*touchSessionLocally\(sessionId, message\.createdAt\);[\s\S]*clearRuntimeAssistantLiveState\(\);/);
+    assert.match(assistantSavedCallback[0], /flushRuntimeStreamSnapshotNow\(\);[\s\S]*options\.upsertLoadedSessionMessage\(message\);[\s\S]*options\.touchSessionLocally\(sessionId, message\.createdAt\);[\s\S]*clearRuntimeAssistantLiveState\(\);/);
     assert.doesNotMatch(assistantSavedCallback[0], /refreshSessions\(\)/);
-    assert.match(appSource, /selectedSessionId\.value = result\.sessionId;[\s\S]*flushRuntimeStreamSnapshotNow\(\);[\s\S]*clearRuntimeAssistantLiveState\(\);[\s\S]*await refreshSessions\(\);[\s\S]*scrollChatToBottom\(\);/);
-    assert.doesNotMatch(appSource, /await refreshSessions\(\);\s*await refreshManagerRecords\(result\.sessionId\);/);
+    assert.match(chatRunSource, /options\.selectedSessionId\.value = result\.sessionId;[\s\S]*flushRuntimeStreamSnapshotNow\(\);[\s\S]*clearRuntimeAssistantLiveState\(\);[\s\S]*await options\.refreshSessions\(\);[\s\S]*options\.scrollChatToBottom\(\);/);
+    assert.doesNotMatch(chatRunSource, /await options\.refreshSessions\(\);\s*await options\.refreshManagerRecords\(result\.sessionId\);/);
     assert.match(conversationPanelSource, /const liveAssistantCanRender = computed\(\(\) => isRunning\.value && runtimeUserMessageVisible\.value\)/);
     assert.match(conversationPanelSource, /v-if="liveAssistantCanRender && liveAssistantVisible"[\s\S]*data-chat-anchor-key="streaming:content"/);
     assert.match(conversationPanelSource, /v-if="liveAssistantCanRender && !liveAssistantVisible"[\s\S]*data-chat-anchor-key="streaming:empty"/);
@@ -1774,13 +1788,13 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(appSource, /const tavernToast = ref<\{[\s\S]*tone: 'info' \| 'warning' \| 'danger';[\s\S]*function showTavernToast/);
     assert.match(appSource, /v-if="tavernToast"[\s\S]*class="tavern-toast"[\s\S]*aria-live="polite"/);
     assert.match(appBaseCss, /\.tavern-toast \{[\s\S]*position: fixed;[\s\S]*top: max\(18px, env\(safe-area-inset-top, 0px\)\);[\s\S]*pointer-events: none;/);
-    assert.match(appSource, /if \(!messageText\) \{[\s\S]*runtimeError\.value = '先写一句话。';[\s\S]*showTavernToast\('先写一句话。', \{ tone: 'info', durationMs: 1800 \}\);[\s\S]*return;/);
-    assert.match(appSource, /if \(selectedSessionCharacterError\.value\) \{[\s\S]*runtimeError\.value = selectedSessionCharacterError\.value;[\s\S]*showTavernToast\(selectedSessionCharacterError\.value, \{ tone: 'warning', durationMs: 7000 \}\);[\s\S]*return;/);
+    assert.match(chatRunSource, /if \(!messageText\) \{[\s\S]*state\.runtimeError\.value = '先写一句话。';[\s\S]*options\.showToast\('先写一句话。', \{ tone: 'info', durationMs: 1800 \}\);[\s\S]*return;/);
+    assert.match(chatRunSource, /if \(options\.selectedSessionCharacterError\.value\) \{[\s\S]*state\.runtimeError\.value = options\.selectedSessionCharacterError\.value;[\s\S]*options\.showToast\(options\.selectedSessionCharacterError\.value, \{ tone: 'warning', durationMs: 7000 \}\);[\s\S]*return;/);
     assert.match(appSource, /showTavernToast\('命令已执行，没有输出。', \{ tone: 'info', durationMs: 2200 \}\);/);
-    assert.match(appSource, /showTavernToast\(`命令执行失败：\$\{errorText\}`, \{ tone: 'warning', durationMs: 5000 \}\);/);
-    assert.match(appSource, /let assistantMessageSaved = false;[\s\S]*const result = await runXbTavernTurn[\s\S]*onAssistantMessageSaved: async \(sessionId, message\) => \{[\s\S]*assistantMessageSaved = true;[\s\S]*if \(!assistantMessageSaved\) \{[\s\S]*showTavernToast\(errorText, \{ tone: 'warning', durationMs: 6000 \}\);/);
+    assert.match(chatRunSource, /options\.showToast\(`命令执行失败：\$\{errorText\}`, \{ tone: 'warning', durationMs: 5000 \}\);/);
+    assert.match(chatRunSource, /let assistantMessageSaved = false;[\s\S]*const result = await runXbTavernTurn[\s\S]*onAssistantMessageSaved: async \(sessionId, message\) => \{[\s\S]*assistantMessageSaved = true;[\s\S]*if \(!assistantMessageSaved\) \{[\s\S]*options\.showToast\(errorText, \{ tone: 'warning', durationMs: 6000 \}\);/);
     assert.doesNotMatch(appSource, /enteredTurn/);
-    assert.doesNotMatch(appSource, /runtimeError\.value = result\.error \|\| '';[\s\S]{0,160}showTavernToast/);
+    assert.doesNotMatch(chatRunSource, /state\.runtimeError\.value = result\.error \|\| '';[\s\S]{0,160}showToast/);
     assert.doesNotMatch(memoryEditorSource, /tavern-memory-directory-button|directoryOpen|directoryLabel|toggle-directory/);
     assert.match(workspacePanelSource, /class="tavern-memory-workspace"[\s\S]*:class="\{ 'is-memory-directory-open': memoryDirectoryOpen \}"[\s\S]*class="tavern-memory-selector"[\s\S]*:aria-expanded="memoryDirectoryOpen \? 'true' : 'false'"[\s\S]*aria-controls="xb-tavern-memory-directory"[\s\S]*@click="toggleMemoryDirectory"[\s\S]*id="xb-tavern-memory-directory"[\s\S]*class="tavern-memory-directory"[\s\S]*<TavernMemoryEditor/);
     assert.match(appSource, /const memoryDirectoryGroups = computed\(\(\) => \{[\s\S]*const sortedFiles = \[\.\.\.memoryFiles\.value\][\s\S]*key: 'all'/);
@@ -2060,6 +2074,7 @@ test('tavern edited RP messages use native macro substitution before saving', ()
 
 test('tavern RP display and edit save use native regex phases without slash command placement', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     const sharedRegexSource = readRepoFile('modules/tavern/shared/regex.ts');
@@ -2092,7 +2107,8 @@ test('tavern RP display and edit save use native regex phases without slash comm
     assert.match(appSource, /const RUNTIME_DISPLAY_REGEX_THROTTLE_MS = 200/);
     assert.match(appSource, /function clearRuntimeDisplayRegexRequests\(\)[\s\S]*pendingRuntimeDisplayRegexRequests\.forEach\(\(request\) => window\.clearTimeout\(request\.timer\)\)/);
     assert.match(appSource, /function clearDisplayRegexCache\(\)[\s\S]*clearRuntimeDisplayRegexRequests\(\)/);
-    assert.match(appSource, /function clearRuntimeAssistantLiveState\(\) \{[\s\S]*clearRuntimeDisplayRegexRequests\(\)/);
+    assert.match(appSource, /clearRuntimeDisplayRegexRequests,/);
+    assert.match(chatRunSource, /function clearRuntimeAssistantLiveState\(\) \{[\s\S]*options\.clearRuntimeDisplayRegexRequests\(\)/);
     assert.match(appSource, /function scheduleRuntimeDisplayRegexText\(slot: string, input: DisplayRegexTextRequest\)/);
     assert.match(appSource, /const current = pendingRuntimeDisplayRegexRequests\.get\(slot\);[\s\S]*current\.latest = input;[\s\S]*return;/);
     assert.match(appSource, /pending\.timer = 0;[\s\S]*runRuntimeDisplayRegexRequest\(slot\);/);

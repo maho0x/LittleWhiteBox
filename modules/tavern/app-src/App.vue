@@ -80,10 +80,8 @@ import {
     buildContextHistory,
     deriveTavernSessionStateFromMessagesAsync,
     resolveTavernContextWindow,
-    runXbTavernTurn,
     simulateXbTavernRequest,
     type TavernBuildNativeChatPromptRuntime,
-    type TavernRunStreamSnapshot,
 } from './runtime/run-once';
 import {
     buildManagerChatDisplayItems,
@@ -106,6 +104,7 @@ import {
     rollbackImpactLines,
     restoreAcceptedMemoryAndTaskStateBeforeMessage,
 } from './features/accepted-rollback/accepted-rollback';
+import { createTavernChatRunState, useTavernChatRunController } from './features/chat-run/useTavernChatRunController';
 import { useTavernDrawController } from './features/draw/useTavernDrawController';
 import TavernAboutPage from './components/TavernAboutPage.vue';
 import TavernHomePage from './components/TavernHomePage.vue';
@@ -199,24 +198,26 @@ const pendingCharacterGreetingIndex = ref(0);
 const pendingCharacterError = ref('');
 const selectedSessionCharacterError = ref('');
 const statusText = ref('等待读取角色与会话');
-const currentUserMessage = ref('');
 const historyMode = ref<'raw' | 'squash'>('raw');
-const runtimeText = ref('');
-const runtimeThoughts = ref<Array<{ label?: string; text?: string }>>([]);
-const runtimeError = ref('');
+const chatRunState = createTavernChatRunState();
+const {
+    currentUserMessage,
+    isCancellingRun,
+    isRunning,
+    runtimeActionCheckEvents,
+    runtimeError,
+    runtimeModel,
+    runtimePendingUserMessage,
+    runtimeProvider,
+    runtimeText,
+    runtimeThoughts,
+    runtimeUserMessageVisible,
+} = chatRunState;
 const tavernToast = ref<{
     id: number;
     message: string;
     tone: 'info' | 'warning' | 'danger';
 } | null>(null);
-const runtimeProvider = ref('');
-const runtimeModel = ref('');
-const runtimeUserMessageVisible = ref(false);
-const runtimePendingUserMessage = ref('');
-const isRunning = ref(false);
-const isCancellingRun = ref(false);
-let runtimeStreamFrame = 0;
-let pendingRuntimeStreamSnapshot: TavernRunStreamSnapshot | null = null;
 const sessions = ref<TavernSessionRecord[]>([]);
 const selectedSessionId = ref('');
 const loadedSessionMessages = ref<TavernMessageRecord[]>([]);
@@ -261,7 +262,6 @@ interface TavernManagerLiveProtocolState {
 
 const LIVE_MANAGER_PROTOCOL_ORDER_BASE = 1000000000;
 const managerLiveProtocolState = ref<TavernManagerLiveProtocolState | null>(null);
-const runtimeActionCheckEvents = ref<TavernActionCheckRuntimeEvent[]>([]);
 const managerCompactionOverlay = ref<{
     id: string;
     active: boolean;
@@ -409,7 +409,6 @@ const simulateRequestStatus = ref('');
 const simulateRequestError = ref('');
 const messageActionFeedback = ref<Record<string, 'success' | 'error'>>({});
 const displayRegexCache = ref<Record<string, string>>({});
-const activeRunController = ref<AbortController | null>(null);
 const managerAssistantController = ref<AbortController | null>(null);
 const tavernDialog = ref<TavernDialogState | null>(null);
 const tavernDialogInputRef = ref<HTMLInputElement | null>(null);
@@ -2575,9 +2574,7 @@ async function rebuildSelectedSessionRuntimeState() {
 
 function resetSessionPreviewState() {
     simulateRequestSequence += 1;
-    currentUserMessage.value = '';
-    runtimeText.value = '';
-    runtimeError.value = '';
+    chatRunController.resetChatRunPreviewState();
     simulateRequestInput.value = '';
     simulateRequestJson.value = '';
     simulateRequestStatus.value = '';
@@ -2766,7 +2763,7 @@ async function removeSession(sessionId: string, event?: Event) {
         tone: 'danger',
     })) {return;}
     if (isDeletingSelectedSession && isRunning.value) {
-        activeRunController.value?.abort();
+        chatRunController.abortActiveRun();
     }
     drawContext.cancelJobsForSession(id);
     await cancelAndRollbackXbTavernManagersForMessageRange(id, 0);
@@ -3614,6 +3611,66 @@ async function applyEditRegexToMessageContent(message: TavernMessageRecord, cont
     return result.items[0]?.text ?? content;
 }
 
+const chatRunController = useTavernChatRunController({
+    state: chatRunState,
+    activeAssistantPreset,
+    activeSession: selectedSession,
+    agentConfig,
+    chatAutoScroll,
+    chatComposeTextareaRef,
+    chatMessageWindowLimit,
+    diagnostics,
+    hiddenOutsideCount,
+    historyMode,
+    selectedSessionCharacterError,
+    selectedSessionId,
+    applyRegex: applyTavernRegex,
+    applySubstituteParams: applyTavernSubstituteParams,
+    buildNativeChatPrompt,
+    clearRuntimeDisplayRegexRequests,
+    createSessionFromContext,
+    describeError,
+    enhanceChatMarkdown,
+    getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
+    loadSelectedSessionMessageWindow,
+    normalizeHiddenOutsideCount,
+    persistSelectedSessionId: setSelectedTavernSessionId,
+    pruneLoadedSessionMessagesFromOrder,
+    refreshManagerRecords,
+    refreshRuntimeChatPresetFromHost,
+    refreshSessions,
+    resetChatMessageWindowState,
+    resetTextareaHeight,
+    resolveRuntimeContextForSession,
+    resolveSlashCommandMessageText,
+    scrollChatToBottom,
+    setSuppressNextChatWindowLimitReload: () => {
+        suppressNextChatWindowLimitReload = true;
+    },
+    showToast: showTavernToast,
+    thoughtBlocks,
+    touchSessionLocally,
+    updateChatScrollButtons,
+    upsertLoadedSessionMessage,
+    cancelDrawJobsForMessageRange: drawContext.cancelJobsForMessageRange,
+});
+
+function cancelActiveRun() {
+    chatRunController.cancelActiveRun();
+}
+
+function handleChatSubmit() {
+    chatRunController.handleChatSubmit();
+}
+
+async function runOnce(options: Parameters<typeof chatRunController.runOnce>[0] = {}) {
+    await chatRunController.runOnce(options);
+}
+
+function clearRuntimeAssistantLiveState() {
+    chatRunController.clearRuntimeAssistantLiveState();
+}
+
 function ensureManagerLiveProtocolState(sessionId: string) {
     const id = String(sessionId || '').trim();
     if (!id) {return null;}
@@ -3700,56 +3757,6 @@ function applyManagerProtocolEvent(sessionId: string, event: TavernManagerProtoc
         return;
     }
     appendManagerLiveProtocolMessage(id, event.message);
-}
-
-function applyRuntimeStreamSnapshot(snapshot: TavernRunStreamSnapshot) {
-    if (typeof snapshot.text === 'string') {runtimeText.value = snapshot.text;}
-    if (Array.isArray(snapshot.thoughts)) {runtimeThoughts.value = thoughtBlocks(snapshot.thoughts);}
-    if (Array.isArray(snapshot.liveActionCheckEvents)) {
-        runtimeActionCheckEvents.value = snapshot.liveActionCheckEvents.map((event) => ({ ...event }));
-    }
-}
-
-function cancelPendingRuntimeStreamFrame() {
-    if (runtimeStreamFrame) {
-        window.cancelAnimationFrame(runtimeStreamFrame);
-        runtimeStreamFrame = 0;
-    }
-}
-
-function flushRuntimeStreamSnapshotNow() {
-    cancelPendingRuntimeStreamFrame();
-    const snapshot = pendingRuntimeStreamSnapshot;
-    pendingRuntimeStreamSnapshot = null;
-    if (snapshot) {
-        applyRuntimeStreamSnapshot(snapshot);
-    }
-}
-
-function scheduleRuntimeStreamSnapshot(snapshot: TavernRunStreamSnapshot) {
-    const next = pendingRuntimeStreamSnapshot ? { ...pendingRuntimeStreamSnapshot } : {};
-    if (typeof snapshot.text === 'string') {next.text = snapshot.text;}
-    if (Array.isArray(snapshot.thoughts)) {next.thoughts = snapshot.thoughts;}
-    if (Array.isArray(snapshot.liveActionCheckEvents)) {
-        next.liveActionCheckEvents = snapshot.liveActionCheckEvents;
-    }
-    pendingRuntimeStreamSnapshot = next;
-    if (runtimeStreamFrame) {return;}
-    runtimeStreamFrame = window.requestAnimationFrame(() => {
-        runtimeStreamFrame = 0;
-        flushRuntimeStreamSnapshotNow();
-    });
-}
-
-function clearRuntimeAssistantLiveState() {
-    cancelPendingRuntimeStreamFrame();
-    pendingRuntimeStreamSnapshot = null;
-    clearRuntimeDisplayRegexRequests();
-    runtimeText.value = '';
-    runtimeThoughts.value = [];
-    runtimeActionCheckEvents.value = [];
-    runtimeUserMessageVisible.value = false;
-    runtimePendingUserMessage.value = '';
 }
 
 async function appendManagerProtocolMessages(
@@ -3997,201 +4004,6 @@ async function handleManagerSubmit() {
     }
     isManagerAssistantRunning.value = false;
     await sendManagerQuestion(managerSessionId, text);
-}
-
-function cancelActiveRun() {
-    if (!isRunning.value || !activeRunController.value) {return;}
-    if (!isCancellingRun.value) {
-        flushRuntimeStreamSnapshotNow();
-        isCancellingRun.value = true;
-        runtimeText.value = runtimeText.value || '正在停止...';
-    }
-    activeRunController.value.abort();
-}
-
-function handleChatSubmit() {
-    void runOnce();
-}
-
-async function runOnce(options: { messageText?: string; reuseUserMessageOrder?: number; rerollRuntimeEvents?: boolean } = {}) {
-    if (isRunning.value) {
-        cancelActiveRun();
-        return;
-    }
-    let messageText = String(options.messageText ?? currentUserMessage.value ?? '').trim();
-    if (!messageText) {
-        runtimeError.value = '先写一句话。';
-        showTavernToast('先写一句话。', { tone: 'info', durationMs: 1800 });
-        return;
-    }
-    if (selectedSessionCharacterError.value) {
-        runtimeError.value = selectedSessionCharacterError.value;
-        showTavernToast(selectedSessionCharacterError.value, { tone: 'warning', durationMs: 7000 });
-        return;
-    }
-    try {
-        messageText = await resolveSlashCommandMessageText(messageText, options);
-    } catch (error) {
-        const errorText = describeError(error);
-        runtimeError.value = errorText;
-        showTavernToast(`命令执行失败：${errorText}`, { tone: 'warning', durationMs: 5000 });
-        return;
-    }
-    if (!messageText) {
-        return;
-    }
-    const controller = new AbortController();
-    activeRunController.value = controller;
-    isRunning.value = true;
-    isCancellingRun.value = false;
-    runtimeError.value = '';
-    cancelPendingRuntimeStreamFrame();
-    pendingRuntimeStreamSnapshot = null;
-    runtimeText.value = '';
-    runtimeThoughts.value = [];
-    runtimeActionCheckEvents.value = [];
-    runtimeUserMessageVisible.value = false;
-    runtimePendingUserMessage.value = '';
-    runtimeProvider.value = '';
-    runtimeModel.value = '';
-    chatAutoScroll.value = true;
-    const reusedUserMessageOrder = Number(options.reuseUserMessageOrder);
-    const isReusedUserMessageRun = Number.isFinite(reusedUserMessageOrder);
-    const defaultChatMessageWindowLimit = normalizeHiddenOutsideCount(hiddenOutsideCount.value);
-    if (isReusedUserMessageRun && Number(chatMessageWindowLimit.value) !== defaultChatMessageWindowLimit) {
-        suppressNextChatWindowLimitReload = true;
-    }
-    resetChatMessageWindowState();
-    if (isReusedUserMessageRun && selectedSessionId.value) {
-        drawContext.cancelJobsForMessageRange(selectedSessionId.value, reusedUserMessageOrder + 1);
-        pruneLoadedSessionMessagesFromOrder(selectedSessionId.value, reusedUserMessageOrder + 1);
-    }
-    const shouldShowPendingUserMessage = !isReusedUserMessageRun;
-    if (shouldShowPendingUserMessage) {
-        runtimePendingUserMessage.value = messageText;
-        currentUserMessage.value = '';
-        void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
-        scrollChatToBottom(true);
-    } else {
-        runtimeUserMessageVisible.value = true;
-        scrollChatToBottom(true);
-    }
-    let assistantMessageSaved = false;
-    try {
-        if (controller.signal.aborted) {
-            const pendingUserMessage = runtimePendingUserMessage.value;
-            clearRuntimeAssistantLiveState();
-            if (isReusedUserMessageRun && selectedSessionId.value) {
-                await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
-            }
-            if (pendingUserMessage && !currentUserMessage.value.trim()) {
-                currentUserMessage.value = pendingUserMessage;
-                void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
-            }
-            return;
-        }
-        if (!selectedSessionId.value) {
-            await refreshRuntimeChatPresetFromHost();
-            await createSessionFromContext();
-        }
-        const runtimeContext = await resolveRuntimeContextForSession(selectedSessionId.value);
-        if (controller.signal.aborted) {
-            clearRuntimeAssistantLiveState();
-            if (isReusedUserMessageRun && selectedSessionId.value) {
-                await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
-            }
-            return;
-        }
-        const runtimePreset = await refreshRuntimeChatPresetFromHost();
-        if (controller.signal.aborted) {
-            clearRuntimeAssistantLiveState();
-            if (isReusedUserMessageRun && selectedSessionId.value) {
-                await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
-            }
-            return;
-        }
-        const result = await runXbTavernTurn({
-            sessionId: selectedSessionId.value,
-            agentConfig: agentConfig.value,
-            contextSnapshot: runtimeContext,
-            chatPreset: runtimePreset,
-            assistantPreset: activeAssistantPreset.value,
-            currentUserMessage: messageText,
-            runtimeState: normalizeTavernSessionState(selectedSession.value?.state || {}),
-            diagnostics: diagnostics.value,
-            historyMode: historyMode.value,
-            signal: controller.signal,
-            reuseUserMessageOrder: options.reuseUserMessageOrder,
-            rerollRuntimeEvents: options.rerollRuntimeEvents,
-            runManager: true,
-            applyRegex: applyTavernRegex,
-            applySubstituteParams: applyTavernSubstituteParams,
-            getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
-            buildNativeChatPrompt,
-            onStreamProgress: (snapshot) => {
-                scheduleRuntimeStreamSnapshot(snapshot);
-            },
-            onUserMessageSaved: async (sessionId, message) => {
-                selectedSessionId.value = sessionId;
-                upsertLoadedSessionMessage(message);
-                touchSessionLocally(sessionId, message.createdAt);
-                runtimeUserMessageVisible.value = true;
-                runtimePendingUserMessage.value = '';
-                currentUserMessage.value = '';
-                void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
-                scrollChatToBottom(true);
-                await setSelectedTavernSessionId(sessionId);
-                scrollChatToBottom(true);
-            },
-            onAssistantMessageSaved: async (sessionId, message) => {
-                assistantMessageSaved = true;
-                selectedSessionId.value = sessionId;
-                flushRuntimeStreamSnapshotNow();
-                upsertLoadedSessionMessage(message);
-                touchSessionLocally(sessionId, message.createdAt);
-                clearRuntimeAssistantLiveState();
-                scrollChatToBottom();
-            },
-            onManagerRunSaved: async (sessionId) => {
-                await refreshManagerRecords(sessionId);
-            },
-        });
-        selectedSessionId.value = result.sessionId;
-        flushRuntimeStreamSnapshotNow();
-        clearRuntimeAssistantLiveState();
-        runtimeError.value = result.error || '';
-        runtimeProvider.value = result.provider || '';
-        runtimeModel.value = result.model || '';
-        await refreshSessions();
-        scrollChatToBottom();
-    } catch (error) {
-        console.error('[小白酒馆] turn failed', error);
-        const pendingUserMessage = runtimePendingUserMessage.value;
-        clearRuntimeAssistantLiveState();
-        if (isReusedUserMessageRun && selectedSessionId.value) {
-            await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
-        }
-        if (pendingUserMessage && !currentUserMessage.value.trim()) {
-            currentUserMessage.value = pendingUserMessage;
-            void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
-        }
-        const errorText = describeError(error || 'run_failed');
-        runtimeError.value = errorText;
-        if (!assistantMessageSaved) {
-            showTavernToast(errorText, { tone: 'warning', durationMs: 6000 });
-        }
-    } finally {
-        if (activeRunController.value === controller) {
-            activeRunController.value = null;
-        }
-        isCancellingRun.value = false;
-        isRunning.value = false;
-        scrollChatToBottom();
-        void nextTick(() => {
-            enhanceChatMarkdown();
-            updateChatScrollButtons();
-        });
-    }
 }
 
 watch([
@@ -4617,7 +4429,7 @@ onUnmounted(() => {
         request.reject(new Error('tavern_unmounted'));
     });
     pendingHostRequests.clear();
-    activeRunController.value?.abort();
+    chatRunController.abortActiveRun();
     managerAssistantController.value?.abort();
     drawContext.abortAllJobs();
     chatScrollPane.cleanup();

@@ -471,6 +471,7 @@ test('tavern slash command bridge executes through native SillyTavern STscript',
     const tavernSource = readRepoFile('modules/tavern/tavern.ts');
     const slashSource = readRepoFile('modules/tavern/host/slash-commands.ts');
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
 
     assert.match(tavernSource, /runTavernSlashCommand/);
     assert.match(slashSource, /executeSlashCommandsWithOptions/);
@@ -478,8 +479,9 @@ test('tavern slash command bridge executes through native SillyTavern STscript',
     assert.match(slashSource, /pipe/);
     assert.match(appSource, /function shouldRunTavernSlashCommand/);
     assert.match(appSource, /async function resolveSlashCommandMessageText/);
-    assert.match(appSource, /messageText = await resolveSlashCommandMessageText\(messageText, options\);/);
     assert.match(appSource, /reuseUserMessageOrder/);
+    assert.match(chatRunSource, /messageText = await options\.resolveSlashCommandMessageText\(messageText, runOptions\);/);
+    assert.match(chatRunSource, /reuseUserMessageOrder/);
 });
 
 test('tavern message assembler can render native worldbook prompt blocks directly', () => {
