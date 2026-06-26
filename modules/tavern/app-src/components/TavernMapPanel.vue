@@ -10,6 +10,7 @@ import { createSeedMapDocument } from '../../shared/map-state-seed';
 import { applyTrustedMapPatchOps } from '../../shared/map-state-ops';
 import { canMapElementUseAreaFill, compareMapStableText, materialEntry, zOf } from '../../shared/map-semantics';
 import { getTavernMapDisplayViewBox, getTavernMapElementBounds, type TavernMapBounds } from '../map-display';
+import { layoutTavernMapLabels } from '../map-label-layout';
 import {
     gameIconScaleTransform,
     gameIconTranslateTransform,
@@ -524,6 +525,26 @@ function labelFontSize(element: TavernMapElement): number {
     return 14;
 }
 
+function sourceElementForDerivedLabel(element: TavernMapElement): TavernMapElement | null {
+    const id = String(element.id || '');
+    if (!id.startsWith('__label__')) {return null;}
+    const sourceId = id.slice('__label__'.length);
+    return (activeMapDocument.value?.elements || []).find((item) => item.id === sourceId) || null;
+}
+
+function labelLayoutPriority(item: MapRenderItem): number {
+    const source = sourceElementForDerivedLabel(item.element);
+    const cat = String(source?.cat || item.element.cat || '').trim().toLowerCase();
+    const actorKey = String(source?.actorKey || source?.id || item.element.id || '').trim().toLowerCase();
+    const id = String(item.element.id || '').trim().toLowerCase();
+    if (cat === 'actor' && actorKey === 'player') {return 0;}
+    if (cat === 'actor') {return 1;}
+    if (['danger', 'door', 'marker', 'magic', 'secret'].includes(cat)) {return 2;}
+    if (id.startsWith('__label__')) {return 3;}
+    if (['label', 'room-label', 'scene-label', 'place-label', 'map-label'].includes(id)) {return 5;}
+    return 4;
+}
+
 function buildRenderItemsForElement(element: TavernMapElement, index: number, forcedOpKind?: MapOpKind): MapRenderItem[] {
     if (!getTavernMapElementBounds(element)) {return [];}
     const opKind = forcedOpKind || opKindFor(element);
@@ -730,6 +751,9 @@ const lightItems = computed(() => renderItems.value
     .filter((item) => item.layer === 'light')
     .sort((left, right) => left.z - right.z || compareMapStableText(left.element.id, right.element.id) || compareMapStableText(left.id, right.id)));
 const labelItems = computed(() => renderItems.value.filter((item) => item.layer === 'label'));
+const laidOutLabelItems = computed(() => layoutTavernMapLabels(labelItems.value, viewBoxArray.value, {
+    priority: labelLayoutPriority,
+}));
 const removedRenderItems = computed(() => removedElements.value.flatMap((element, index) => buildRenderItemsForElement(element, index, 'remove')));
 const removedFillItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'fill'));
 const removedLightItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'light'));
@@ -1465,12 +1489,16 @@ function handleMapWheel(event: WheelEvent) {
         />
         <g class="map-label-layer">
           <text
-            v-for="item in labelItems"
+            v-for="item in laidOutLabelItems"
             :key="item.id"
             :x="item.x"
             :y="item.y"
             :font-size="item.fontSize"
             :fill="item.color"
+            stroke="rgba(245, 235, 210, 0.78)"
+            stroke-width="4"
+            stroke-linejoin="round"
+            paint-order="stroke"
             :text-anchor="item.anchor"
             :class="itemClass(item)"
             :style="itemStyle(item)"
@@ -1538,6 +1566,10 @@ function handleMapWheel(event: WheelEvent) {
             :y="item.y"
             :font-size="item.fontSize"
             :fill="item.color"
+            stroke="rgba(245, 235, 210, 0.78)"
+            stroke-width="4"
+            stroke-linejoin="round"
+            paint-order="stroke"
             :text-anchor="item.anchor"
             :class="itemClass(item)"
             :style="itemStyle(item)"
