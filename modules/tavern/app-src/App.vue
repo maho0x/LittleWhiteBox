@@ -1314,13 +1314,15 @@ function showTavernToast(
     }, Math.max(1200, options.durationMs ?? 3600));
 }
 
-async function applyTavernRegex(items: TavernApplyRegexItem[]): Promise<TavernApplyRegexResult> {
+async function applyTavernRegex(items: TavernApplyRegexItem[], options: { nativeCharacterId?: string } = {}): Promise<TavernApplyRegexResult> {
     if (!items.length) {
         return { items: [], changedCount: 0 };
     }
+    const hasExplicitNativeCharacterId = Object.prototype.hasOwnProperty.call(options, 'nativeCharacterId');
+    const nativeCharacterId = String(hasExplicitNativeCharacterId ? options.nativeCharacterId || '' : currentNativeCharacterId.value || '').trim();
     const response = await requestHost('xb-tavern:apply-regex', {
         payload: {
-            nativeCharacterId: String(currentNativeCharacterId.value || '').trim(),
+            nativeCharacterId,
             items,
         },
     });
@@ -1329,6 +1331,11 @@ async function applyTavernRegex(items: TavernApplyRegexItem[]): Promise<TavernAp
         items: Array.isArray(result.items) ? result.items : [],
         changedCount: Number(result.changedCount) || 0,
     };
+}
+
+function applyTavernRegexForNativeCharacter(nativeCharacterId = '') {
+    const resolvedNativeCharacterId = String(nativeCharacterId || '').trim();
+    return (items: TavernApplyRegexItem[]) => applyTavernRegex(items, { nativeCharacterId: resolvedNativeCharacterId });
 }
 
 function clearRuntimeDisplayRegexRequests() {
@@ -1420,6 +1427,7 @@ function displayRegexCacheKey(
     return [
         kind,
         message.sessionId,
+        String(currentNativeCharacterId.value || ''),
         String(message.order),
         message.role,
         String(message.name || ''),
@@ -1450,6 +1458,7 @@ function runtimeDisplayRegexCacheKey(
         'runtime',
         kind,
         selectedSessionId.value,
+        String(currentNativeCharacterId.value || ''),
         String(latestOrder),
         'assistant',
         String(input.index ?? ''),
@@ -2591,6 +2600,7 @@ async function simulateApiRequest() {
     simulateRequestStatus.value = '模拟中';
     try {
         const runtimeContext = await resolveRuntimeContextForSession(requestSessionId);
+        const runtimeApplyRegex = applyTavernRegexForNativeCharacter(runtimeContext.character?.nativeCharacterId);
         const runtimePreset = await refreshRuntimeChatPresetFromHost();
         const result = await simulateXbTavernRequest({
             sessionId: requestSessionId,
@@ -2601,7 +2611,7 @@ async function simulateApiRequest() {
             runtimeState: normalizeTavernSessionState(selectedSession.value?.state || {}),
             diagnostics: diagnostics.value,
             historyMode: historyMode.value,
-            applyRegex: applyTavernRegex,
+            applyRegex: runtimeApplyRegex,
             applySubstituteParams: applyTavernSubstituteParams,
             getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
             buildNativeChatPrompt,

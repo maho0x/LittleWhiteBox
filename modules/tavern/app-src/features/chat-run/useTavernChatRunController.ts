@@ -336,6 +336,8 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                 await options.createSessionFromContext();
             }
             const runtimeContext = await options.resolveRuntimeContextForSession(options.selectedSessionId.value);
+            const runtimeNativeCharacterId = String(runtimeContext.character?.nativeCharacterId || '').trim();
+            const runtimeApplyRegex: TavernApplyRegex = (items) => options.applyRegex(items, { nativeCharacterId: runtimeNativeCharacterId });
             if (controller.signal.aborted) {
                 clearRuntimeAssistantLiveState();
                 if (isReusedUserMessageRun && options.selectedSessionId.value) {
@@ -365,7 +367,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                 reuseUserMessageOrder: runOptions.reuseUserMessageOrder,
                 rerollRuntimeEvents: runOptions.rerollRuntimeEvents,
                 runManager: true,
-                applyRegex: options.applyRegex,
+                applyRegex: runtimeApplyRegex,
                 applySubstituteParams: options.applySubstituteParams,
                 getNativeWorldInfoRuntime: options.getNativeWorldInfoRuntime,
                 buildNativeChatPrompt: options.buildNativeChatPrompt,

@@ -24,7 +24,7 @@ export interface TavernApplyRegexResult {
     changedCount: number;
 }
 
-export type TavernApplyRegex = (items: TavernApplyRegexItem[]) => Promise<TavernApplyRegexResult>;
+export type TavernApplyRegex = (items: TavernApplyRegexItem[], options?: { nativeCharacterId?: string }) => Promise<TavernApplyRegexResult>;
 
 export interface TavernRegexApplicationSummary {
     userInput?: number;

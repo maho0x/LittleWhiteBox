@@ -1982,14 +1982,18 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     watch([
         () => options.activeSettingsWorkspace.value,
         () => options.activeView.value,
+        () => String(options.currentNativeCharacterId.value || '').trim(),
         () => apiConfigSave.value.status,
         () => options.agentConfig.value,
         () => apiSettingsRootRef.value,
-    ], () => {
+    ], ([workspace, view, nativeCharacterId], [previousWorkspace, previousView, previousNativeCharacterId]) => {
         if (apiSettingsRootRef.value) {
             void nextTick(renderApiSettingsPanel);
         }
-        if (options.activeView.value === 'settings' && options.activeSettingsWorkspace.value === 'regex' && !regexGroups.value.length) {
+        const regexWorkspaceActive = view === 'settings' && workspace === 'regex';
+        const enteredRegexWorkspace = regexWorkspaceActive && (previousView !== view || previousWorkspace !== workspace);
+        const regexCharacterChanged = regexWorkspaceActive && nativeCharacterId !== previousNativeCharacterId;
+        if (regexWorkspaceActive && (enteredRegexWorkspace || regexCharacterChanged || !regexGroups.value.length)) {
             void refreshRegexFromHost();
         }
     });

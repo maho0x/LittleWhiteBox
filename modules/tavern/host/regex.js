@@ -5,7 +5,11 @@ import {
   event_types,
   getCurrentChatId,
   getOneCharacter,
+  name2,
   saveSettingsDebounced,
+  setCharacterId,
+  setCharacterName,
+  this_chid,
   unshallowCharacter
 } from "../../../../../../../script.js";
 import {
@@ -335,7 +339,23 @@ function buildApplicableRegexScripts(nativeCharacterId) {
   const globalScripts = getScriptsByType(SCRIPT_TYPES.GLOBAL, { allowedOnly: true }).map((script, index) => normalizeRegexScript(script, SCRIPT_TYPES.GLOBAL, index));
   const scopedScripts = nativeCharacterId && isScopedScriptsAllowed(nativeCharacter) ? readScopedScripts(nativeCharacter) : [];
   const presetScripts = getScriptsByType(SCRIPT_TYPES.PRESET, { allowedOnly: true }).map((script, index) => normalizeRegexScript(script, SCRIPT_TYPES.PRESET, index));
-  return [...globalScripts, ...scopedScripts, ...presetScripts];
+  return [...globalScripts, ...presetScripts, ...scopedScripts];
+}
+function runWithRegexCharacterContext(nativeCharacterId, task) {
+  if (!nativeCharacterId) {
+    return task();
+  }
+  const originalCharacterId = this_chid;
+  const originalName = name2;
+  const character = currentCharacter(nativeCharacterId);
+  try {
+    setCharacterId(nativeCharacterId);
+    setCharacterName(text(character.name));
+    return task();
+  } finally {
+    setCharacterId(originalCharacterId ?? void 0);
+    setCharacterName(originalName || "");
+  }
 }
 async function applyTavernRegex(input) {
   const source = asRecord(input);
@@ -346,7 +366,7 @@ async function applyTavernRegex(input) {
   const regexScripts = buildApplicableRegexScripts(nativeCharacterId);
   const rawItems = Array.isArray(source.items) ? source.items : [];
   let changedCount = 0;
-  const items = rawItems.map((rawItem, index) => {
+  const items = runWithRegexCharacterContext(nativeCharacterId, () => rawItems.map((rawItem, index) => {
     const item = asRecord(rawItem);
     const id = text(item.id) || `item-${index}`;
     const placement = normalizePlacementKey(item.placement);
@@ -363,7 +383,7 @@ async function applyTavernRegex(input) {
       text: textValue,
       changed
     };
-  });
+  }));
   return {
     items,
     changedCount

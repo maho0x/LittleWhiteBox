@@ -2362,7 +2362,14 @@ test('tavern character identity uses stable keys and explicit native ids', () =>
     assert.doesNotMatch(regexSource, /getRegexedString/);
     assert.doesNotMatch(regexSource, /getScriptsByType\(SCRIPT_TYPES\.SCOPED/);
     assert.doesNotMatch(regexSource, /saveScriptsByType\(scripts, SCRIPT_TYPES\.SCOPED/);
-    assert.doesNotMatch(regexSource, /this_chid/);
-    assert.match(appSource, /payload: \{[\s\S]*nativeCharacterId: String\(currentNativeCharacterId\.value \|\| ''\)\.trim\(\),[\s\S]*items,[\s\S]*\}/);
+    assert.match(regexSource, /return \[\.\.\.globalScripts, \.\.\.presetScripts, \.\.\.scopedScripts\]/);
+    assert.match(regexSource, /function runWithRegexCharacterContext/);
+    assert.match(regexSource, /const originalCharacterId = this_chid/);
+    assert.match(regexSource, /setCharacterId\(nativeCharacterId\);[\s\S]*setCharacterName\(text\(character\.name\)\);[\s\S]*return task\(\);[\s\S]*finally \{[\s\S]*setCharacterId\(originalCharacterId \?\? undefined\);[\s\S]*setCharacterName\(originalName \|\| ''\);/);
+    assert.match(appSource, /const hasExplicitNativeCharacterId = Object\.prototype\.hasOwnProperty\.call\(options, 'nativeCharacterId'\);[\s\S]*const nativeCharacterId = String\(hasExplicitNativeCharacterId \? options\.nativeCharacterId \|\| '' : currentNativeCharacterId\.value \|\| ''\)\.trim\(\);[\s\S]*payload: \{[\s\S]*nativeCharacterId,[\s\S]*items,[\s\S]*\}/);
     assert.match(appSource, /String\(selectedSession\.value\?\.contextSnapshot\?\.character\?\.nativeCharacterId \|\| ''\)\.trim\(\)/);
+    assert.match(appSource, /function applyTavernRegexForNativeCharacter\(nativeCharacterId = ''\)/);
+    assert.match(appSource, /const runtimeApplyRegex = applyTavernRegexForNativeCharacter\(runtimeContext\.character\?\.nativeCharacterId\)/);
+    assert.match(appSource, /message\.sessionId,[\s\S]*String\(currentNativeCharacterId\.value \|\| ''\),[\s\S]*String\(message\.order\)/);
+    assert.match(settingsControllerSource, /options\.currentNativeCharacterId\.value[\s\S]*const regexCharacterChanged = regexWorkspaceActive && nativeCharacterId !== previousNativeCharacterId;[\s\S]*enteredRegexWorkspace \|\| regexCharacterChanged \|\| !regexGroups\.value\.length/);
 });
