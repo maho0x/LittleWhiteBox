@@ -1403,16 +1403,22 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
     const patchTool = getTavernStateToolDefinitions()
         .find((tool) => tool.function.name === 'MapPatch');
     const parameters = patchTool?.function.parameters as {
-        properties?: Record<string, { description?: string; items?: { properties?: Record<string, { description?: string; properties?: Record<string, { description?: string }> }> } }>;
+        properties?: Record<string, { description?: string; items?: { properties?: Record<string, { description?: string; properties?: Record<string, { description?: string; enum?: string[] }> }> } }>;
     };
     const opsProperties = parameters.properties?.ops?.items?.properties || {};
     const elementProperties = opsProperties.element?.properties || {};
+    const setProperties = opsProperties.set?.properties || {};
 
     assert.match(patchTool?.function.description || '', /For `tavern\.map`, canonical ops are `meta`, `add`, `modify`, and `remove`/);
     assert.match(patchTool?.function.description || '', /For `tavern\.atlas\/main`/);
     assert.match(patchTool?.function.description || '', /Move the player between places with `move-actor`/);
     assert.match(patchTool?.function.description || '', /one atomic transaction/i);
     assert.match(patchTool?.function.description || '', /`meta\.viewBox` is the camera/i);
+    assert.match(patchTool?.function.description || '', /Mood enum is neutral\/warm\/cold\/dark\/mystic\/danger\/calm/i);
+    assert.match(patchTool?.function.description || '', /Material enum is unknown\/wood\/stone\/tile\/carpet\/blood\/water\/grass\/dirt\/snow\/metal\/rune\/warm-light\/cold-light\/shadow/i);
+    assert.match(patchTool?.function.description || '', /Use cat:"terrain" for ground\/floor, cat:"light"/i);
+    assert.match(patchTool?.function.description || '', /Do not use floor, ground, region, subtype, opacity/i);
+    assert.match(patchTool?.function.description || '', /visual scale/i);
     assert.match(patchTool?.function.description || '', /splits the text into a system label element automatically/i);
     assert.match(patchTool?.function.description || '', /Do not put house\/castle\/village\/forest\/temple\/shop icons inside a scene map/i);
     assert.match(parameters.properties?.docId?.description || '', /atlas always uses `main`/i);
@@ -1421,6 +1427,49 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
     assert.match(opsProperties.set?.description || '', /For map `meta`\/`modify`/i);
     assert.match(opsProperties.element?.description || '', /Full element object for `add`/i);
     assert.match(elementProperties.icon?.description || '', /Do not put place icons/i);
+    assert.deepEqual(elementProperties.material?.enum, [
+        'unknown',
+        'wood',
+        'stone',
+        'tile',
+        'carpet',
+        'blood',
+        'water',
+        'grass',
+        'dirt',
+        'snow',
+        'metal',
+        'rune',
+        'warm-light',
+        'cold-light',
+        'shadow',
+    ]);
+    assert.deepEqual(elementProperties.certainty?.enum, ['confirmed', 'inferred', 'unknown']);
+    assert.equal(elementProperties.fill, undefined);
+    assert.equal(elementProperties.style, undefined);
+    assert.equal(setProperties.fill, undefined);
+    assert.equal(setProperties.style, undefined);
+    assert.equal(setProperties.opacity, undefined);
+    assert.equal(setProperties.zIndex, undefined);
+    assert.deepEqual(setProperties.scale?.enum, ['city', 'district', 'building', 'floor', 'room', 'outdoor']);
+    assert.deepEqual(setProperties.material?.enum, [
+        'unknown',
+        'wood',
+        'stone',
+        'tile',
+        'carpet',
+        'blood',
+        'water',
+        'grass',
+        'dirt',
+        'snow',
+        'metal',
+        'rune',
+        'warm-light',
+        'cold-light',
+        'shadow',
+    ]);
+    assert.deepEqual(setProperties.certainty?.enum, ['confirmed', 'inferred', 'unknown']);
 });
 
 test('State tools support tavern atlas without entering map element semantics', async () => {
@@ -1964,6 +2013,130 @@ test('StatePatch keeps system-derived label ids readable while rejecting reserve
     assert.match(reserved.summary, /reserved `__label__` prefix/i);
 });
 
+test('StatePatch stores map material mood certainty and treats repeated semantic patches as no-op', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Map material semantics' });
+    const write = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [
+            { op: 'meta', set: { name: 'Old Hound Inn', viewBox: [0, 0, 400, 300], status: 'active', mood: 'warm' } },
+            { op: 'add', element: { id: 'floor', at: [20, 20], rect: [360, 260], cat: 'terrain', material: 'wood' } },
+            { op: 'add', element: { id: 'firelight', at: [60, 60], circle: 90, cat: 'light', material: 'warm-light' } },
+            { op: 'add', element: { id: 'uncertain-door', at: [190, 270], icon: 'o', cat: 'door', certainty: 'inferred' } },
+        ],
+    });
+    assert.equal(write.ok, true);
+    assert.equal(write.revision, 1);
+
+    const repeat = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [
+            { op: 'meta', set: { mood: 'warm' } },
+            { op: 'modify', id: 'floor', set: { material: 'wood' } },
+            { op: 'modify', id: 'uncertain-door', set: { certainty: 'inferred' } },
+        ],
+    });
+    assert.equal(repeat.ok, true);
+    assert.equal(repeat.changed, false);
+    assert.equal(repeat.revision, 1);
+
+    const record = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
+    const data = record?.data as TavernMapDocument;
+    assert.equal(data.meta.mood, 'warm');
+    assert.equal(data.elements.find((element) => element.id === 'floor')?.material, 'wood');
+    assert.equal(data.elements.find((element) => element.id === 'firelight')?.cat, 'light');
+    assert.equal(data.elements.find((element) => element.id === 'uncertain-door')?.certainty, 'inferred');
+});
+
+test('StatePatch rejects material styling escape hatches and invalid enum churn', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Map material guards' });
+    const write = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [
+            { op: 'add', element: { id: 'rug', at: [40, 40], rect: [80, 50], cat: 'furniture', material: 'carpet', fill: '#ff0000' } },
+            { op: 'add', element: { id: 'ghost', at: [120, 80], icon: 'o', cat: 'actor', actorKey: 'ghost', material: 'shadow' } },
+            { op: 'add', element: { id: 'old-fill', at: [12, 12], rect: [24, 24], cat: 'terrain', fill: '#00ff00' } },
+        ],
+    });
+    assert.equal(write.ok, true);
+    assert.equal(write.warnings?.some((warning) => /Dropped legacy fill.*rug/i.test(warning)), true);
+    assert.equal(write.warnings?.some((warning) => /Ignored material:"shadow" for actor ghost/i.test(warning)), true);
+
+    const record = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
+    const elements = (record?.data as TavernMapDocument).elements;
+    assert.equal(elements.find((element) => element.id === 'rug')?.material, 'carpet');
+    assert.equal(elements.find((element) => element.id === 'rug')?.fill, undefined);
+    assert.equal(elements.find((element) => element.id === 'ghost')?.material, undefined);
+
+    const legacyFill = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [{ op: 'modify', id: 'old-fill', set: { material: 'wood' } }],
+    });
+    assert.equal(legacyFill.ok, true);
+    assert.equal(legacyFill.warnings?.some((warning) => /Dropped legacy fill.*old-fill/i.test(warning)), true);
+    const afterLegacyFill = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
+    const oldFill = (afterLegacyFill?.data as TavernMapDocument).elements.find((element) => element.id === 'old-fill');
+    assert.equal(oldFill?.material, 'wood');
+    assert.equal(oldFill?.fill, undefined);
+
+    const invalid = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [
+            { op: 'meta', set: { mood: 'cozy' } },
+            { op: 'modify', id: 'rug', set: { material: 'oak wood', certainty: 'maybe' } },
+        ],
+    });
+    assert.equal(invalid.ok, true);
+    assert.equal(invalid.changed, false);
+    assert.equal(invalid.revision, 2);
+    assert.equal(invalid.warnings?.some((warning) => /invalid map mood: cozy/i.test(warning)), true);
+    assert.equal(invalid.warnings?.some((warning) => /invalid map material.*oak wood/i.test(warning)), true);
+    assert.equal(invalid.warnings?.some((warning) => /invalid map certainty.*maybe/i.test(warning)), true);
+});
+
+test('StatePatch label lifecycle skips terrain and light and clears stale derived labels', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Map label lifecycle v1.1' });
+    const add = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [
+            { op: 'add', element: { id: 'floor', at: [0, 0], rect: [100, 80], cat: 'terrain', material: 'wood', text: 'Wood floor' } },
+            { op: 'add', element: { id: 'firelight', at: [20, 20], circle: 40, cat: 'light', material: 'warm-light', text: 'Firelight' } },
+            { op: 'add', element: { id: 'rug', at: [20, 30], rect: [30, 20], cat: 'furniture', material: 'carpet', text: 'Rug' } },
+        ],
+    });
+    assert.equal(add.ok, true);
+    assert.equal(add.warnings?.some((warning) => /floor.*does not derive map labels/i.test(warning)), true);
+    assert.equal(add.warnings?.some((warning) => /firelight.*does not derive map labels/i.test(warning)), true);
+
+    let record = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
+    let elements = (record?.data as TavernMapDocument).elements;
+    assert.equal(elements.some((element) => element.id === '__label__floor'), false);
+    assert.equal(elements.some((element) => element.id === '__label__firelight'), false);
+    assert.equal(elements.find((element) => element.id === '__label__rug')?.text, 'Rug');
+
+    const retint = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [{ op: 'modify', id: 'rug', set: { material: 'wood' } }],
+    });
+    assert.equal(retint.ok, true);
+    record = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
+    elements = (record?.data as TavernMapDocument).elements;
+    assert.equal(elements.find((element) => element.id === 'rug')?.material, 'wood');
+    assert.equal(elements.find((element) => element.id === '__label__rug')?.text, 'Rug');
+
+    const clear = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [{ op: 'modify', id: 'rug', set: { text: null } }],
+    });
+    assert.equal(clear.ok, true);
+    assert.equal(clear.changedIds?.includes('__label__rug'), true);
+
+    record = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
+    elements = (record?.data as TavernMapDocument).elements;
+    assert.equal(elements.some((element) => element.id === '__label__rug'), false);
+    assert.equal(elements.find((element) => element.id === 'rug')?.text, undefined);
+});
+
 test('StatePatch canonicalizes modify text on geometry into a derived label upsert', async () => {
     await db.delete();
     await db.open();
@@ -2142,6 +2315,20 @@ test('StatePatch direct derived label style changes replay canonically', async (
     const replayedStyledLabel = styleReplay.elements.find((element) => element.id === '__label__player_actor');
     assert.deepEqual(storedStyledLabel?.style, { color: '#f00' });
     assert.deepEqual(replayedStyledLabel?.style, { color: '#f00' });
+
+    const moved = await executeTavernStateTool(session.id, 'MapPatch', {
+        ops: [{
+            op: 'modify',
+            id: '__label__player_actor',
+            set: { at: [116, 74] },
+        }],
+    });
+    assert.equal(moved.ok, true);
+    assert.equal(moved.changed, true);
+    const movedRecord = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
+    const movedLabel = ((movedRecord?.data as { elements?: Array<Record<string, unknown>> })?.elements || [])
+        .find((element) => element.id === '__label__player_actor');
+    assert.deepEqual(movedLabel?.at, [116, 74]);
 
     const cleared = await executeTavernStateTool(session.id, 'MapPatch', {
         ops: [{

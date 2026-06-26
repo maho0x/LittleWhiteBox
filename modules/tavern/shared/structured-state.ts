@@ -35,6 +35,19 @@ import {
     TAVERN_MAP_ICON_NAMES,
     type TavernMapIconName,
 } from './map-icon-names';
+import {
+    canMapElementHaveDerivedLabel,
+    isTavernMapCertainty,
+    isTavernMapMaterial,
+    isTavernMapMood,
+    semanticFingerprint,
+    TAVERN_MAP_CERTAINTIES,
+    TAVERN_MAP_MATERIALS,
+    TAVERN_MAP_MOODS,
+    type TavernMapCertainty,
+    type TavernMapMaterial,
+    type TavernMapMood,
+} from './map-semantics';
 
 export const TAVERN_STATE_TOOL_NAMES = {
     LIST: 'MapDocs',
@@ -69,7 +82,8 @@ export type TavernMapElementCategory =
     | 'label'
     | 'grid'
     | 'magic'
-    | 'secret';
+    | 'secret'
+    | 'light';
 
 export interface TavernMapStyle {
     color?: string;
@@ -82,6 +96,7 @@ export interface TavernMapDocumentMeta {
     viewBox: [number, number, number, number] | null;
     theme: TavernMapTheme;
     status: TavernMapStatus;
+    mood?: TavernMapMood;
     hint?: string;
 }
 
@@ -96,6 +111,8 @@ export interface TavernMapElement {
     icon?: TavernMapIconName;
     text?: string;
     actorKey?: string;
+    material?: TavernMapMaterial;
+    certainty?: TavernMapCertainty;
     closed?: boolean;
     fill?: string;
     style?: TavernMapStyle;
@@ -219,6 +236,7 @@ const MAP_ELEMENT_CATEGORIES = new Set<TavernMapElementCategory>([
     'grid',
     'magic',
     'secret',
+    'light',
 ]);
 const MAP_ICON_NAMES = new Set<TavernMapIconName>(TAVERN_MAP_ICON_NAMES);
 const SCENE_MAP_PLACE_SCALE_ICONS = new Set<string>(['house', 'castle', 'village', 'forest', 'temple', 'shop']);
@@ -431,8 +449,39 @@ function numberPair(value: unknown): [number, number] | null {
 }
 
 function normalizeCategory(value: unknown, fallback: TavernMapElementCategory): TavernMapElementCategory {
-    const text = String(value || '').trim() as TavernMapElementCategory;
-    if (text && MAP_ELEMENT_CATEGORIES.has(text)) {return text;}
+    const text = String(value || '').trim();
+    if (text === 'floor' || text === 'ground') {return 'terrain';}
+    if (text && MAP_ELEMENT_CATEGORIES.has(text as TavernMapElementCategory)) {return text as TavernMapElementCategory;}
+    return fallback;
+}
+
+function normalizeMapMood(value: unknown, fallback: TavernMapMood = 'neutral', warnings?: string[]): TavernMapMood {
+    const text = String(value || '').trim();
+    if (isTavernMapMood(text)) {return text;}
+    if (text) {warnings?.push(`Ignored invalid map mood: ${text}.`);}
+    return fallback;
+}
+
+function normalizeMapMaterial(
+    value: unknown,
+    context: { elementId?: string; warnings?: string[]; source?: NormalizeSource } = {},
+): TavernMapMaterial | undefined {
+    if (value === null || value === undefined || value === '') {return undefined;}
+    const text = String(value || '').trim();
+    if (isTavernMapMaterial(text)) {return text;}
+    context.warnings?.push(`Ignored invalid map material${context.elementId ? ` for ${context.elementId}` : ''}: ${text}.`);
+    return undefined;
+}
+
+function normalizeMapCertainty(
+    value: unknown,
+    fallback?: TavernMapCertainty,
+    context: { elementId?: string; warnings?: string[] } = {},
+): TavernMapCertainty | undefined {
+    if (value === null || value === undefined || value === '') {return fallback;}
+    const text = String(value || '').trim();
+    if (isTavernMapCertainty(text)) {return text;}
+    context.warnings?.push(`Ignored invalid map certainty${context.elementId ? ` for ${context.elementId}` : ''}: ${text}.`);
     return fallback;
 }
 
@@ -470,7 +519,7 @@ function normalizeStyle(value: unknown): TavernMapStyle | undefined {
     return Object.keys(next).length ? next : undefined;
 }
 
-function normalizeMapMeta(value: unknown, fallback: Partial<TavernMapDocumentMeta> = {}): TavernMapDocumentMeta {
+function normalizeMapMeta(value: unknown, fallback: Partial<TavernMapDocumentMeta> = {}, warnings?: string[]): TavernMapDocumentMeta {
     const source = isPlainObject(value) ? value : {};
     const status = normalizeMapStatus(source.status ?? fallback.status ?? 'active', fallback.status ?? 'active');
     const nameSource = 'name' in source ? source.name : fallback.name;
@@ -480,13 +529,14 @@ function normalizeMapMeta(value: unknown, fallback: Partial<TavernMapDocumentMet
         viewBox: 'viewBox' in source ? normalizeViewBox(source.viewBox) : normalizeViewBox(fallback.viewBox ?? null),
         theme: normalizeMapTheme(source.theme ?? fallback.theme ?? 'parchment', fallback.theme ?? 'parchment'),
         status,
+        mood: normalizeMapMood(source.mood ?? fallback.mood ?? 'neutral', fallback.mood ?? 'neutral', warnings),
         ...(status === 'uninitialized'
             ? { hint: normalizeText(hintSource ?? buildSeedMapHint(), 1200) || buildSeedMapHint() }
             : {}),
     };
 }
 
-function normalizeMetaSet(value: unknown): Partial<TavernMapDocumentMeta> {
+function normalizeMetaSet(value: unknown, warnings: string[] = []): Partial<TavernMapDocumentMeta> {
     if (!isPlainObject(value)) {throw new Error('map_meta_set_required');}
     const set: Partial<TavernMapDocumentMeta> = {};
     if ('name' in value) {
@@ -500,6 +550,16 @@ function normalizeMetaSet(value: unknown): Partial<TavernMapDocumentMeta> {
     }
     if ('status' in value) {
         set.status = normalizeMapStatus(value.status);
+    }
+    if ('mood' in value) {
+        const moodText = String(value.mood || '').trim();
+        if (isTavernMapMood(moodText)) {
+            set.mood = moodText;
+        } else if (value.mood === null || moodText === '') {
+            set.mood = 'neutral';
+        } else {
+            warnings.push(`Ignored invalid map mood: ${moodText}.`);
+        }
     }
     if ('hint' in value) {
         const hint = normalizeText(value.hint, 1200);
@@ -598,6 +658,8 @@ function finalizeElement(
     id: string,
     options: {
         allowReservedId?: boolean;
+        warnings?: string[];
+        source?: NormalizeSource;
     } = {},
 ): TavernMapElement {
     const finalId = assertElementId(id, { allowReserved: options.allowReservedId === true });
@@ -637,6 +699,16 @@ function finalizeElement(
     }
     const actorKey = normalizeText(element.actorKey, 120);
     if (actorKey && next.cat === 'actor') {next.actorKey = actorKey;}
+    const material = normalizeMapMaterial(element.material, { elementId: finalId, warnings: options.warnings, source: options.source });
+    if (material) {
+        if (next.cat === 'actor' && material === 'shadow') {
+            options.warnings?.push(`Ignored material:"shadow" for actor ${finalId}; spectral actors are not represented by material in map v1.1.`);
+        } else {
+            next.material = material;
+        }
+    }
+    const certainty = normalizeMapCertainty(element.certainty, undefined, { elementId: finalId, warnings: options.warnings });
+    if (certainty && certainty !== 'confirmed') {next.certainty = certainty;}
     if (element.closed === true) {next.closed = true;}
     if (normalizeText(element.fill, 120)) {next.fill = normalizeText(element.fill, 120);}
     if (element.style !== undefined) {
@@ -653,6 +725,7 @@ function normalizeMapElementInput(
         allowReservedId?: boolean;
         splitGeometryText?: boolean;
         source?: NormalizeSource;
+        warnings?: string[];
     } = {},
 ): TavernMapElement[] {
     if (!isPlainObject(value)) {throw new Error('map_element_must_be_object');}
@@ -734,41 +807,59 @@ function normalizeMapElementInput(
     validateShapeConflict(id, shapeKeys);
 
     const cat = normalizeCategory(value.cat, defaultCategoryForShape(shapeKeys.find((key) => key !== 'text') || shapeKeys[0] || null));
+    const material = normalizeMapMaterial(value.material, { elementId: id, warnings: options.warnings, source });
+    const certainty = normalizeMapCertainty(value.certainty, undefined, { elementId: id, warnings: options.warnings });
+    const normalizedFill = normalizeText(value.fill ?? shapeParts.fill, 120) || undefined;
+    const fill = material && normalizedFill && source === 'model-input'
+        ? undefined
+        : normalizedFill;
+    if (material && normalizedFill && source === 'model-input') {
+        options.warnings?.push(`Dropped legacy fill for ${id} because material:"${material}" was supplied.`);
+    }
     const base: Partial<TavernMapElement> = {
         id,
         at: at || undefined,
         cat,
         closed: value.closed === true || shapeParts.closed === true,
-        fill: normalizeText(value.fill ?? shapeParts.fill, 120) || undefined,
+        fill,
         style: normalizeStyle(value.style),
         actorKey: normalizeText(value.actorKey, 120) || undefined,
+        material,
+        certainty,
         ...shapeParts,
     };
 
     if (shapeKeys.length === 2 && options.splitGeometryText !== false) {
         const geometryKey = shapeKeys.find((key) => key !== 'text') as MapShapeKey;
+        const geometryCat = normalizeCategory(value.cat, defaultCategoryForShape(geometryKey));
         const geometry: Partial<TavernMapElement> = {
             id,
             at: base.at,
-            cat: normalizeCategory(value.cat, defaultCategoryForShape(geometryKey)),
+            cat: geometryCat,
             closed: base.closed,
             fill: base.fill,
             style: base.style,
             actorKey: base.actorKey,
+            material: base.material,
+            certainty: base.certainty,
             [geometryKey]: base[geometryKey],
         };
-        const geometryElement = finalizeElement(geometry, id, { allowReservedId: options.allowReservedId === true || source === 'stored-document' });
+        const geometryElement = finalizeElement(geometry, id, { allowReservedId: options.allowReservedId === true || source === 'stored-document', warnings: options.warnings, source });
+        if (!canMapElementHaveDerivedLabel(geometryElement.cat)) {
+            options.warnings?.push(`Ignored label text for ${id}; cat:"${geometryElement.cat}" does not derive map labels.`);
+            return [geometryElement];
+        }
         const labelId = buildSeedLabelId(id);
         const labelElement = finalizeElement({
             id: labelId,
             at: labelPositionForElement(geometryElement),
             cat: 'label',
             text: base.text,
-        }, labelId, { allowReservedId: true });
+        }, labelId, { allowReservedId: true, warnings: options.warnings, source });
         return [geometryElement, labelElement];
     }
 
-    return [finalizeElement(base, id, { allowReservedId: options.allowReservedId === true || source === 'stored-document' })];
+    return [finalizeElement(base, id, { allowReservedId: options.allowReservedId === true || source === 'stored-document', warnings: options.warnings, source })];
 }
 
 function repairStoredMapElements(rawElements: unknown[]): TavernMapElement[] {
@@ -813,13 +904,14 @@ function normalizeMapDocument(
     value: unknown,
     fallback: Partial<TavernMapDocumentMeta> = {},
     normalizeSource: NormalizeSource = 'stored-document',
+    warnings: string[] = [],
 ): TavernMapDocument {
     const raw = isPlainObject(value) ? value : {};
-    const meta = normalizeMapMeta(raw.meta, fallback);
+    const meta = normalizeMapMeta(raw.meta, fallback, normalizeSource === 'model-input' ? warnings : undefined);
     const elements = Array.isArray(raw.elements)
         ? normalizeSource === 'stored-document'
             ? repairStoredMapElements(raw.elements)
-            : raw.elements.flatMap((element) => normalizeMapElementInput(element, { source: normalizeSource }))
+            : raw.elements.flatMap((element) => normalizeMapElementInput(element, { source: normalizeSource, warnings }))
         : [];
     if (elements.length > MAX_MAP_ELEMENTS) {throw new Error('map_elements_limit_exceeded');}
     if (normalizeSource === 'model-input') {
@@ -850,8 +942,14 @@ function createMapDigest(document: TavernMapDocument, revision = 0): string {
         .map((element) => normalizeText(element.text, 40))
         .filter(Boolean)
         .slice(0, 8);
+    const materials = [...new Set(document.elements
+        .map((element) => element.material)
+        .filter(Boolean))]
+        .slice(0, 5);
     return [
         `地图：${title}`,
+        document.meta.mood && document.meta.mood !== 'neutral' ? `氛围：${document.meta.mood}` : '',
+        materials.length ? `材质：${materials.join(', ')}` : '',
         labels.length ? `标注：${labels.join(', ')}` : '',
     ].filter(Boolean).join('\n');
 }
@@ -1282,6 +1380,8 @@ function summarizeMapElements(document: TavernMapDocument, args: Record<string, 
             elementShape,
             element.text,
             element.icon,
+            element.material,
+            element.certainty,
         ].map((item) => String(item || '').toLowerCase()).join('\n');
         return haystack.includes(query);
     });
@@ -1577,7 +1677,7 @@ function applyAtlasOps(source: TavernAtlasDocument, rawOps: unknown[]): {
     };
 }
 
-function normalizePartialSet(value: unknown, id: string): Partial<TavernMapElement> {
+function normalizePartialSet(value: unknown, id: string, warnings: string[] = []): Partial<TavernMapElement> {
     if (!isPlainObject(value)) {throw new Error(`map_modify_set_required:${id}`);}
     const set: Partial<TavernMapElement> = {};
     if ('id' in value && normalizeText(value.id, 120) && normalizeText(value.id, 120) !== id) {
@@ -1592,6 +1692,22 @@ function normalizePartialSet(value: unknown, id: string): Partial<TavernMapEleme
     }
     if ('cat' in value) {
         set.cat = normalizeCategory(value.cat, 'wall');
+    }
+    if ('material' in value) {
+        if (value.material === null) {
+            set.material = undefined;
+        } else {
+            const material = normalizeMapMaterial(value.material, { elementId: id, warnings, source: 'model-input' });
+            if (material) {set.material = material;}
+        }
+    }
+    if ('certainty' in value) {
+        if (value.certainty === null) {
+            set.certainty = undefined;
+        } else {
+            const certainty = normalizeMapCertainty(value.certainty, undefined, { elementId: id, warnings });
+            if (certainty) {set.certainty = certainty === 'confirmed' ? undefined : certainty;}
+        }
     }
     if ('rect' in value || 'size' in value || 'width' in value || 'height' in value) {
         const rect = numberPair(value.rect ?? value.size ?? [value.width, value.height]);
@@ -1622,15 +1738,19 @@ function normalizePartialSet(value: unknown, id: string): Partial<TavernMapEleme
         set.icon = icon;
     }
     if ('text' in value || 'content' in value || 'label' in value || 'value' in value) {
-        const text = normalizeText(value.text ?? value.content ?? value.label ?? value.value, 240);
-        if (!text) {throw new Error(`map_element_text_required:${id}`);}
-        set.text = text;
+        const rawText = value.text ?? value.content ?? value.label ?? value.value;
+        const text = normalizeText(rawText, 240);
+        set.text = text || undefined;
     }
     if ('closed' in value) {
         set.closed = value.closed === true;
     }
     if ('fill' in value) {
         set.fill = value.fill === null ? undefined : normalizeText(value.fill, 120) || undefined;
+    }
+    if (set.material && set.fill) {
+        warnings.push(`Dropped legacy fill for ${id} because material:"${set.material}" was supplied.`);
+        delete set.fill;
     }
     if ('style' in value) {
         set.style = value.style === null ? undefined : normalizeStyle(value.style);
@@ -1650,9 +1770,13 @@ function normalizePartialSet(value: unknown, id: string): Partial<TavernMapEleme
     return set;
 }
 
-function buildNextElement(current: TavernMapElement, set: Partial<TavernMapElement>): TavernMapElement {
+function buildNextElement(current: TavernMapElement, set: Partial<TavernMapElement>, warnings: string[] = []): TavernMapElement {
     const next = mergeMapElementPatch(current, set);
-    return finalizeElement(next, current.id, { allowReservedId: isSeedLabelId(current.id) });
+    if (Object.prototype.hasOwnProperty.call(set, 'material') && set.material && next.fill) {
+        warnings.push(`Dropped legacy fill for ${current.id} because material:"${set.material}" was supplied.`);
+        delete next.fill;
+    }
+    return finalizeElement(next, current.id, { allowReservedId: isSeedLabelId(current.id), warnings, source: 'model-input' });
 }
 
 function hasGeometryShape(element: Partial<TavernMapElement>): boolean {
@@ -1759,6 +1883,7 @@ function buildCanonicalFullReplaceOps(current: TavernMapDocument, next: TavernMa
             viewBox: next.meta.viewBox,
             theme: next.meta.theme,
             status: next.meta.status,
+            mood: next.meta.mood,
             hint: next.meta.hint,
         },
     });
@@ -1783,7 +1908,8 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
     if (!rawOps.length) {throw new Error('state_patch_ops_required');}
     if (rawOps.length > MAX_STATE_PATCH_OPS) {throw new Error('state_patch_ops_limit_exceeded');}
 
-    let document = normalizeMapDocument(source, source.meta, 'stored-document');
+    const sourceDocument = normalizeMapDocument(source, source.meta, 'stored-document');
+    let document = cloneJson(sourceDocument);
     const effectiveOps: TavernMapPatchOp[] = [];
     const warnings: string[] = [];
     const changedIds = new Set<string>();
@@ -1870,13 +1996,24 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
             changedIds.add(id);
             return;
         }
+        const labelId = buildSeedLabelId(id);
+        const labelIndex = findIndex(labelId);
+        const existingLabel = labelIndex >= 0 ? document.elements[labelIndex] : null;
         const setHasText = Object.prototype.hasOwnProperty.call(set, 'text');
-        const text = setHasText ? normalizeText(set.text, 240) : normalizeText(current.text, 240);
-        const textlessSet = setHasText ? withoutTextShape(set) : set;
-        const geometryCandidate = hasPatchFields(textlessSet) ? buildNextElement(current, textlessSet) : cloneJson(current);
-        const candidate = setHasText ? { ...geometryCandidate, text } : geometryCandidate;
-        const shouldUpsertDerivedLabel = !isSeedLabelId(id) && hasGeometryShape(candidate) && !!text;
-        const geometrySet = shouldUpsertDerivedLabel ? textlessSet : set;
+        const text = setHasText ? normalizeText(set.text, 240) : normalizeText(current.text || existingLabel?.text, 240);
+        const textlessSet = setHasText
+            ? { ...withoutTextShape(set), ...(text ? {} : { text: undefined }) }
+            : set;
+        const geometryCandidate = hasPatchFields(textlessSet) || (setHasText && hasGeometryShape(current))
+            ? buildNextElement(current, textlessSet, warnings)
+            : cloneJson(current);
+        const hasGeometryCandidate = hasGeometryShape(geometryCandidate);
+        const candidate = setHasText && text && !hasGeometryCandidate ? { ...geometryCandidate, text } : geometryCandidate;
+        const shouldUpsertDerivedLabel = !isSeedLabelId(id)
+            && hasGeometryCandidate
+            && !!text
+            && canMapElementHaveDerivedLabel(geometryCandidate.cat);
+        const geometrySet = hasGeometryCandidate && setHasText ? textlessSet : set;
         const next = shouldUpsertDerivedLabel
             ? geometryCandidate
             : candidate;
@@ -1890,7 +2027,7 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
             modifiedGeometry = true;
         }
 
-        if (!isSeedLabelId(id) && set.at && current.at) {
+        if (shouldUpsertDerivedLabel && !isSeedLabelId(id) && set.at && current.at) {
             const labelId = buildSeedLabelId(id);
             const labelIndex = findIndex(labelId);
             if (labelIndex >= 0) {
@@ -1903,7 +2040,7 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
                     ];
                     const moved = shouldUpsertDerivedLabel
                         ? buildDerivedLabelElement(next, text, label, labelAt)
-                        : buildNextElement(label, { at: labelAt });
+                        : buildNextElement(label, { at: labelAt }, warnings);
                     document.elements[labelIndex] = moved;
                     if (shouldUpsertDerivedLabel && !isCanonicalLabelElement(label)) {
                         removedElements.push(cloneJson(label));
@@ -1921,8 +2058,6 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
         }
 
         if (shouldUpsertDerivedLabel) {
-            const labelId = buildSeedLabelId(id);
-            const labelIndex = findIndex(labelId);
             if (labelIndex >= 0) {
                 const label = document.elements[labelIndex];
                 const labelNext = buildDerivedLabelElement(next, text, label);
@@ -1951,6 +2086,11 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
             }
         }
 
+        if (!shouldUpsertDerivedLabel && labelIndex >= 0) {
+            applyRemove(labelId, { soft: true, cascadeLabel: false });
+            return;
+        }
+
         if (!modifiedGeometry) {
             satisfiedCount += 1;
         }
@@ -1964,12 +2104,12 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
             if (!op) {throw new Error('map_op_not_supported:empty');}
 
             if (op === 'meta') {
-                applyMeta(normalizeMetaSet(rawOp.set ?? rawOp.changes ?? rawOp.meta));
+                applyMeta(normalizeMetaSet(rawOp.set ?? rawOp.changes ?? rawOp.meta, warnings));
                 continue;
             }
 
             if (op === 'add') {
-                const elements = normalizeMapElementInput(rawOp.element ?? rawOp, { source: 'model-input' });
+                const elements = normalizeMapElementInput(rawOp.element ?? rawOp, { source: 'model-input', warnings });
                 elements.forEach((element) => applyAdd(element));
                 continue;
             }
@@ -1984,7 +2124,7 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
             if (op === 'modify') {
                 const id = normalizeText(rawOp.id, 120);
                 if (!id) {throw new Error('map_element_id_invalid');}
-                applyModify(id, normalizePartialSet(rawOp.set ?? rawOp.changes, id));
+                applyModify(id, normalizePartialSet(rawOp.set ?? rawOp.changes, id, warnings));
                 continue;
             }
 
@@ -1993,7 +2133,7 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
                 if (!id) {throw new Error('map_element_id_invalid');}
                 if (findIndex(id) < 0) {throw new Error(`map_element_not_found:${id}`);}
                 applyRemove(id, { cascadeLabel: true });
-                normalizeMapElementInput(rawOp.element, { forcedId: id, source: 'model-input' }).forEach((element) => applyAdd(element));
+                normalizeMapElementInput(rawOp.element, { forcedId: id, source: 'model-input', warnings }).forEach((element) => applyAdd(element));
                 continue;
             }
 
@@ -2008,7 +2148,7 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
                     ...document.meta,
                     status: 'active',
                     hint: document.meta.hint,
-                }, 'model-input');
+                }, 'model-input', warnings);
                 if (op === 'init' && document.meta.status === 'active' && document.elements.length && rawOp.replaceDocument !== true) {
                     throw new Error('state_init_existing_document_requires_reset');
                 }
@@ -2040,6 +2180,15 @@ function applyMapOps(source: TavernMapDocument, rawOps: unknown[]): {
 
     if (!failed.length && document.elements.length > MAX_MAP_ELEMENTS) {
         failed.push({ index: -1, error: 'map_elements_limit_exceeded', hint: `Map has more than ${MAX_MAP_ELEMENTS} elements. Split or reduce the element count.` });
+    }
+
+    if (!failed.length && changed && deepEqual(semanticFingerprint(sourceDocument), semanticFingerprint(document))) {
+        satisfiedCount += appliedCount;
+        appliedCount = 0;
+        changed = false;
+        changedIds.clear();
+        effectiveOps.splice(0, effectiveOps.length);
+        removedElements.splice(0, removedElements.length);
     }
 
     return {
@@ -2074,7 +2223,17 @@ function buildMapElementSchema() {
             cat: {
                 type: 'string',
                 enum: [...MAP_ELEMENT_CATEGORIES],
-                description: 'Semantic category such as wall, door, marker, actor, terrain, road, or label.',
+                description: 'Semantic category such as wall, door, marker, actor, terrain, road, light, or label. Use terrain for walkable ground/floor; do not use floor, ground, or region.',
+            },
+            material: {
+                type: 'string',
+                enum: [...TAVERN_MAP_MATERIALS],
+                description: 'Optional renderer-owned material enum. Use only when RP facts confirm it. Common values include wood, stone, tile, carpet, blood, water, grass, dirt, snow, metal, rune, warm-light, cold-light, shadow, or unknown. Do not invent material names.',
+            },
+            certainty: {
+                type: 'string',
+                enum: [...TAVERN_MAP_CERTAINTIES],
+                description: 'Optional semantic confidence. Omit for confirmed facts. Use inferred for likely/unconfirmed placements and unknown when the position or existence is explicitly uncertain.',
             },
             rect: {
                 type: 'array',
@@ -2104,32 +2263,65 @@ function buildMapElementSchema() {
             },
             text: {
                 type: 'string',
-                description: 'Short label text. If you provide text together with geometry in an add input, the runtime will split the text into a derived label element automatically.',
+                description: 'Short label text. If you provide text together with label-eligible geometry in an add input, the runtime will split the text into a derived label element automatically. Terrain, light, grid, and label categories do not derive labels from geometry text.',
             },
             actorKey: {
                 type: 'string',
                 description: 'Optional full-session actor identity key for cat:"actor". If omitted, the element id is used as the actor key fallback.',
             },
             closed: { type: 'boolean', description: 'Whether a path or curve should be closed.' },
-            fill: { type: 'string', description: 'Fill token or color name for closed shapes.' },
-            style: {
-                type: 'object',
-                description: 'Optional visual style overrides.',
-                properties: {
-                    color: { type: 'string', description: 'Stroke or text color.' },
-                    width: { type: 'number', description: 'Stroke width.' },
-                    dash: { type: 'string', description: 'Dash pattern string.' },
-                },
-                additionalProperties: false,
-            },
         },
         required: ['id', 'cat'],
         additionalProperties: false,
     };
 }
 
+function buildPatchSetSchema() {
+    const pointPair = {
+        type: 'array',
+        items: { type: 'number' },
+        minItems: 2,
+        maxItems: 2,
+    };
+    const pointList = {
+        type: 'array',
+        items: pointPair,
+    };
+    return {
+        type: 'object',
+        description: 'For map `meta`/`modify` and atlas `upsert-location`, merge only these whitelisted semantic fields. Renderer style fields such as fill/style/opacity/zIndex/rotation/blur and visual transform scale are intentionally not part of this schema.',
+        properties: {
+            name: { type: 'string', description: 'Map title or atlas location display name. Empty string clears a map title.' },
+            viewBox: { type: 'array', items: { type: 'number' }, minItems: 4, maxItems: 4, description: 'Map camera frame `[x,y,width,height]`; it does not move elements.' },
+            theme: { type: 'string', enum: [...MAP_THEMES], description: 'Map renderer theme.' },
+            status: { type: 'string', enum: [...MAP_STATUSES, ...ATLAS_LOCATION_STATUSES], description: 'Map status or atlas location status, depending on docType/op.' },
+            mood: { type: 'string', enum: [...TAVERN_MAP_MOODS], description: 'Map mood; use only when scene facts support it.' },
+            hint: { type: 'string', description: 'Map maintenance hint for uninitialized scene maps.' },
+            at: { ...pointPair, description: 'Map element anchor coordinate `[x,y]`.' },
+            cat: { type: 'string', enum: [...MAP_ELEMENT_CATEGORIES], description: 'Map element semantic category.' },
+            material: { type: 'string', enum: [...TAVERN_MAP_MATERIALS], description: 'Map element material enum. Use unknown when the material is explicitly unclear.' },
+            certainty: { type: 'string', enum: [...TAVERN_MAP_CERTAINTIES], description: 'Map element certainty enum. Use confirmed to clear stored uncertainty.' },
+            rect: { ...pointPair, description: 'Map element rectangle size `[width,height]`.' },
+            circle: { type: 'number', description: 'Map element circle radius.' },
+            path: { ...pointList, description: 'Map element polyline points.' },
+            curve: { ...pointList, description: 'Map element curve points.' },
+            icon: { type: 'string', enum: [...MAP_ICON_NAMES], description: 'Map element icon.' },
+            text: { type: 'string', description: 'Map label text. Empty string clears source/derived label text.' },
+            actorKey: { type: 'string', description: 'Map actor identity key for cat:"actor".' },
+            closed: { type: 'boolean', description: 'Whether a path or curve should be closed.' },
+            scale: { type: 'string', enum: [...ATLAS_LOCATION_SCALES], description: 'Atlas location scale.' },
+            parent: { type: 'string', description: 'Atlas parent location key. Prefer unset:["parent"] to clear it.' },
+            mapDocId: { type: 'string', description: 'Atlas linked scene-map docId. Prefer unset:["mapDocId"] to clear it.' },
+            aliases: { type: 'array', items: { type: 'string' }, description: 'Atlas location aliases.' },
+            brief: { type: 'string', description: 'Short atlas location note. Prefer unset:["brief"] to clear it.' },
+        },
+        additionalProperties: false,
+    };
+}
+
 export function getTavernStateToolDefinitions(): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
     const mapElementSchema = buildMapElementSchema();
+    const patchSetSchema = buildPatchSetSchema();
     return [
         {
             type: 'function',
@@ -2177,7 +2369,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                         kind: { type: 'string', enum: [...ATLAS_LINK_KINDS], description: 'Optional atlas `links` kind filter.' },
                         elementType: { type: 'string', enum: [...MAP_SHAPE_KEYS], description: 'Optional `elements`-mode shape filter such as rect, circle, path, curve, icon, or text.' },
                         category: { type: 'string', enum: [...MAP_ELEMENT_CATEGORIES], description: 'Optional `elements`-mode category filter such as wall, door, marker, terrain, road, or label.' },
-                        query: { type: 'string', description: 'Optional `elements`-mode text query matched against id, category, shape, icon, and label text.' },
+                        query: { type: 'string', description: 'Optional `elements`-mode text query matched against id, category, shape, icon, label text, material, and certainty.' },
                         offset: { type: 'number', minimum: 0, description: 'Pagination offset for `elements` or `history` results. Default 0.' },
                         limit: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT, description: 'Maximum `elements` or `history` results to return. Default 30 for `elements`, 20 for `history`.' },
                         tail: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT, description: 'For `history` mode, return the final N patch transactions.' },
@@ -2195,11 +2387,13 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'Use this only for confirmed spatial changes from RP source text or a user-requested correction. If nothing spatial changed, do not patch.',
                     'Read MapInspect summary first unless you already have the current doc, ids, and revision from this turn. Use `baseRevision` when you are protecting against concurrent changes.',
                     'For `tavern.map`, canonical ops are `meta`, `add`, `modify`, and `remove`. One MapPatch call is one atomic transaction and becomes exactly one revision when it saves.',
-                    'Use `meta` to update document fields such as name, viewBox, theme, status, or hint. Use `add` to create elements, `modify` to change existing ids, and `remove` to delete ids.',
+                    'Use `meta` to update document fields such as name, viewBox, theme, status, mood, or hint. Mood enum is neutral/warm/cold/dark/mystic/danger/calm; write it only when the scene facts support it.',
                     'Each element has `id` and `cat`, plus exactly one shape field: `rect`, `circle`, `path`, `curve`, `icon`, or `text`. Most elements use `at:[x,y]`; `path` and `curve` may omit `at` and use the first point as the anchor.',
+                    'Use semantic material/certainty instead of renderer styling. Material enum is unknown/wood/stone/tile/carpet/blood/water/grass/dirt/snow/metal/rune/warm-light/cold-light/shadow. Certainty enum is confirmed/inferred/unknown; omit confirmed fields.',
+                    'Use cat:"terrain" for ground/floor, cat:"light" for light/glow/shadow areas, and material for appearance. Do not use floor, ground, region, subtype, opacity, zIndex, rotation, visual scale, blur, or custom fill colors in new map patches.',
                     'For `cat:"actor"`, optional `actorKey` is the full-session identity key. If omitted, the element id is used. The runtime keeps only the latest actor with the same final key across all map documents.',
                     'With `at`, `path` and `curve` points are relative offsets. Without `at`, the points are treated as absolute coordinates and the stored result becomes relative to the first point.',
-                    'If one add element contains geometry plus text, the runtime splits the text into a system label element automatically.',
+                    'If one add element contains label-eligible geometry plus text, the runtime splits the text into a system label element automatically. Terrain/light/grid geometry does not derive labels.',
                     'Atlas glyphs describe places. Scene maps describe local space. Do not put house/castle/village/forest/temple/shop icons inside a scene map; draw the local walls, doors, roads, furniture, hazards, objects, labels, and actor positions instead.',
                     'For `tavern.atlas/main`, use only `upsert-location`, `remove-location`, `upsert-link`, `remove-link`, and `move-actor`. There is no set-active-location op.',
                     'Atlas links may omit `id`. The default link id is `link:${sorted(from,to).join(":")}:${kind}` for bidirectional links and `link:${from}:${to}:${kind}` for `bidirectional:false`. Use an explicit id only when two locations need multiple same-kind links.',
@@ -2235,7 +2429,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                                     label: { type: 'string', description: 'Optional atlas link label.' },
                                     bidirectional: { type: 'boolean', description: 'Atlas link direction flag. Defaults true.' },
                                     unset: { type: 'array', items: { type: 'string', enum: ['parent', 'mapDocId', 'aliases', 'brief'] }, description: 'Atlas upsert-location optional fields to remove.' },
-                                    set: { type: 'object', description: 'For map `meta`/`modify`, fields to update. For atlas `upsert-location`, location fields to merge.' },
+                                    set: patchSetSchema,
                                     element: { ...mapElementSchema, description: 'Full element object for `add`.' },
                                 },
                                 required: ['op'],

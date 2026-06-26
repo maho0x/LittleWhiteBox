@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue';
 import type {
     TavernStructuredStateDocumentRecord,
     TavernStructuredStatePatchRecord,
@@ -8,6 +8,7 @@ import type { TavernMapDocument, TavernMapElement, TavernMapStateDocumentItem } 
 import { isRenderableMapDocument } from '../../shared/map-state-content';
 import { createSeedMapDocument } from '../../shared/map-state-seed';
 import { applyTrustedMapPatchOps } from '../../shared/map-state-ops';
+import { canMapElementUseAreaFill, compareMapStableText, materialEntry, zOf } from '../../shared/map-semantics';
 import { getTavernMapDisplayViewBox, getTavernMapElementBounds, type TavernMapBounds } from '../map-display';
 import {
     gameIconScaleTransform,
@@ -17,8 +18,9 @@ import {
 } from '../map-glyphs';
 
 type MapReplayMode = 'full' | 'patch' | 'timeline';
-type MapRenderLayer = 'fill' | 'line' | 'label';
+type MapRenderLayer = 'fill' | 'line' | 'light' | 'label';
 type MapOpKind = 'add' | 'modify' | 'remove' | 'stable';
+type MapBlendMode = 'normal' | 'multiply' | 'screen' | 'overlay';
 
 interface MapRenderItem {
     element: TavernMapElement;
@@ -27,6 +29,9 @@ interface MapRenderItem {
     path: string;
     color: string;
     fill: string;
+    blend: MapBlendMode;
+    opacity: number;
+    z: number;
     strokeWidth: number;
     dash: string;
     delayMs: number;
@@ -383,6 +388,15 @@ function elementPath(element: TavernMapElement): string {
 
 function elementColor(element: TavernMapElement): string {
     if (element.style?.color) {return String(element.style.color);}
+    const materialLineColors: Record<string, string> = {
+        stone: '#6b6570',
+        tile: '#565b69',
+        wood: '#5d422c',
+        metal: '#6f757b',
+    };
+    if (['wall', 'door'].includes(String(element.cat || '').trim()) && element.material && materialLineColors[element.material]) {
+        return materialLineColors[element.material];
+    }
     const colors: Record<string, string> = {
         wall: '#2f2418',
         road: '#9a8253',
@@ -397,11 +411,25 @@ function elementColor(element: TavernMapElement): string {
         grid: '#9f987f',
         magic: '#76539a',
         secret: '#68625b',
+        light: '#d48a42',
     };
     return colors[String(element.cat || 'wall')] || colors.wall;
 }
 
+function hasAreaShape(element: TavernMapElement): boolean {
+    return !!element.rect || typeof element.circle === 'number' || ((!!element.path || !!element.curve) && element.closed === true);
+}
+
+function certaintyOpacity(element: TavernMapElement): number {
+    if (element.certainty === 'unknown') {return 0.48;}
+    if (element.certainty === 'inferred') {return 0.68;}
+    return 1;
+}
+
 function elementFill(element: TavernMapElement): string {
+    if (!canMapElementUseAreaFill(element.cat)) {return element.fill ? String(element.fill) : 'none';}
+    const material = materialEntry(element.material);
+    if (material?.layer === 'fill') {return material.paint;}
     if (element.fill) {return String(element.fill);}
     const fills: Record<string, string> = {
         water: 'rgba(63, 136, 167, 0.24)',
@@ -410,8 +438,7 @@ function elementFill(element: TavernMapElement): string {
         magic: 'rgba(126, 83, 154, 0.16)',
         secret: 'rgba(63, 56, 48, 0.10)',
     };
-    const hasAreaShape = !!element.rect || typeof element.circle === 'number' || ((!!element.path || !!element.curve) && element.closed === true);
-    return hasAreaShape ? (fills[String(element.cat || '')] || 'rgba(92, 70, 36, 0.08)') : 'none';
+    return hasAreaShape(element) ? (fills[String(element.cat || '')] || 'rgba(92, 70, 36, 0.08)') : 'none';
 }
 
 function strokeWidth(element: TavernMapElement): number {
@@ -500,6 +527,10 @@ function labelFontSize(element: TavernMapElement): number {
 function buildRenderItemsForElement(element: TavernMapElement, index: number, forcedOpKind?: MapOpKind): MapRenderItem[] {
     if (!getTavernMapElementBounds(element)) {return [];}
     const opKind = forcedOpKind || opKindFor(element);
+    const material = materialEntry(element.material);
+    const baseOpacity = (material?.opacity ?? 1) * certaintyOpacity(element);
+    const baseBlend = material?.blend || 'normal';
+    const z = zOf(element.cat, element.material);
     const baseDelay = forcedOpKind === 'remove'
         ? index * 110
         : replayMode.value === 'full'
@@ -515,6 +546,9 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
             path: '',
             color: forcedOpKind === 'remove' ? '#b94035' : elementColor(element),
             fill: 'none',
+            blend: 'normal',
+            opacity: certaintyOpacity(element),
+            z,
             strokeWidth: 0,
             dash: '',
             delayMs: baseDelay,
@@ -540,6 +574,34 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
     const color = forcedOpKind === 'remove' ? '#b94035' : elementColor(element);
     const fill = forcedOpKind === 'remove' ? 'rgba(185, 64, 53, 0.16)' : elementFill(element);
     const items: MapRenderItem[] = [];
+    if (material?.layer === 'light' && forcedOpKind !== 'remove' && hasAreaShape(element)) {
+        items.push({
+            element,
+            id: `${element.id}-light`,
+            layer: 'light',
+            path,
+            color,
+            fill: material.paint,
+            blend: baseBlend,
+            opacity: baseOpacity,
+            z,
+            strokeWidth: 0,
+            dash: '',
+            delayMs: baseDelay,
+            durationMs,
+            length,
+            opKind,
+            text: '',
+            x: 0,
+            y: 0,
+            fontSize: 0,
+            anchor: 'middle',
+            transform: '',
+            fillRule: 'nonzero',
+            gameIcon: false,
+        });
+        return items;
+    }
     if (gameIcon) {
         items.push({
             element,
@@ -548,6 +610,9 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
             path,
             color,
             fill: color,
+            blend: 'normal',
+            opacity: certaintyOpacity(element),
+            z,
             strokeWidth: 0,
             dash: '',
             delayMs: baseDelay,
@@ -575,6 +640,9 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
             path,
             color,
             fill,
+            blend: baseBlend,
+            opacity: baseOpacity,
+            z,
             strokeWidth: 0,
             dash: '',
             delayMs: baseDelay,
@@ -598,6 +666,9 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
         path,
         color,
         fill: 'none',
+        blend: 'normal',
+        opacity: certaintyOpacity(element),
+        z,
         strokeWidth: strokeWidth(element),
         dash: dashArray(element),
         delayMs: baseDelay,
@@ -613,19 +684,53 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
         fillRule: 'nonzero',
         gameIcon: false,
     });
+    if (element.cat === 'actor' && String(element.actorKey || element.id || '').trim().toLowerCase() === 'player') {
+        const ringRadius = element.icon ? 18 : typeof element.circle === 'number' ? element.circle + 5 : 16;
+        items.push({
+            element,
+            id: `${element.id}-player-ring`,
+            layer: 'line',
+            path: circleToPath({ ...element, circle: ringRadius }),
+            color: '#4ea1ff',
+            fill: 'none',
+            blend: 'normal',
+            opacity: 0.72 * certaintyOpacity(element),
+            z,
+            strokeWidth: 2,
+            dash: '',
+            delayMs: baseDelay,
+            durationMs,
+            length: Math.max(48, Math.PI * 2 * ringRadius),
+            opKind,
+            text: '',
+            x: 0,
+            y: 0,
+            fontSize: 0,
+            anchor: 'middle',
+            transform: '',
+            fillRule: 'nonzero',
+            gameIcon: false,
+        });
+    }
     return items;
 }
 
 const renderItems = computed<MapRenderItem[]>(() => (activeMapDocument.value?.elements || [])
     .flatMap((element, index) => buildRenderItemsForElement(element, index)));
 
-const fillItems = computed(() => renderItems.value.filter((item) => item.layer === 'fill'));
+const fillItems = computed(() => renderItems.value
+    .filter((item) => item.layer === 'fill')
+    .sort((left, right) => left.z - right.z || compareMapStableText(left.element.id, right.element.id) || compareMapStableText(left.id, right.id)));
 const lineItems = computed(() => renderItems.value.filter((item) => item.layer === 'line'));
 const regularLineItems = computed(() => lineItems.value.filter((item) => !item.gameIcon));
 const gameIconLineItems = computed(() => lineItems.value.filter((item) => item.gameIcon));
+const lightItems = computed(() => renderItems.value
+    .filter((item) => item.layer === 'light')
+    .sort((left, right) => left.z - right.z || compareMapStableText(left.element.id, right.element.id) || compareMapStableText(left.id, right.id)));
 const labelItems = computed(() => renderItems.value.filter((item) => item.layer === 'label'));
 const removedRenderItems = computed(() => removedElements.value.flatMap((element, index) => buildRenderItemsForElement(element, index, 'remove')));
 const removedFillItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'fill'));
+const removedLightItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'light'));
 const removedLineItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'line'));
 const regularRemovedLineItems = computed(() => removedLineItems.value.filter((item) => !item.gameIcon));
 const gameIconRemovedLineItems = computed(() => removedLineItems.value.filter((item) => item.gameIcon));
@@ -649,6 +754,26 @@ const penStyle = computed(() => {
     };
 });
 
+const moodOverlay = computed(() => {
+    const mood = String(activeMapDocument.value?.meta?.mood || 'neutral');
+    const overlays: Record<string, { fill: string; blend: MapBlendMode; opacity: number }> = {
+        warm: { fill: 'url(#mood-warm)', blend: 'overlay', opacity: 0.34 },
+        cold: { fill: 'url(#mood-cold)', blend: 'multiply', opacity: 0.28 },
+        dark: { fill: 'url(#mood-dark)', blend: 'multiply', opacity: 0.36 },
+        mystic: { fill: 'url(#mood-mystic)', blend: 'screen', opacity: 0.22 },
+        danger: { fill: 'url(#mood-danger)', blend: 'multiply', opacity: 0.26 },
+        calm: { fill: 'url(#mood-calm)', blend: 'screen', opacity: 0.18 },
+    };
+    const overlay = overlays[mood];
+    if (!overlay) {return null;}
+    const [x, y, width, height] = viewBoxArray.value;
+    const style: CSSProperties = {
+        opacity: overlay.opacity,
+        mixBlendMode: overlay.blend,
+    };
+    return { ...overlay, x, y, width, height, style };
+});
+
 function scheduleTimelineNext() {
     clearTimelineTimer();
     if (replayMode.value !== 'timeline' || !canReplayTimeline.value || timelineFrames.value.length <= 1) {return;}
@@ -667,7 +792,9 @@ function itemStyle(item: MapRenderItem) {
         '--map-delay': `${item.delayMs}ms`,
         '--map-duration': `${item.durationMs}ms`,
         '--map-length': `${item.length}`,
-    };
+        opacity: item.opacity,
+        mixBlendMode: item.blend === 'normal' ? undefined : item.blend,
+    } as CSSProperties & Record<string, string | number | undefined>;
 }
 
 function itemClass(item: MapRenderItem) {
@@ -950,6 +1077,318 @@ function handleMapWheel(event: WheelEvent) {
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <pattern
+            id="mat-wood"
+            width="36"
+            height="18"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="36"
+              height="18"
+              fill="#5d422c"
+            />
+            <path
+              d="M0 9 H36 M12 0 V9 M28 9 V18"
+              stroke="#382517"
+              stroke-width="1.2"
+              opacity="0.85"
+            />
+            <path
+              d="M2 4 C8 2 12 6 18 4 M4 14 C12 12 18 16 30 13"
+              stroke="#77563a"
+              stroke-width="0.8"
+              fill="none"
+              opacity="0.6"
+            />
+          </pattern>
+          <pattern
+            id="mat-stone"
+            width="54"
+            height="30"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="54"
+              height="30"
+              fill="#55505a"
+            />
+            <path
+              d="M0 15 H54 M18 0 V15 M38 15 V30"
+              stroke="#2b2931"
+              stroke-width="2"
+              fill="none"
+              opacity="0.82"
+            />
+          </pattern>
+          <pattern
+            id="mat-tile"
+            width="28"
+            height="28"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="28"
+              height="28"
+              fill="#343746"
+            />
+            <rect
+              x="2"
+              y="2"
+              width="24"
+              height="24"
+              rx="2"
+              fill="#404454"
+              stroke="#20232d"
+              stroke-width="1.4"
+            />
+          </pattern>
+          <pattern
+            id="mat-carpet"
+            width="22"
+            height="22"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="22"
+              height="22"
+              fill="#8d2638"
+            />
+            <path
+              d="M0 11 H22 M11 0 V22 M4 4 L18 18 M18 4 L4 18"
+              stroke="#f0c77c"
+              stroke-width="0.8"
+              opacity="0.45"
+            />
+          </pattern>
+          <radialGradient id="mat-blood">
+            <stop
+              offset="0%"
+              stop-color="#5b1118"
+              stop-opacity="0.92"
+            />
+            <stop
+              offset="100%"
+              stop-color="#5b1118"
+              stop-opacity="0.18"
+            />
+          </radialGradient>
+          <pattern
+            id="mat-water"
+            width="34"
+            height="18"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="34"
+              height="18"
+              fill="#2f7990"
+              opacity="0.72"
+            />
+            <path
+              d="M0 6 C8 1 14 11 22 6 S30 4 34 7 M0 14 C7 10 14 17 22 13 S31 10 34 13"
+              stroke="#bde9ee"
+              stroke-width="1"
+              fill="none"
+              opacity="0.5"
+            />
+          </pattern>
+          <pattern
+            id="mat-grass"
+            width="24"
+            height="24"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="24"
+              height="24"
+              fill="#486d3e"
+            />
+            <path
+              d="M5 20 L8 12 M12 22 L14 11 M18 20 L16 10 M3 10 L6 5 M21 13 L19 7"
+              stroke="#7ca45f"
+              stroke-width="1.2"
+              opacity="0.68"
+            />
+          </pattern>
+          <pattern
+            id="mat-dirt"
+            width="26"
+            height="26"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="26"
+              height="26"
+              fill="#76583a"
+            />
+            <circle
+              cx="7"
+              cy="9"
+              r="1.8"
+              fill="#4b3725"
+              opacity="0.45"
+            />
+            <circle
+              cx="18"
+              cy="17"
+              r="2.2"
+              fill="#9b7651"
+              opacity="0.45"
+            />
+          </pattern>
+          <pattern
+            id="mat-snow"
+            width="30"
+            height="30"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="30"
+              height="30"
+              fill="#dce8ed"
+            />
+            <path
+              d="M5 8 H11 M8 5 V11 M20 20 H26 M23 17 V23"
+              stroke="#ffffff"
+              stroke-width="1.4"
+              opacity="0.75"
+            />
+          </pattern>
+          <pattern
+            id="mat-metal"
+            width="32"
+            height="32"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="32"
+              height="32"
+              fill="#62666d"
+            />
+            <path
+              d="M-4 28 L28 -4 M6 36 L38 4"
+              stroke="#a8adb4"
+              stroke-width="3"
+              opacity="0.28"
+            />
+          </pattern>
+          <pattern
+            id="mat-rune"
+            width="34"
+            height="34"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="34"
+              height="34"
+              fill="#44335e"
+              opacity="0.55"
+            />
+            <path
+              d="M17 4 L27 17 L17 30 L7 17 Z M17 9 V25 M9 17 H25"
+              stroke="#bda5ff"
+              stroke-width="1.2"
+              fill="none"
+              opacity="0.72"
+            />
+          </pattern>
+          <radialGradient id="grad-warm">
+            <stop
+              offset="0%"
+              stop-color="#ffb15e"
+              stop-opacity="0.8"
+            />
+            <stop
+              offset="100%"
+              stop-color="#ff8a3c"
+              stop-opacity="0"
+            />
+          </radialGradient>
+          <radialGradient id="grad-cold">
+            <stop
+              offset="0%"
+              stop-color="#86c7ff"
+              stop-opacity="0.56"
+            />
+            <stop
+              offset="100%"
+              stop-color="#3567aa"
+              stop-opacity="0"
+            />
+          </radialGradient>
+          <radialGradient id="mood-warm">
+            <stop
+              offset="0%"
+              stop-color="#ffcf88"
+              stop-opacity="0.2"
+            />
+            <stop
+              offset="100%"
+              stop-color="#633016"
+              stop-opacity="0.45"
+            />
+          </radialGradient>
+          <radialGradient id="mood-cold">
+            <stop
+              offset="0%"
+              stop-color="#8ab6ff"
+              stop-opacity="0.06"
+            />
+            <stop
+              offset="100%"
+              stop-color="#0b1630"
+              stop-opacity="0.62"
+            />
+          </radialGradient>
+          <radialGradient id="mood-dark">
+            <stop
+              offset="0%"
+              stop-color="#1d2530"
+              stop-opacity="0.12"
+            />
+            <stop
+              offset="100%"
+              stop-color="#000000"
+              stop-opacity="0.78"
+            />
+          </radialGradient>
+          <radialGradient id="mood-mystic">
+            <stop
+              offset="0%"
+              stop-color="#a77dff"
+              stop-opacity="0.24"
+            />
+            <stop
+              offset="100%"
+              stop-color="#123f4d"
+              stop-opacity="0.32"
+            />
+          </radialGradient>
+          <radialGradient id="mood-danger">
+            <stop
+              offset="0%"
+              stop-color="#c9463d"
+              stop-opacity="0.14"
+            />
+            <stop
+              offset="100%"
+              stop-color="#2a0606"
+              stop-opacity="0.56"
+            />
+          </radialGradient>
+          <radialGradient id="mood-calm">
+            <stop
+              offset="0%"
+              stop-color="#c4e8d1"
+              stop-opacity="0.16"
+            />
+            <stop
+              offset="100%"
+              stop-color="#49706f"
+              stop-opacity="0.18"
+            />
+          </radialGradient>
         </defs>
         <g class="map-fill-layer">
           <path
@@ -1000,6 +1439,28 @@ function handleMapWheel(event: WheelEvent) {
             </g>
           </g>
         </g>
+        <g class="map-light-layer">
+          <path
+            v-for="item in lightItems"
+            :key="item.id"
+            :d="item.path"
+            :fill="item.fill"
+            :transform="item.transform"
+            :fill-rule="item.fillRule"
+            :class="itemClass(item)"
+            :style="itemStyle(item)"
+          />
+        </g>
+        <rect
+          v-if="moodOverlay"
+          class="map-mood-overlay"
+          :x="moodOverlay.x"
+          :y="moodOverlay.y"
+          :width="moodOverlay.width"
+          :height="moodOverlay.height"
+          :fill="moodOverlay.fill"
+          :style="moodOverlay.style"
+        />
         <g class="map-label-layer">
           <text
             v-for="item in labelItems"
@@ -1019,6 +1480,16 @@ function handleMapWheel(event: WheelEvent) {
           <path
             v-for="item in removedFillItems"
             :key="`removed-fill-${item.id}`"
+            :d="item.path"
+            :fill="item.fill"
+            :transform="item.transform"
+            :fill-rule="item.fillRule"
+            :class="itemClass(item)"
+            :style="itemStyle(item)"
+          />
+          <path
+            v-for="item in removedLightItems"
+            :key="`removed-light-${item.id}`"
             :d="item.path"
             :fill="item.fill"
             :transform="item.transform"

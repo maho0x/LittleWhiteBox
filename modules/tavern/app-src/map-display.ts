@@ -1,4 +1,5 @@
 import type { TavernMapDocument, TavernMapElement } from '../shared/structured-state';
+import { materialEntry } from '../shared/map-semantics';
 import { getTavernMapIconRenderSize } from './map-glyphs';
 
 export interface TavernMapBounds {
@@ -14,6 +15,7 @@ export const DEFAULT_TAVERN_MAP_VIEWBOX: [number, number, number, number] = [0, 
 
 const DEFAULT_PADDING = 48;
 const MIN_VIEWBOX_SIZE = 160;
+const LIGHT_SOURCE_BOUNDS_PADDING = 4;
 
 function createBounds(minX: number, minY: number, maxX: number, maxY: number): TavernMapBounds | null {
     if (![minX, minY, maxX, maxY].every((value) => Number.isFinite(value))) {return null;}
@@ -108,6 +110,16 @@ export function normalizeTavernMapViewBox(value: unknown): [number, number, numb
 }
 
 export function getTavernMapElementBounds(element: TavernMapElement): TavernMapBounds | null {
+    if (element.cat === 'light' || materialEntry(element.material)?.layer === 'light') {
+        return expandBounds(createBounds(element.at[0], element.at[1], element.at[0], element.at[1]) || {
+            minX: element.at[0],
+            minY: element.at[1],
+            maxX: element.at[0],
+            maxY: element.at[1],
+            width: 0,
+            height: 0,
+        }, LIGHT_SOURCE_BOUNDS_PADDING);
+    }
     let bounds: TavernMapBounds | null = null;
     if (element.rect) {
         bounds = rectBounds(element);

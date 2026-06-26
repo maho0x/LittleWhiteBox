@@ -57,6 +57,42 @@ test('map display viewBox falls back to document viewBox when the map has no ele
     assert.deepEqual(getTavernMapDisplayViewBox(document), [12, 24, 640, 360]);
 });
 
+test('map display bounds do not let light glow radius expand the camera fit', () => {
+    const base: TavernMapDocument = {
+        meta: { name: 'Tavern', theme: 'dark', viewBox: null, status: 'active', mood: 'warm' },
+        elements: [
+            { id: 'room', at: [100, 100], rect: [200, 120], cat: 'terrain', material: 'wood' },
+        ],
+    };
+    const withLight: TavernMapDocument = {
+        ...base,
+        elements: [
+            ...base.elements,
+            { id: 'firelight', at: [110, 110], circle: 240, cat: 'light', material: 'warm-light' },
+        ],
+    };
+
+    assert.deepEqual(getTavernMapDisplayViewBox(withLight), getTavernMapDisplayViewBox(base));
+});
+
+test('map display bounds do not let light-layer materials expand the camera fit', () => {
+    const base: TavernMapDocument = {
+        meta: { name: 'Dungeon', theme: 'dark', viewBox: null, status: 'active', mood: 'dark' },
+        elements: [
+            { id: 'cell', at: [100, 100], rect: [200, 120], cat: 'terrain', material: 'tile' },
+        ],
+    };
+    const withShadow: TavernMapDocument = {
+        ...base,
+        elements: [
+            ...base.elements,
+            { id: 'shadow-pool', at: [110, 110], circle: 300, cat: 'terrain', material: 'shadow' },
+        ],
+    };
+
+    assert.deepEqual(getTavernMapDisplayViewBox(withShadow), getTavernMapDisplayViewBox(base));
+});
+
 test('map glyph registry upgrades semantic icons while preserving legacy markers', () => {
     assert.equal(TAVERN_MAP_ICON_NAMES.includes('heart'), true);
     assert.equal(TAVERN_MAP_ICON_NAMES.includes('perfume'), true);

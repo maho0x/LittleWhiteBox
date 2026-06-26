@@ -289,6 +289,15 @@
     opacity: 0.9;
 }
 
+.tavern-chat.xb-page .map-light-layer,
+.tavern-chat.xb-page .map-mood-overlay {
+    pointer-events: none;
+}
+
+.tavern-chat.xb-page .map-light-layer {
+    isolation: isolate;
+}
+
 .tavern-chat.xb-page .map-element {
     transform-box: fill-box;
     transform-origin: center;
