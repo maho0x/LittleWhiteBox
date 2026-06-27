@@ -3003,6 +3003,149 @@ test('MapSceneEdit infers shape from geo without exposing multiple shape fields'
     assert.equal('circle' in (elementSchema?.properties || {}), false);
     assert.equal('path' in (elementSchema?.properties || {}), false);
     assert.equal('label' in (elementSchema?.properties || {}), true);
+    assert.deepEqual(Object.keys(((elementSchema?.properties?.geo as { properties?: Record<string, unknown> } | undefined)?.properties || {})).sort(), [
+        'at',
+        'curve',
+        'icon',
+        'points',
+        'radius',
+        'size',
+    ]);
+});
+
+test('MapSceneEdit honors explicit shape when geo contains unrelated empty shape pollution', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Scene edit polluted explicit shape' });
+    const result = await executeTavernStateTool(session.id, 'MapSceneEdit', {
+        scene: '污染小酒馆',
+        elements: [
+            {
+                id: 'front-door',
+                cat: 'door',
+                shape: 'icon',
+                geo: { at: [160, 190], icon: 'door', rect: [0, 0], radius: 0, path: [], curve: [] },
+                label: '正门',
+            },
+            {
+                id: 'round-table',
+                cat: 'furniture',
+                shape: 'circle',
+                geo: { at: [90, 100], radius: 18, rect: [0, 0], path: [], curve: [] },
+                label: '圆桌',
+            },
+            {
+                id: 'hearth-light',
+                cat: 'light',
+                shape: 'circle',
+                geo: { at: [235, 80], radius: 45, rect: [0, 0], path: [], curve: [] },
+                material: 'warm-light',
+            },
+        ],
+    });
+    const scene = await executeTavernStateTool(session.id, 'MapSceneRead', { scene: '污染小酒馆', mode: 'document' });
+    const document = scene.document as TavernMapDocument;
+    const patches = await listTavernStructuredStatePatches({ sessionId: session.id, docType: 'tavern.map', docId: result.docId });
+    const savedOpsJson = JSON.stringify(patches.flatMap((patch) => patch.ops as Array<Record<string, unknown>>));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.skipped?.length, 0);
+    assert.equal(document.elements.find((element) => element.id === 'front-door')?.icon, 'door');
+    assert.equal(document.elements.find((element) => element.id === 'round-table')?.circle, 18);
+    assert.equal(document.elements.find((element) => element.id === 'hearth-light')?.circle, 45);
+    assert.equal(savedOpsJson.includes('"rect":[0,0]'), false);
+    assert.equal(savedOpsJson.includes('"path":[]'), false);
+    assert.equal(savedOpsJson.includes('"curve":[]'), false);
+});
+
+test('MapSceneEdit infers drawable shapes despite zero and empty geo pollution', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Scene edit polluted inference' });
+    const result = await executeTavernStateTool(session.id, 'MapSceneEdit', {
+        scene: '推断污染小酒馆',
+        viewBox: [0, 0, 360, 240],
+        elements: [
+            {
+                id: 'front-door',
+                cat: 'door',
+                geo: { at: [180, 210], icon: 'door', rect: [0, 0], radius: 0, path: [], curve: [] },
+                label: '正门',
+            },
+            {
+                id: 'round-table',
+                cat: 'furniture',
+                geo: { at: [115, 120], radius: 22, rect: [0, 0], points: [], curve: [] },
+                label: '圆桌',
+            },
+            {
+                id: 'hearth-light',
+                cat: 'light',
+                geo: { at: [275, 72], radius: 54, rect: [0, 0], path: [] },
+                material: 'warm-light',
+            },
+            {
+                id: 'main-path',
+                cat: 'road',
+                geo: { points: [], path: [[30, 200], [180, 210], [330, 200]], rect: [0, 0] },
+                material: 'dirt',
+            },
+        ],
+    });
+    const scene = await executeTavernStateTool(session.id, 'MapSceneRead', { scene: '推断污染小酒馆', mode: 'document' });
+    const document = scene.document as TavernMapDocument;
+
+    assert.equal(result.ok, true);
+    assert.equal(result.skipped?.length, 0);
+    assert.equal(document.elements.find((element) => element.id === 'front-door')?.icon, 'door');
+    assert.equal(document.elements.find((element) => element.id === 'round-table')?.circle, 22);
+    assert.equal(document.elements.find((element) => element.id === 'hearth-light')?.circle, 54);
+    assert.deepEqual(document.elements.find((element) => element.id === 'main-path')?.path, [[0, 0], [150, 10], [300, 0]]);
+});
+
+test('MapSceneEdit saves a complete tavern first map from common filled-geo model output', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Scene edit tavern first map' });
+    const result = await executeTavernStateTool(session.id, 'MapSceneEdit', {
+        scene: '测试小酒馆',
+        playerHere: true,
+        viewBox: [0, 0, 420, 300],
+        mood: 'warm',
+        elements: [
+            { id: 'hall-floor', cat: 'terrain', shape: 'rect', geo: { at: [40, 36], size: [340, 226], rect: [0, 0], path: [], curve: [] }, material: 'wood' },
+            { id: 'outer-wall', cat: 'wall', shape: 'rect', geo: { at: [40, 36], size: [340, 226], radius: 0, points: [], curve: [] }, material: 'stone', label: '测试小酒馆' },
+            { id: 'bar-counter', cat: 'furniture', shape: 'rect', geo: { at: [66, 58], size: [104, 34], circle: 0, path: [] }, material: 'wood', label: '吧台' },
+            { id: 'front-door', cat: 'door', shape: 'icon', geo: { at: [210, 262], icon: 'door', rect: [0, 0], radius: 0, path: [], curve: [] }, label: '正门' },
+            { id: 'round-table-a', cat: 'furniture', shape: 'circle', geo: { at: [250, 125], radius: 23, rect: [0, 0], path: [], curve: [] }, label: '圆桌' },
+            { id: 'round-table-b', cat: 'furniture', shape: 'circle', geo: { at: [315, 178], radius: 20, rect: [0, 0], path: [], curve: [] }, label: '圆桌' },
+            { id: 'hearth-light', cat: 'light', shape: 'circle', geo: { at: [333, 62], radius: 62, rect: [0, 0], path: [], curve: [] }, material: 'warm-light' },
+            { id: 'player-view', cat: 'actor', actorKey: 'player', shape: 'icon', geo: { at: [204, 205], icon: 'o', rect: [0, 0], radius: 0, path: [], curve: [] }, label: '玩家' },
+        ],
+    });
+    const scene = await executeTavernStateTool(session.id, 'MapSceneRead', { scene: '测试小酒馆', mode: 'document' });
+    const document = scene.document as TavernMapDocument;
+    const patches = await listTavernStructuredStatePatches({ sessionId: session.id, docType: 'tavern.map', docId: result.docId });
+    const savedOpsJson = JSON.stringify(patches.flatMap((patch) => patch.ops as Array<Record<string, unknown>>));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.skipped?.length, 0);
+    assert.deepEqual(document.meta.viewBox, [0, 0, 420, 300]);
+    assert.equal(document.meta.mood, 'warm');
+    assert.equal(document.elements.some((element) => element.id === 'hall-floor'), true);
+    assert.equal(document.elements.some((element) => element.id === 'outer-wall'), true);
+    assert.equal(document.elements.some((element) => element.id === 'bar-counter'), true);
+    assert.equal(document.elements.find((element) => element.id === 'front-door')?.icon, 'door');
+    assert.equal(document.elements.find((element) => element.id === 'round-table-a')?.circle, 23);
+    assert.equal(document.elements.find((element) => element.id === 'round-table-b')?.circle, 20);
+    assert.equal(document.elements.find((element) => element.id === 'hearth-light')?.circle, 62);
+    assert.equal(document.elements.find((element) => element.id === 'player-view')?.actorKey, 'player');
+    assert.equal(savedOpsJson.includes('"rect":[0,0]'), false);
+    assert.equal(savedOpsJson.includes('"path":[]'), false);
+    assert.equal(savedOpsJson.includes('"curve":[]'), false);
 });
 
 test('MapSceneEdit repeats the same scene intent without increasing scene revision', async () => {

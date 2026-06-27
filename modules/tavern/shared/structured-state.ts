@@ -502,6 +502,11 @@ function numberPair(value: unknown): [number, number] | null {
     return Number.isFinite(left) && Number.isFinite(right) ? [left, right] : null;
 }
 
+function positiveNumberPair(value: unknown): [number, number] | null {
+    const pair = numberPair(value);
+    return pair && pair[0] > 0 && pair[1] > 0 ? pair : null;
+}
+
 function normalizeCategory(value: unknown, fallback: TavernMapElementCategory): TavernMapElementCategory {
     const text = String(value || '').trim();
     if (text === 'floor' || text === 'ground') {return 'terrain';}
@@ -1962,14 +1967,93 @@ function hasUsablePointList(value: unknown): boolean {
         && value.every((item) => !!normalizePoint(item));
 }
 
+function firstUsablePointList(...values: unknown[]): unknown {
+    return values.find((value) => hasUsablePointList(value)) ?? null;
+}
+
+function firstPositiveNumber(...values: unknown[]): number | null {
+    for (const value of values) {
+        const number = positiveNumber(value);
+        if (number !== null) {return number;}
+    }
+    return null;
+}
+
+type MapIntentRectCandidate = {
+    at?: [number, number];
+    rect: [number, number];
+};
+
+function normalizeMapIntentRectCandidate(value: unknown): MapIntentRectCandidate | null {
+    if (Array.isArray(value)) {
+        const numbers = value.map((item) => Number(item));
+        if (numbers.length >= 4 && numbers.slice(0, 4).every((item) => Number.isFinite(item)) && numbers[2] > 0 && numbers[3] > 0) {
+            return { at: [numbers[0], numbers[1]], rect: [numbers[2], numbers[3]] };
+        }
+        const rect = positiveNumberPair(value);
+        return rect ? { rect } : null;
+    }
+    if (isPlainObject(value)) {
+        const rect = positiveNumberPair(value.size ?? value.rect ?? [value.width ?? value.w, value.height ?? value.h]);
+        if (!rect) {return null;}
+        const at = normalizePoint(value.at ?? value.pos ?? value.center ?? {
+            x: value.x ?? value.left,
+            y: value.y ?? value.top,
+        });
+        return at ? { at, rect } : { rect };
+    }
+    return null;
+}
+
+function firstMapIntentRect(source: Record<string, unknown>, geo: Record<string, unknown>): MapIntentRectCandidate | null {
+    const candidates = [
+        geo.size,
+        source.size,
+        geo.rect,
+        source.rect,
+        [geo.width ?? geo.w, geo.height ?? geo.h],
+        [source.width ?? source.w, source.height ?? source.h],
+    ];
+    for (const candidate of candidates) {
+        const rect = normalizeMapIntentRectCandidate(candidate);
+        if (rect) {return rect;}
+    }
+    return null;
+}
+
+function firstMapIntentPath(source: Record<string, unknown>, geo: Record<string, unknown>): unknown {
+    return firstUsablePointList(geo.points, source.points, geo.path, source.path, geo.line, source.line);
+}
+
+function firstMapIntentCurve(source: Record<string, unknown>, geo: Record<string, unknown>): unknown {
+    return firstUsablePointList(geo.curve, source.curve);
+}
+
+function mapIntentShapeHasUsableData(shape: MapIntentShapeKey, source: Record<string, unknown>, geo: Record<string, unknown>): boolean {
+    if (shape === 'rect') {return !!firstMapIntentRect(source, geo);}
+    if (shape === 'circle') {return firstPositiveNumber(geo.radius, source.radius, geo.r, source.r, geo.circle, source.circle) !== null;}
+    if (shape === 'curve') {return !!firstMapIntentCurve(source, geo);}
+    if (shape === 'path') {return !!firstMapIntentPath(source, geo);}
+    if (shape === 'icon') {return !!normalizeIcon(geo.icon ?? source.icon);}
+    return !!normalizeText(source.label ?? source.text ?? source.content ?? source.value, 240);
+}
+
+function mapIntentShapeOrderForCategory(category: TavernMapElementCategory): MapIntentShapeKey[] {
+    if (category === 'door') {return ['icon', 'path', 'rect', 'circle', 'label'];}
+    if (category === 'actor') {return ['icon', 'circle', 'label'];}
+    if (category === 'light') {return ['circle', 'rect', 'icon', 'label'];}
+    if (category === 'road') {return ['path', 'curve', 'rect', 'label'];}
+    if (category === 'wall') {return ['rect', 'path', 'curve', 'label'];}
+    if (category === 'terrain' || category === 'water' || category === 'magic' || category === 'danger') {return ['rect', 'circle', 'path', 'curve', 'icon', 'label'];}
+    if (category === 'furniture') {return ['rect', 'circle', 'icon', 'label'];}
+    return ['rect', 'circle', 'path', 'curve', 'icon', 'label'];
+}
+
 function inferMapIntentShape(source: Record<string, unknown>, geo: Record<string, unknown>): MapIntentShapeKey | '' {
-    const merged = { ...source, ...geo };
-    if (numberPair(merged.size ?? merged.rect ?? [merged.width ?? merged.w, merged.height ?? merged.h])) {return 'rect';}
-    if (positiveNumber(merged.radius ?? merged.r ?? merged.circle) !== null) {return 'circle';}
-    if (hasUsablePointList(merged.curve)) {return 'curve';}
-    if (hasUsablePointList(merged.points ?? merged.path ?? merged.line)) {return 'path';}
-    if (normalizeIcon(merged.icon)) {return 'icon';}
-    if (normalizeText(merged.label ?? merged.text ?? merged.content ?? merged.value, 240)) {return 'label';}
+    const category = normalizeCategory(source.cat, 'marker');
+    for (const shape of mapIntentShapeOrderForCategory(category)) {
+        if (mapIntentShapeHasUsableData(shape, source, geo)) {return shape;}
+    }
     return '';
 }
 
@@ -1982,18 +2066,19 @@ function buildMapIntentElementInput(rawElement: unknown, index: number, warnings
     const geo = isPlainObject(rawElement.geo) ? rawElement.geo : {};
     const id = normalizeText(rawElement.id, 120);
     if (!id) {throw new Error(`map_intent_element_id_required:${index + 1}`);}
-    let shape = normalizeMapIntentShape(rawElement.shape);
+    const explicitShape = normalizeMapIntentShape(rawElement.shape);
+    let shape = explicitShape;
     const inferredShape = inferMapIntentShape(rawElement, geo);
-    if (!shape && inferredShape) {
+    if (explicitShape && !mapIntentShapeHasUsableData(explicitShape, rawElement, geo) && inferredShape && inferredShape !== 'label') {
+        shape = inferredShape;
+        warnings.push(`Shape "${explicitShape}" for ${id} had unusable geo; used "${shape}" from valid geo instead.`);
+    } else if (!explicitShape && inferredShape) {
         shape = inferredShape;
         warnings.push(`Inferred shape "${shape}" for ${id}.`);
-    } else if (shape && inferredShape && inferredShape !== 'label' && shape !== inferredShape && shape !== 'label') {
-        warnings.push(`Shape "${shape}" for ${id} had mismatched geo; inferred "${inferredShape}" from usable data.`);
-        shape = inferredShape;
     }
     if (!shape) {throw new Error(`map_intent_shape_required:${id}`);}
 
-    const at = normalizePoint(geo.at ?? rawElement.at ?? geo.pos ?? rawElement.pos ?? geo.center ?? rawElement.center ?? {
+    let at = normalizePoint(geo.at ?? rawElement.at ?? geo.pos ?? rawElement.pos ?? geo.center ?? rawElement.center ?? {
         x: geo.x ?? rawElement.x ?? geo.cx ?? rawElement.cx,
         y: geo.y ?? rawElement.y ?? geo.cy ?? rawElement.cy,
     });
@@ -2015,19 +2100,23 @@ function buildMapIntentElementInput(rawElement: unknown, index: number, warnings
     if (rawElement.closed === true || geo.closed === true) {element.closed = true;}
 
     if (shape === 'rect') {
-        const rect = numberPair(geo.size ?? rawElement.size ?? geo.rect ?? rawElement.rect ?? [geo.width ?? geo.w ?? rawElement.width ?? rawElement.w, geo.height ?? geo.h ?? rawElement.height ?? rawElement.h]);
-        if (!rect || rect[0] <= 0 || rect[1] <= 0) {throw new Error(`map_element_rect_invalid:${id}`);}
-        element.rect = rect;
+        const rect = firstMapIntentRect(rawElement, geo);
+        if (!rect) {throw new Error(`map_element_rect_invalid:${id}`);}
+        if (!at && rect.at) {
+            at = rect.at;
+            element.at = at;
+        }
+        element.rect = rect.rect;
     } else if (shape === 'circle') {
-        const circle = positiveNumber(geo.radius ?? rawElement.radius ?? geo.r ?? rawElement.r ?? geo.circle ?? rawElement.circle);
+        const circle = firstPositiveNumber(geo.radius, rawElement.radius, geo.r, rawElement.r, geo.circle, rawElement.circle);
         if (circle === null) {throw new Error(`map_element_radius_required:${id}`);}
         element.circle = circle;
     } else if (shape === 'path') {
-        const points = geo.points ?? rawElement.points ?? geo.path ?? rawElement.path ?? geo.line ?? rawElement.line;
+        const points = firstMapIntentPath(rawElement, geo);
         if (!hasUsablePointList(points)) {throw new Error(`map_element_points_required:${id}`);}
         element.path = points;
     } else if (shape === 'curve') {
-        const points = geo.curve ?? rawElement.curve;
+        const points = firstMapIntentCurve(rawElement, geo);
         if (!hasUsablePointList(points)) {throw new Error(`map_element_points_required:${id}`);}
         element.curve = points;
     } else if (shape === 'icon') {
@@ -2775,6 +2864,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'Edit one scene map file with tolerant map intent. Use this as the normal map write tool.',
                     'Always provide an explicit `scene` name. The runtime creates the scene file if needed, links it from the world atlas, normalizes intent into canonical map ops, and saves only clean canonical results.',
                     'Elements use one `shape` plus `geo`; label is independent and does not count as a shape. Renderer styling such as opacity, color, zIndex, blur, pattern, and custom fill is not accepted.',
+                    'Use only the minimum geo for the chosen shape: rect={at,size}, circle={at,radius}, icon={at,icon}, path={points}, curve={curve}, label={at}+label. Do not fill unused geo keys.',
                     'If one element is bad, that element is skipped and the other valid elements can still save. Read the returned applied/skipped/warnings report before retrying only failed elements.',
                 ].join('\n'),
                 parameters: {
@@ -2801,27 +2891,14 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                                     shape: { type: 'string', enum: [...MAP_INTENT_SHAPES], description: 'One shape: rect/circle/path/curve/icon/label.' },
                                     geo: {
                                         type: 'object',
-                                        description: 'Geometry payload for the chosen shape.',
+                                        description: 'Minimal geometry for the chosen shape only. Omit unused keys.',
                                         properties: {
-                                            at: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
-                                            center: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
-                                            pos: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
-                                            x: { type: 'number' },
-                                            y: { type: 'number' },
-                                            size: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
-                                            rect: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
-                                            width: { type: 'number' },
-                                            height: { type: 'number' },
-                                            w: { type: 'number' },
-                                            h: { type: 'number' },
-                                            radius: { type: 'number' },
-                                            r: { type: 'number' },
-                                            circle: { type: 'number' },
-                                            points: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
-                                            path: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
-                                            line: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
-                                            curve: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
-                                            icon: { type: 'string', enum: [...MAP_ICON_NAMES] },
+                                            at: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'Position [x,y] for rect, circle, icon, or label.' },
+                                            size: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'Rect size [width,height].' },
+                                            radius: { type: 'number', description: 'Circle radius.' },
+                                            points: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 }, description: 'Path points.' },
+                                            curve: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 }, description: 'Curve control/polyline points.' },
+                                            icon: { type: 'string', enum: [...MAP_ICON_NAMES], description: 'Icon name for shape:"icon".' },
                                         },
                                         additionalProperties: false,
                                     },
