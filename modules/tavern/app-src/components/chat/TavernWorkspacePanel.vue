@@ -6,8 +6,8 @@ import TavernMapPanel from '../TavernMapPanel.vue';
 import TavernMemoryEditor from '../TavernMemoryEditor.vue';
 import { useTavernMemoryContext, useTavernSessionContext, useTavernWorkspaceContext } from '../tavern-app-context';
 import { useMobileSheetDrag } from './useMobileSheetDrag';
-import { createSeedMapDocument } from '../../../shared/map-state-seed';
-import type { TavernAtlasDocument, TavernMapDocument, TavernMapElement } from '../../../shared/structured-state';
+import { buildSeedLabelId, createSeedMapDocument, isSeedLabelId } from '../../../shared/map-state-seed';
+import type { TavernAtlasDocument, TavernMapDocument, TavernMapElement, TavernMapElementCategory } from '../../../shared/structured-state';
 
 defineProps<{
     memoryDirectoryOpen: boolean;
@@ -125,35 +125,104 @@ const selectedMapTitle = computed(() => String(
 const selectedMapIsActive = computed(() => String(selectedMapRecord.value?.docId || '') === String(activeMapDocId.value || 'main'));
 const selectedMapPatches = computed(() => selectedMapIsActive.value ? mapStatePatches.value : []);
 const currentLocationHasNoMap = computed(() => !mapPreviewPinned.value && !!atlasDocument.value.activeLocationKey && !atlasActiveMapDocId.value);
-function userFacingMapDigestLine(line = '') {
-    const text = String(line || '').trim();
-    if (!text) {return '';}
-    if (/^(氛围|材质)：/.test(text)) {return '';}
-    return text;
+type MapInfoLine = {
+    key: string;
+    label: string;
+    values: string[];
+};
+const MAP_LABEL_PREFIX_LENGTH = buildSeedLabelId('').length;
+const MAP_EXIT_ICONS = new Set(['door', 'stairs', 'portal', 'arrow-n', 'arrow-s', 'arrow-e', 'arrow-w']);
+
+function normalizeMapInfoText(value: unknown, limit = 48): string {
+    return String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
-const mapDigestLines = computed(() => String(selectedMapRecord.value?.digest || '')
-    .split('\n')
-    .map(userFacingMapDigestLine)
-    .filter(Boolean)
-    .slice(0, 3));
-function mapActorDisplayName(element: TavernMapElement): string {
-    const actorKey = String(element.actorKey || element.id || '').trim().toLowerCase();
+
+function isGenericActorDisplayName(value: unknown): boolean {
+    const text = normalizeMapInfoText(value, 48);
+    const lower = text.toLowerCase();
+    return lower === 'player'
+        || lower === 'user'
+        || lower.startsWith('player ')
+        || lower.startsWith('user ')
+        || lower === 'actor'
+        || lower.startsWith('actor_')
+        || lower.startsWith('actor-')
+        || text === '玩家'
+        || text.startsWith('玩家')
+        || text === '用户'
+        || text.startsWith('用户')
+        || text === '你'
+        || text === '您';
+}
+
+function uniqueMapInfoValues(values: string[], limit = 10): string[] {
+    return [...new Set(values.map((value) => normalizeMapInfoText(value)).filter(Boolean))].slice(0, limit);
+}
+
+const mapLabelsByBaseId = computed(() => {
+    const labels = new Map<string, string>();
+    selectedMapElements.value.forEach((element) => {
+        if (element.cat !== 'label' || !isSeedLabelId(element.id)) {return;}
+        const baseId = element.id.slice(MAP_LABEL_PREFIX_LENGTH);
+        const text = normalizeMapInfoText(element.text);
+        if (baseId && text) {labels.set(baseId, text);}
+    });
+    return labels;
+});
+
+function mapElementDisplayName(element: TavernMapElement, labelsByBaseId: Map<string, string>): string {
+    return normalizeMapInfoText(element.text)
+        || normalizeMapInfoText(labelsByBaseId.get(element.id));
+}
+
+function mapActorDisplayName(element: TavernMapElement, labelsByBaseId: Map<string, string>): string {
+    const actorKey = normalizeMapInfoText(element.actorKey || element.id).toLowerCase();
     if (actorKey === 'player') {
         return String(displayUserName.value || 'User').trim() || 'User';
     }
-    return String(element.text || element.id || '').trim();
+    const text = normalizeMapInfoText(element.text);
+    if (text && !isGenericActorDisplayName(text)) {return text;}
+    const label = normalizeMapInfoText(labelsByBaseId.get(element.id));
+    if (label && !isGenericActorDisplayName(label)) {return label;}
+    const rawActorKey = normalizeMapInfoText(element.actorKey);
+    return rawActorKey && !isGenericActorDisplayName(rawActorKey) ? rawActorKey : '';
 }
-const mapActorNames = computed(() => selectedMapElements.value
+
+const mapActorNames = computed(() => uniqueMapInfoValues(selectedMapElements.value
     .filter((element) => element.cat === 'actor')
-    .map((element) => mapActorDisplayName(element))
-    .filter(Boolean)
-    .slice(0, 6));
+    .map((element) => mapActorDisplayName(element, mapLabelsByBaseId.value)), 8));
+
+function mapNamesForCategories(categories: TavernMapElementCategory[], limit = 10): string[] {
+    const labelsByBaseId = mapLabelsByBaseId.value;
+    return uniqueMapInfoValues(selectedMapElements.value
+        .filter((element) => categories.includes(element.cat))
+        .map((element) => mapElementDisplayName(element, labelsByBaseId)), limit);
+}
+
+const mapExitNames = computed(() => {
+    const labelsByBaseId = mapLabelsByBaseId.value;
+    return uniqueMapInfoValues(selectedMapElements.value
+        .filter((element) => element.cat === 'door' || MAP_EXIT_ICONS.has(String(element.icon || '').trim()))
+        .map((element) => mapElementDisplayName(element, labelsByBaseId)), 8);
+});
+const mapInteractiveNames = computed(() => mapNamesForCategories(['furniture', 'danger', 'secret', 'magic', 'marker'], 12));
+const mapAreaNames = computed(() => mapNamesForCategories(['wall', 'terrain', 'road', 'water'], 8));
+const mapStandaloneLabelNames = computed(() => uniqueMapInfoValues(selectedMapElements.value
+    .filter((element) => element.cat === 'label' && !isSeedLabelId(element.id))
+    .map((element) => normalizeMapInfoText(element.text)), 8));
+const mapInfoLines = computed<MapInfoLine[]>(() => [
+    { key: 'actors', label: '出场人物', values: mapActorNames.value },
+    { key: 'exits', label: '出入口', values: mapExitNames.value },
+    { key: 'interactives', label: '设施物件', values: mapInteractiveNames.value },
+    { key: 'areas', label: '空间区域', values: mapAreaNames.value },
+    { key: 'notes', label: '其他标注', values: mapStandaloneLabelNames.value },
+].filter((line) => line.values.length));
 const mapInfoStats = computed(() => {
     const elements = selectedMapElements.value;
     const countByCat = (cat: string) => elements.filter((element) => element.cat === cat).length;
     return [
         { label: '元素', value: String(elements.length) },
-        { label: '人物', value: String(countByCat('actor')) },
+        { label: '出场', value: String(countByCat('actor')) },
         { label: '出入口', value: String(countByCat('door')) },
         { label: '标注', value: String(countByCat('label') + countByCat('marker')) },
     ];
@@ -316,10 +385,7 @@ function selectDirectoryMemoryFile(path: string) {
           class="tavern-map-info-body"
         >
           <header class="tavern-map-info-head">
-            <div>
-              <strong>{{ selectedMapTitle }}</strong>
-              <span>{{ selectedMapRecord.docId }}</span>
-            </div>
+            <strong>{{ selectedMapTitle }}</strong>
             <em>{{ selectedMapIsActive ? '当前场景' : '地图档案' }}</em>
           </header>
           <dl class="tavern-map-info-grid">
@@ -332,22 +398,17 @@ function selectDirectoryMemoryFile(path: string) {
             </div>
           </dl>
           <div
-            v-if="mapActorNames.length"
-            class="tavern-map-info-line"
-          >
-            <span>人物</span>
-            <strong>{{ mapActorNames.join('、') }}</strong>
-          </div>
-          <div
-            v-if="mapDigestLines.length"
+            v-if="mapInfoLines.length"
             class="tavern-map-info-digest"
           >
-            <p
-              v-for="line in mapDigestLines"
-              :key="line"
+            <div
+              v-for="line in mapInfoLines"
+              :key="line.key"
+              class="tavern-map-info-line"
             >
-              {{ line }}
-            </p>
+              <span>{{ line.label }}</span>
+              <strong>{{ line.values.join('、') }}</strong>
+            </div>
           </div>
         </div>
         <div

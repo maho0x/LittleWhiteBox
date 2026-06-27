@@ -1948,6 +1948,10 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(workspacePanelSource, /class="tavern-state-view-tabs"/);
     assert.doesNotMatch(workspacePanelSource, /回到当前位置|tavern-state-follow-button/);
     assert.match(workspacePanelSource, /class="tavern-map-info"/);
+    assert.doesNotMatch(workspacePanelSource, /<span>\{\{ selectedMapRecord\.docId \}\}<\/span>|mapDigestLines|selectedMapRecord\.value\?\.digest/);
+    assert.match(workspacePanelSource, /buildSeedLabelId\(''\)\.length/);
+    assert.match(workspacePanelSource, /label: '出场人物'[\s\S]*values: mapActorNames\.value/);
+    assert.match(workspacePanelSource, /label: '设施物件'[\s\S]*values: mapInteractiveNames\.value/);
     assert.doesNotMatch(workspacePanelSource, /tavern-current-state|stateMemoryFile|renderChatMarkdown\(currentState/);
     assert.match(composeCss, /--xb-compose-safe-space: 44px;/);
     assert.match(composeCss, /--xb-compose-safe-space: 40px;/);

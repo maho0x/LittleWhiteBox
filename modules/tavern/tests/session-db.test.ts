@@ -273,8 +273,9 @@ test('new tavern sessions start with a seed map document', async () => {
     assert.match(hint, /Indoor MapSceneEdit example/);
     assert.match(hint, /Outdoor MapSceneEdit example/);
     assert.match(hint, /at least one spatial geometry element/);
-    assert.match(hint, /distinctive outer shape/i);
-    assert.match(hint, /path or curve instead of flattening it into a plain box/i);
+    assert.match(hint, /Scene-map construction order/i);
+    assert.match(hint, /Closed or contained scenes must have an outer boundary/i);
+    assert.match(hint, /Open scenes are the exception/i);
     assert.doesNotMatch(hint, /MapPatch|activate:true/);
     assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 0);
 });
@@ -4383,8 +4384,9 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
     });
     assert.match(mapPrompt, /MapAtlasRead/);
     assert.match(mapPrompt, /MapSceneEdit/);
-    assert.match(mapPrompt, /Shape the scene before filling it/i);
-    assert.match(mapPrompt, /distinctive outer form/i);
+    assert.match(mapPrompt, /Scene-map construction order/i);
+    assert.match(mapPrompt, /Closed or contained scenes must have an outer boundary/i);
+    assert.match(mapPrompt, /Open scenes are the exception/i);
     assert.match(mapPrompt, /This contract authorizes only the map system\. Do not write memory Markdown\./i);
     assert.doesNotMatch(mapPrompt, /Edit and Write/);
     assert.doesNotMatch(mapPrompt, /memory\/session\.md/);

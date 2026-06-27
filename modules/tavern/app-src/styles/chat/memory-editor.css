@@ -170,29 +170,18 @@
 .tavern-chat.xb-page .tavern-map-info-head {
     min-width: 0;
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
 }
 
-.tavern-chat.xb-page .tavern-map-info-head div {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-
 .tavern-chat.xb-page .tavern-map-info-head strong {
+    min-width: 0;
     overflow: hidden;
     color: var(--xb-ink);
     font: 600 var(--xb-host-main-font-size, 15px)/var(--xb-host-prose-line-height, 23px) var(--xb-font-serif);
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.tavern-chat.xb-page .tavern-map-info-head span {
-    color: var(--xb-ink-soft);
-    font: 12px/1.25 var(--xb-font-mono);
 }
 
 .tavern-chat.xb-page .tavern-map-info-head em {
@@ -233,9 +222,9 @@
 .tavern-chat.xb-page .tavern-map-info-line {
     min-width: 0;
     display: grid;
-    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-columns: 68px minmax(0, 1fr);
     gap: 10px;
-    align-items: baseline;
+    align-items: start;
 }
 
 .tavern-chat.xb-page .tavern-map-info-line span {
@@ -245,24 +234,18 @@
 
 .tavern-chat.xb-page .tavern-map-info-line strong {
     min-width: 0;
-    overflow: hidden;
     color: var(--xb-ink);
     font: 400 var(--xb-host-main-font-size, 15px)/var(--xb-host-prose-line-height, 23px) var(--xb-font-serif);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .tavern-chat.xb-page .tavern-map-info-digest {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 7px;
     border-top: 1px solid var(--xb-rule);
     color: var(--xb-ink);
     padding-top: 10px;
-}
-
-.tavern-chat.xb-page .tavern-map-info-digest p {
-    margin: 0;
 }
 
 .tavern-chat.xb-page .tavern-map-info-empty {
