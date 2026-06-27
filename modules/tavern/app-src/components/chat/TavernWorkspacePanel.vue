@@ -125,9 +125,15 @@ const selectedMapTitle = computed(() => String(
 const selectedMapIsActive = computed(() => String(selectedMapRecord.value?.docId || '') === String(activeMapDocId.value || 'main'));
 const selectedMapPatches = computed(() => selectedMapIsActive.value ? mapStatePatches.value : []);
 const currentLocationHasNoMap = computed(() => !mapPreviewPinned.value && !!atlasDocument.value.activeLocationKey && !atlasActiveMapDocId.value);
+function userFacingMapDigestLine(line = '') {
+    const text = String(line || '').trim();
+    if (!text) {return '';}
+    if (/^(氛围|材质)：/.test(text)) {return '';}
+    return text;
+}
 const mapDigestLines = computed(() => String(selectedMapRecord.value?.digest || '')
     .split('\n')
-    .map((line) => line.trim())
+    .map(userFacingMapDigestLine)
     .filter(Boolean)
     .slice(0, 3));
 function mapActorDisplayName(element: TavernMapElement): string {

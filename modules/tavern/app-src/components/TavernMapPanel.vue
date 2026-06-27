@@ -275,7 +275,13 @@ const badgeModeLabel = computed(() => (
             ? `回合 ${timelineLabel.value}`
             : '地图更新'
 ));
-const digestLines = computed(() => digest.value.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 4));
+function userFacingDigestLine(line = '') {
+    const text = String(line || '').trim();
+    if (!text) {return '';}
+    if (/^(氛围|材质)：/.test(text)) {return '';}
+    return text;
+}
+const digestLines = computed(() => digest.value.split('\n').map(userFacingDigestLine).filter(Boolean).slice(0, 4));
 const elementCount = computed(() => activeMapDocument.value?.elements.length || 0);
 const totalPatchCount = computed(() => selectedDocPatches.value.length);
 const mapDocuments = computed(() => Array.isArray(props.documents) && props.documents.length
