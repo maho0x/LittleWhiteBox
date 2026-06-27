@@ -53,6 +53,9 @@ export const TAVERN_STATE_TOOL_NAMES = {
     LIST: 'MapDocs',
     READ: 'MapInspect',
     PATCH: 'MapPatch',
+    READ_ATLAS: 'MapAtlasRead',
+    READ_SCENE: 'MapSceneRead',
+    EDIT_SCENE: 'MapSceneEdit',
 } as const;
 
 const LEGACY_TAVERN_STATE_TOOL_NAMES = {
@@ -60,6 +63,12 @@ const LEGACY_TAVERN_STATE_TOOL_NAMES = {
     READ: 'StateRead',
     PATCH: 'StatePatch',
 } as const;
+
+const MODEL_FACING_STATE_TOOL_NAMES = new Set<string>([
+    TAVERN_STATE_TOOL_NAMES.READ_ATLAS,
+    TAVERN_STATE_TOOL_NAMES.READ_SCENE,
+    TAVERN_STATE_TOOL_NAMES.EDIT_SCENE,
+]);
 
 function normalizeTavernStateToolName(toolName = ''): string {
     const name = String(toolName || '').trim();
@@ -178,6 +187,8 @@ export type TavernAtlasPatchOp =
 export interface TavernStateToolResult {
     ok: boolean;
     summary: string;
+    file?: string;
+    scene?: string;
     docType?: TavernStructuredStateDocType;
     docId?: string;
     title?: string;
@@ -205,6 +216,8 @@ export interface TavernStateToolResult {
     removedElements?: TavernMapElement[];
     patches?: TavernStructuredStatePatchRecord[];
     changedIds?: string[];
+    applied?: Array<Record<string, unknown>>;
+    skipped?: Array<Record<string, unknown>>;
     warnings?: string[];
     error?: string;
     details?: unknown;
@@ -213,6 +226,7 @@ export interface TavernStateToolResult {
 export type TavernStateToolCaller = 'auto' | 'chat';
 
 type MapShapeKey = 'rect' | 'circle' | 'path' | 'curve' | 'icon' | 'text';
+type MapIntentShapeKey = 'rect' | 'circle' | 'path' | 'curve' | 'icon' | 'label';
 type NormalizeSource = 'model-input' | 'stored-document';
 
 const MAP_DOC_TYPE: TavernStructuredStateDocType = TAVERN_MAP_DOC_TYPE;
@@ -249,6 +263,28 @@ const ATLAS_LOCATION_SCALES = new Set<TavernAtlasLocationScale>(['city', 'distri
 const ATLAS_LOCATION_STATUSES = new Set<TavernAtlasLocationStatus>(['mentioned', 'visited']);
 const ATLAS_LINK_KINDS = new Set<TavernAtlasLinkKind>(['door', 'stairs', 'elevator', 'path', 'road', 'portal', 'passage']);
 const ATLAS_UNSET_FIELDS = new Set(['parent', 'mapDocId', 'aliases', 'brief']);
+const MAP_INTENT_SHAPES = new Set<MapIntentShapeKey>(['rect', 'circle', 'path', 'curve', 'icon', 'label']);
+
+interface TavernMapIntentTarget {
+    sceneName: string;
+    locationKey: string;
+    docId: string;
+    title: string;
+    existingLocation?: TavernAtlasLocation;
+}
+
+interface TavernMapIntentCompileResult {
+    document: TavernMapDocument;
+    effectiveOps: TavernMapPatchOp[];
+    appliedCount: number;
+    satisfiedCount: number;
+    applied: Array<Record<string, unknown>>;
+    skipped: Array<Record<string, unknown>>;
+    warnings: string[];
+    changedIds: string[];
+    removedElements: TavernMapElement[];
+    changed: boolean;
+}
 
 export type TavernStateDocumentListItem = Pick<TavernStructuredStateDocumentRecord, 'docType' | 'docId' | 'title' | 'revision' | 'digest' | 'status' | 'updatedAt'> & {
     active?: boolean;
@@ -262,9 +298,24 @@ function now(): number {
     return Date.now();
 }
 
+function hashSceneKey(value: string): string {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+}
+
 function normalizeMapDocId(value: unknown = DEFAULT_DOC_ID): string {
     const text = String(value || DEFAULT_DOC_ID).trim() || DEFAULT_DOC_ID;
     return /^[\w.-]{1,80}$/i.test(text) ? text : DEFAULT_DOC_ID;
+}
+
+function mapDocIdFromSceneKey(sceneKey: string): string {
+    const text = String(sceneKey || '').trim();
+    if (/^[\w.-]{1,80}$/i.test(text)) {return text;}
+    return `scene-${hashSceneKey(text || 'scene')}`;
 }
 
 function normalizeMapDocIdOrThrow(value: unknown, error = 'state_doc_id_invalid'): string {
@@ -1137,6 +1188,28 @@ function atlasTitle(document: TavernAtlasDocument): string {
     return active ? `世界图：${active.name}` : '世界图';
 }
 
+function resolveMapIntentTarget(atlas: TavernAtlasDocument, args: Record<string, unknown> = {}): TavernMapIntentTarget {
+    const sceneName = normalizeText(args.scene ?? args.sceneName ?? args.location ?? args.path, 120);
+    if (!sceneName) {throw new Error('map_scene_required');}
+    const requestedKey = normalizeAtlasKey(args.locationKey ?? args.key ?? sceneName);
+    const existingLocation = atlas.locations.find((location) => (
+        location.key === requestedKey
+        || location.name === sceneName
+        || (location.aliases || []).includes(sceneName)
+    ));
+    const locationKey = existingLocation?.key || normalizeAtlasKeyOrThrow(requestedKey || sceneName, 'atlas_location_key_invalid');
+    const docId = existingLocation?.mapDocId && /^[\w.-]{1,80}$/i.test(existingLocation.mapDocId)
+        ? existingLocation.mapDocId
+        : mapDocIdFromSceneKey(locationKey);
+    return {
+        sceneName,
+        locationKey,
+        docId,
+        title: existingLocation?.name || sceneName,
+        ...(existingLocation ? { existingLocation } : {}),
+    };
+}
+
 function createAtlasDigest(document: TavernAtlasDocument): string {
     const active = document.locations.find((location) => location.key === document.activeLocationKey);
     const visitedCount = document.locations.filter((location) => location.status === 'visited').length;
@@ -1285,6 +1358,14 @@ function describeMapPatchError(error = ''): string {
     switch (code) {
     case 'map_element_id_invalid':
         return 'Invalid element id. Use a short stable id containing only letters, numbers, underscores, dots, colons, and hyphens.';
+    case 'map_scene_required':
+        return 'Missing scene. MapSceneEdit requires an explicit scene name, like a file path.';
+    case 'map_intent_element_must_be_object':
+        return 'Each MapSceneEdit element must be a JSON object.';
+    case 'map_intent_element_id_required':
+        return `Element ${id} is missing id. Provide a stable id for each scene element.`;
+    case 'map_intent_shape_required':
+        return `${id} is missing usable shape/geo data. Provide shape plus geo, or enough geo for the runtime to infer rect/circle/path/curve/icon/label.`;
     case 'map_element_id_reserved':
         return `${id} uses the reserved \`__label__\` prefix. Use a normal id instead.`;
     case 'map_element_at_required':
@@ -1308,7 +1389,7 @@ function describeMapPatchError(error = ''): string {
     case 'map_element_duplicate':
         return `${id} is duplicated. Use a stable unique id.`;
     case 'map_element_not_found':
-        return `${id} does not exist. Use MapInspect summary/elements first to find existing ids.`;
+        return `${id} does not exist. Use MapSceneRead elements first to find existing scene element ids.`;
     case 'map_element_already_exists':
         return `${id} already exists. Use \`modify\` to change it. If it is already identical, do not repeat the \`add\`.`;
     case 'map_element_id_cannot_change':
@@ -1342,7 +1423,7 @@ function describeMapPatchError(error = ''): string {
     case 'atlas_link_kind_invalid':
         return 'Invalid atlas link kind. Use door/stairs/elevator/path/road/portal/passage.';
     case 'atlas_link_not_found':
-        return `${id} does not exist. Use MapInspect links first.`;
+        return `${id} does not exist. Use MapAtlasRead links first.`;
     case 'atlas_location_has_children':
     case 'atlas_location_has_links':
     case 'atlas_location_has_actors':
@@ -1868,6 +1949,195 @@ function withoutTextShape(set: Partial<TavernMapElement>): Partial<TavernMapElem
 
 function hasPatchFields(set: Partial<TavernMapElement>): boolean {
     return Object.keys(set).length > 0;
+}
+
+function normalizeMapIntentShape(value: unknown): MapIntentShapeKey | '' {
+    const text = String(value || '').trim() as MapIntentShapeKey;
+    return MAP_INTENT_SHAPES.has(text) ? text : '';
+}
+
+function hasUsablePointList(value: unknown): boolean {
+    return Array.isArray(value)
+        && value.length >= 2
+        && value.every((item) => !!normalizePoint(item));
+}
+
+function inferMapIntentShape(source: Record<string, unknown>, geo: Record<string, unknown>): MapIntentShapeKey | '' {
+    const merged = { ...source, ...geo };
+    if (numberPair(merged.size ?? merged.rect ?? [merged.width ?? merged.w, merged.height ?? merged.h])) {return 'rect';}
+    if (positiveNumber(merged.radius ?? merged.r ?? merged.circle) !== null) {return 'circle';}
+    if (hasUsablePointList(merged.curve)) {return 'curve';}
+    if (hasUsablePointList(merged.points ?? merged.path ?? merged.line)) {return 'path';}
+    if (normalizeIcon(merged.icon)) {return 'icon';}
+    if (normalizeText(merged.label ?? merged.text ?? merged.content ?? merged.value, 240)) {return 'label';}
+    return '';
+}
+
+function buildMapIntentElementInput(rawElement: unknown, index: number, warnings: string[] = []): {
+    id: string;
+    element: Record<string, unknown>;
+    shape: MapIntentShapeKey;
+} {
+    if (!isPlainObject(rawElement)) {throw new Error('map_intent_element_must_be_object');}
+    const geo = isPlainObject(rawElement.geo) ? rawElement.geo : {};
+    const id = normalizeText(rawElement.id, 120);
+    if (!id) {throw new Error(`map_intent_element_id_required:${index + 1}`);}
+    let shape = normalizeMapIntentShape(rawElement.shape);
+    const inferredShape = inferMapIntentShape(rawElement, geo);
+    if (!shape && inferredShape) {
+        shape = inferredShape;
+        warnings.push(`Inferred shape "${shape}" for ${id}.`);
+    } else if (shape && inferredShape && inferredShape !== 'label' && shape !== inferredShape && shape !== 'label') {
+        warnings.push(`Shape "${shape}" for ${id} had mismatched geo; inferred "${inferredShape}" from usable data.`);
+        shape = inferredShape;
+    }
+    if (!shape) {throw new Error(`map_intent_shape_required:${id}`);}
+
+    const at = normalizePoint(geo.at ?? rawElement.at ?? geo.pos ?? rawElement.pos ?? geo.center ?? rawElement.center ?? {
+        x: geo.x ?? rawElement.x ?? geo.cx ?? rawElement.cx,
+        y: geo.y ?? rawElement.y ?? geo.cy ?? rawElement.cy,
+    });
+    const labelWasProvided = ['label', 'text', 'content', 'value'].some((key) => Object.prototype.hasOwnProperty.call(rawElement, key));
+    const label = normalizeText(rawElement.label ?? rawElement.text ?? rawElement.content ?? rawElement.value, 240);
+    const fallbackCat = shape === 'label' ? 'label' : defaultCategoryForShape(shape);
+    const cat = normalizeCategory(rawElement.cat, fallbackCat);
+    const element: Record<string, unknown> = {
+        id,
+        cat,
+    };
+    if (at) {element.at = at;}
+    const material = normalizeMapMaterial(rawElement.material, { elementId: id, warnings, source: 'model-input' });
+    if (material) {element.material = material;}
+    const certainty = normalizeMapCertainty(rawElement.certainty, undefined, { elementId: id, warnings });
+    if (certainty && certainty !== 'confirmed') {element.certainty = certainty;}
+    const actorKey = normalizeText(rawElement.actorKey, 120);
+    if (actorKey) {element.actorKey = actorKey;}
+    if (rawElement.closed === true || geo.closed === true) {element.closed = true;}
+
+    if (shape === 'rect') {
+        const rect = numberPair(geo.size ?? rawElement.size ?? geo.rect ?? rawElement.rect ?? [geo.width ?? geo.w ?? rawElement.width ?? rawElement.w, geo.height ?? geo.h ?? rawElement.height ?? rawElement.h]);
+        if (!rect || rect[0] <= 0 || rect[1] <= 0) {throw new Error(`map_element_rect_invalid:${id}`);}
+        element.rect = rect;
+    } else if (shape === 'circle') {
+        const circle = positiveNumber(geo.radius ?? rawElement.radius ?? geo.r ?? rawElement.r ?? geo.circle ?? rawElement.circle);
+        if (circle === null) {throw new Error(`map_element_radius_required:${id}`);}
+        element.circle = circle;
+    } else if (shape === 'path') {
+        const points = geo.points ?? rawElement.points ?? geo.path ?? rawElement.path ?? geo.line ?? rawElement.line;
+        if (!hasUsablePointList(points)) {throw new Error(`map_element_points_required:${id}`);}
+        element.path = points;
+    } else if (shape === 'curve') {
+        const points = geo.curve ?? rawElement.curve;
+        if (!hasUsablePointList(points)) {throw new Error(`map_element_points_required:${id}`);}
+        element.curve = points;
+    } else if (shape === 'icon') {
+        const icon = normalizeIcon(geo.icon ?? rawElement.icon);
+        if (!icon) {throw new Error(`map_element_icon_invalid:${id}`);}
+        assertSceneMapIconAllowed(icon, id);
+        element.icon = icon;
+    } else if (shape === 'label') {
+        if (!label) {throw new Error(`map_element_text_required:${id}`);}
+        element.text = label;
+    }
+    if (shape !== 'label' && label) {element.text = label;}
+    else if (shape !== 'label' && labelWasProvided) {element.text = null;}
+    return { id, element, shape };
+}
+
+function compileMapIntentToPatch(currentDocument: TavernMapDocument, args: Record<string, unknown> = {}): TavernMapIntentCompileResult {
+    const rawElements = Array.isArray(args.elements) ? args.elements : [];
+    const warnings: string[] = [];
+    let working = cloneJson(currentDocument);
+    const effectiveOps: TavernMapPatchOp[] = [];
+    const applied: Array<Record<string, unknown>> = [];
+    const skipped: Array<Record<string, unknown>> = [];
+    const changedIds = new Set<string>();
+    const removedElements: TavernMapElement[] = [];
+    let appliedCount = 0;
+    let satisfiedCount = 0;
+    let changed = false;
+
+    const metaSet: Partial<TavernMapDocumentMeta> = {};
+    const sceneTitle = normalizeText(args.title ?? args.name ?? args.scene, 120);
+    if (sceneTitle) {metaSet.name = sceneTitle;}
+    if ('viewBox' in args) {metaSet.viewBox = normalizeViewBox(args.viewBox);}
+    if ('theme' in args) {metaSet.theme = normalizeMapTheme(args.theme);}
+    if ('mood' in args) {
+        const moodText = String(args.mood || '').trim();
+        if (isTavernMapMood(moodText)) {metaSet.mood = moodText;}
+        else if (moodText) {warnings.push(`Ignored invalid map mood: ${moodText}.`);}
+    }
+    if (Object.keys(metaSet).length) {
+        const metaPatch = applyMapOps(working, [{ op: 'meta', set: metaSet }]);
+        if (!metaPatch.failed.length) {
+            working = metaPatch.document;
+            effectiveOps.push(...metaPatch.effectiveOps);
+            appliedCount += metaPatch.appliedCount;
+            satisfiedCount += metaPatch.satisfiedCount;
+            metaPatch.changedIds.forEach((item) => changedIds.add(item));
+            warnings.push(...metaPatch.warnings);
+            changed = changed || metaPatch.changed;
+        }
+    }
+
+    rawElements.forEach((rawElement, index) => {
+        try {
+            const compiled = buildMapIntentElementInput(rawElement, index, warnings);
+            const exists = working.elements.some((element) => element.id === compiled.id);
+            const op = exists
+                ? { op: 'modify' as const, id: compiled.id, set: compiled.element }
+                : { op: 'add' as const, element: compiled.element };
+            const patch = applyMapOps(working, [op]);
+            if (patch.failed.length) {
+                const failure = patch.failed[0];
+                skipped.push({
+                    index,
+                    id: compiled.id,
+                    reason: failure.error,
+                    hint: failure.hint || describeMapPatchError(failure.error),
+                    guessedShape: compiled.shape,
+                });
+                warnings.push(...patch.warnings);
+                return;
+            }
+            working = patch.document;
+            effectiveOps.push(...patch.effectiveOps);
+            appliedCount += patch.appliedCount;
+            satisfiedCount += patch.satisfiedCount;
+            removedElements.push(...patch.removedElements);
+            patch.changedIds.forEach((item) => changedIds.add(item));
+            warnings.push(...patch.warnings);
+            changed = changed || patch.changed;
+            applied.push({
+                index,
+                id: compiled.id,
+                op: exists ? 'modify' : 'add',
+                shape: compiled.shape,
+                changed: patch.changed,
+            });
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error || 'map_intent_element_failed');
+            skipped.push({
+                index,
+                id: isPlainObject(rawElement) ? normalizeText(rawElement.id, 120) : '',
+                reason,
+                hint: describeMapPatchError(reason),
+            });
+        }
+    });
+
+    return {
+        document: working,
+        effectiveOps,
+        appliedCount,
+        satisfiedCount,
+        applied,
+        skipped,
+        warnings: [...new Set(warnings)],
+        changedIds: [...changedIds],
+        removedElements,
+        changed,
+    };
 }
 
 function buildDerivedLabelElement(
@@ -2453,9 +2723,130 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
         {
             type: 'function',
             function: {
+                name: TAVERN_STATE_TOOL_NAMES.READ_ATLAS,
+                description: [
+                    'Read the map world file for the current RP session.',
+                    'The world file is the atlas: it lists known places, scene map files, links, and actor locations such as player.',
+                    'Use this before editing a scene map so you can choose an explicit scene name. The file name is always `world`.',
+                ].join('\n'),
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        mode: { type: 'string', enum: ['summary', 'document', 'locations', 'links', 'actors'], description: 'World read mode. Default summary.' },
+                        query: { type: 'string', description: 'Optional location search text for locations mode.' },
+                        actorKey: { type: 'string', description: 'Optional actor key filter for actors mode.' },
+                        limit: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT },
+                        offset: { type: 'number', minimum: 0 },
+                    },
+                    additionalProperties: false,
+                },
+            },
+        },
+        {
+            type: 'function',
+            function: {
+                name: TAVERN_STATE_TOOL_NAMES.READ_SCENE,
+                description: [
+                    'Read one scene map file by explicit scene name.',
+                    'Use this when you need existing element ids before editing. Missing scene files are reported clearly; MapSceneEdit creates them automatically.',
+                ].join('\n'),
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        scene: { type: 'string', description: 'Explicit scene name or stable place key, such as 酒馆大厅 or 地下走廊.' },
+                        mode: { type: 'string', enum: ['summary', 'elements', 'document', 'element', 'history'], description: 'Scene read mode. Default summary.' },
+                        elementId: { type: 'string', description: 'Required for element mode.' },
+                        query: { type: 'string', description: 'Optional element text/id/category search.' },
+                        category: { type: 'string', enum: [...MAP_ELEMENT_CATEGORIES] },
+                        limit: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT },
+                        offset: { type: 'number', minimum: 0 },
+                        tail: { type: 'number', minimum: 1, maximum: MAX_STATE_READ_LIMIT },
+                    },
+                    required: ['scene'],
+                    additionalProperties: false,
+                },
+            },
+        },
+        {
+            type: 'function',
+            function: {
+                name: TAVERN_STATE_TOOL_NAMES.EDIT_SCENE,
+                description: [
+                    'Edit one scene map file with tolerant map intent. Use this as the normal map write tool.',
+                    'Always provide an explicit `scene` name. The runtime creates the scene file if needed, links it from the world atlas, normalizes intent into canonical map ops, and saves only clean canonical results.',
+                    'Elements use one `shape` plus `geo`; label is independent and does not count as a shape. Renderer styling such as opacity, color, zIndex, blur, pattern, and custom fill is not accepted.',
+                    'If one element is bad, that element is skipped and the other valid elements can still save. Read the returned applied/skipped/warnings report before retrying only failed elements.',
+                ].join('\n'),
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        scene: { type: 'string', description: 'Explicit scene file name or place key. Required; do not rely on current/active map.' },
+                        title: { type: 'string', description: 'Optional display title. Defaults to scene.' },
+                        scale: { type: 'string', enum: [...ATLAS_LOCATION_SCALES], description: 'Optional atlas location scale for new places. Default room.' },
+                        status: { type: 'string', enum: [...ATLAS_LOCATION_STATUSES], description: 'Optional atlas location status. Defaults visited only when playerHere is true, otherwise mentioned.' },
+                        playerHere: { type: 'boolean', description: 'Set true only when the current RP confirms the player is in this scene. This writes world.actors.player.locationKey.' },
+                        viewBox: { type: 'array', items: { type: 'number' }, minItems: 4, maxItems: 4, description: 'Optional camera frame [x,y,width,height]. It does not move elements.' },
+                        mood: { type: 'string', enum: [...TAVERN_MAP_MOODS], description: 'Optional scene mood when facts support it.' },
+                        theme: { type: 'string', enum: [...MAP_THEMES], description: 'Optional renderer theme.' },
+                        desc: { type: 'string', description: 'Short summary of this map edit.' },
+                        dryRun: { type: 'boolean', description: 'Validate and compile without saving.' },
+                        elements: {
+                            type: 'array',
+                            description: 'Tolerant scene element intents. Prefer one shape plus geo; if shape is missing, the runtime can infer it from geo or label.',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    id: { type: 'string', description: 'Stable element id within this scene.' },
+                                    cat: { type: 'string', enum: [...MAP_ELEMENT_CATEGORIES], description: 'Semantic category.' },
+                                    shape: { type: 'string', enum: [...MAP_INTENT_SHAPES], description: 'One shape: rect/circle/path/curve/icon/label.' },
+                                    geo: {
+                                        type: 'object',
+                                        description: 'Geometry payload for the chosen shape.',
+                                        properties: {
+                                            at: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+                                            center: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+                                            pos: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+                                            x: { type: 'number' },
+                                            y: { type: 'number' },
+                                            size: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+                                            rect: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+                                            width: { type: 'number' },
+                                            height: { type: 'number' },
+                                            w: { type: 'number' },
+                                            h: { type: 'number' },
+                                            radius: { type: 'number' },
+                                            r: { type: 'number' },
+                                            circle: { type: 'number' },
+                                            points: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
+                                            path: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
+                                            line: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
+                                            curve: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } },
+                                            icon: { type: 'string', enum: [...MAP_ICON_NAMES] },
+                                        },
+                                        additionalProperties: false,
+                                    },
+                                    label: { type: 'string', description: 'Optional label attached to this element. It is not a shape.' },
+                                    actorKey: { type: 'string', description: 'Actor identity for cat:"actor". Use player for the player marker.' },
+                                    material: { type: 'string', enum: [...TAVERN_MAP_MATERIALS], description: 'Closed semantic material enum; omit if unsure.' },
+                                    certainty: { type: 'string', enum: [...TAVERN_MAP_CERTAINTIES], description: 'Optional uncertainty marker; omit for confirmed.' },
+                                    closed: { type: 'boolean' },
+                                },
+                                required: ['id'],
+                                additionalProperties: false,
+                            },
+                        },
+                    },
+                    required: ['scene', 'elements'],
+                    additionalProperties: false,
+                },
+            },
+        },
+        {
+            type: 'function',
+            function: {
                 name: TAVERN_STATE_TOOL_NAMES.PATCH,
                 description: [
-                    'Apply one structured map/atlas patch transaction to the current RP session.',
+                    'Advanced/internal structured map/atlas patch transaction tool. Prefer MapAtlasRead and MapSceneEdit for normal model map work.',
                     'Use this only for confirmed spatial changes from RP source text or a user-requested correction. If nothing spatial changed, do not patch.',
                     'Read MapInspect summary first unless you already have the current doc, ids, and revision from this turn. Use `baseRevision` when you are protecting against concurrent changes.',
                     'For `tavern.map`, canonical ops are `meta`, `add`, `modify`, and `remove`. One MapPatch call is one atomic transaction and becomes exactly one revision when it saves.',
@@ -2518,6 +2909,11 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
     ];
 }
 
+export function getTavernManagerStateToolDefinitions(): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
+    return getTavernStateToolDefinitions()
+        .filter((tool) => MODEL_FACING_STATE_TOOL_NAMES.has(String(tool.function.name || '').trim()));
+}
+
 export async function executeTavernStateTool(
     sessionId = '',
     toolName = '',
@@ -2534,6 +2930,469 @@ export async function executeTavernStateTool(
     const normalizedToolName = normalizeTavernStateToolName(toolName);
     if (!id) {return { ok: false, summary: 'Missing sessionId.', error: 'state_session_required' };}
     try {
+        if (normalizedToolName === TAVERN_STATE_TOOL_NAMES.READ_ATLAS) {
+            const mode = String(args.mode || 'summary').trim() || 'summary';
+            const record = await getSeededAtlasDocumentRecord(id);
+            const document = normalizeAtlasDocumentFromRecord(record);
+            const base = {
+                ok: true,
+                file: 'world',
+                docType: ATLAS_DOC_TYPE,
+                docId: 'world',
+                title: atlasTitle(document),
+                revision: Number(record?.revision) || 0,
+                digest: createAtlasDigest(document),
+                activeLocationKey: document.activeLocationKey,
+            };
+            if (mode === 'document') {
+                return {
+                    ...base,
+                    summary: `Read world atlas, revision ${base.revision}.`,
+                    document,
+                };
+            }
+            if (mode === 'locations') {
+                const result = summarizeAtlasLocations(document, args);
+                return {
+                    ...base,
+                    summary: `Matched ${result.count} world location(s); returned ${result.locations.length}.`,
+                    count: result.count,
+                    truncated: result.truncated,
+                    nextOffset: result.nextOffset,
+                    locations: result.locations,
+                };
+            }
+            if (mode === 'links') {
+                const result = summarizeAtlasLinks(document, args);
+                return {
+                    ...base,
+                    summary: `Matched ${result.count} world link(s); returned ${result.links.length}.`,
+                    count: result.count,
+                    truncated: result.truncated,
+                    nextOffset: result.nextOffset,
+                    links: result.links,
+                };
+            }
+            if (mode === 'actors') {
+                const actorKey = normalizeActorKey(args.actorKey);
+                const actors = actorKey
+                    ? document.actors.filter((actor) => actor.actorKey === actorKey)
+                    : document.actors;
+                return {
+                    ...base,
+                    summary: `Matched ${actors.length} world actor position(s).`,
+                    count: actors.length,
+                    actors: actors.map((actor) => cloneJson(actor)),
+                };
+            }
+            return {
+                ...base,
+                summary: `Read world atlas summary, revision ${base.revision}.`,
+                count: document.locations.length,
+                locations: document.locations.map((location) => cloneJson(location)),
+                actors: document.actors.map((actor) => cloneJson(actor)),
+                details: {
+                    locationCount: document.locations.length,
+                    linkCount: document.links.length,
+                    actorCount: document.actors.length,
+                },
+            };
+        }
+
+        if (normalizedToolName === TAVERN_STATE_TOOL_NAMES.READ_SCENE) {
+            const atlasRecord = await getSeededAtlasDocumentRecord(id);
+            const atlas = normalizeAtlasDocumentFromRecord(atlasRecord);
+            const target = resolveMapIntentTarget(atlas, args);
+            const mode = String(args.mode || 'summary').trim() || 'summary';
+            const record = await getTavernStructuredStateDocument(id, MAP_DOC_TYPE, target.docId);
+            if (!record) {
+                return {
+                    ok: false,
+                    file: target.sceneName,
+                    scene: target.sceneName,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    summary: `Scene map ${target.sceneName} does not exist yet. MapSceneEdit will create it when needed.`,
+                    error: 'map_scene_not_found',
+                };
+            }
+            const document = normalizeMapDocumentFromRecord(record);
+            if (mode === 'document') {
+                return {
+                    ok: true,
+                    file: target.sceneName,
+                    scene: target.sceneName,
+                    summary: `Read scene ${target.sceneName}, revision ${record.revision}.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    title: record.title,
+                    revision: record.revision,
+                    digest: record.digest,
+                    meta: cloneJson(document.meta),
+                    elementCount: document.elements.length,
+                    document,
+                };
+            }
+            if (mode === 'element') {
+                const elementId = normalizeText(args.elementId, 120);
+                if (!elementId) {return { ok: false, file: target.sceneName, scene: target.sceneName, summary: 'Missing elementId.', docType: MAP_DOC_TYPE, docId: target.docId, error: 'state_element_id_required' };}
+                const element = document.elements.find((item) => item.id === elementId);
+                if (!element) {return { ok: false, file: target.sceneName, scene: target.sceneName, summary: `${elementId} does not exist.`, docType: MAP_DOC_TYPE, docId: target.docId, revision: record.revision, error: 'state_element_not_found' };}
+                return {
+                    ok: true,
+                    file: target.sceneName,
+                    scene: target.sceneName,
+                    summary: `Read ${target.sceneName}/${elementId}.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    revision: record.revision,
+                    element: mapElementSummary(element),
+                };
+            }
+            if (mode === 'elements') {
+                const result = summarizeMapElements(document, args);
+                return {
+                    ok: true,
+                    file: target.sceneName,
+                    scene: target.sceneName,
+                    summary: `Matched ${result.count} scene element(s); returned ${result.elements.length}.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    revision: record.revision,
+                    count: result.count,
+                    truncated: result.truncated,
+                    nextOffset: result.nextOffset,
+                    elements: result.elements,
+                };
+            }
+            if (mode === 'history') {
+                const patches = await listTavernStructuredStatePatches({ sessionId: id, docType: MAP_DOC_TYPE, docId: target.docId });
+                const tail = Math.max(0, Number(args.tail) || 0);
+                const limit = Math.max(1, Math.min(MAX_STATE_READ_LIMIT, Number(args.limit) || 20));
+                const offset = Math.max(0, Number(args.offset) || 0);
+                const start = tail > 0 ? Math.max(0, patches.length - Math.min(MAX_STATE_READ_LIMIT, tail)) : offset;
+                const page = patches.slice(start, start + (tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit));
+                const nextOffset = start + page.length < patches.length ? start + page.length : 0;
+                return {
+                    ok: true,
+                    file: target.sceneName,
+                    scene: target.sceneName,
+                    summary: `Found ${patches.length} saved scene patch transaction(s); returned ${page.length}.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    revision: record.revision,
+                    count: patches.length,
+                    truncated: nextOffset > 0,
+                    nextOffset,
+                    patches: page,
+                };
+            }
+            return {
+                ok: true,
+                file: target.sceneName,
+                scene: target.sceneName,
+                summary: `Read scene ${target.sceneName} summary, revision ${record.revision}, status ${document.meta.status}.`,
+                docType: MAP_DOC_TYPE,
+                docId: target.docId,
+                title: record.title,
+                revision: record.revision,
+                digest: record.digest,
+                meta: cloneJson(document.meta),
+                elementCount: document.elements.length,
+            };
+        }
+
+        if (normalizedToolName === TAVERN_STATE_TOOL_NAMES.EDIT_SCENE) {
+            const atlasRecord = await getSeededAtlasDocumentRecord(id);
+            const atlas = normalizeAtlasDocumentFromRecord(atlasRecord);
+            const target = resolveMapIntentTarget(atlas, args);
+            const existing = await getTavernStructuredStateDocument(id, MAP_DOC_TYPE, target.docId);
+            const currentDocument = existing ? normalizeMapDocumentFromRecord(existing) : defaultMapDocument();
+            const compileArgs = { ...args, title: args.title ?? target.title };
+            const compiled = compileMapIntentToPatch(currentDocument, compileArgs);
+            const atlasStatusText = String(args.status || '').trim() as TavernAtlasLocationStatus;
+            const atlasStatus = ATLAS_LOCATION_STATUSES.has(atlasStatusText)
+                ? atlasStatusText
+                : args.playerHere === true
+                    ? 'visited'
+                    : target.existingLocation?.status || 'mentioned';
+            const atlasScaleText = String(args.scale || '').trim() as TavernAtlasLocationScale;
+            const atlasScale = ATLAS_LOCATION_SCALES.has(atlasScaleText)
+                ? atlasScaleText
+                : target.existingLocation?.scale || 'room';
+            const atlasOps: TavernAtlasPatchOp[] = [{
+                op: 'upsert-location',
+                key: target.locationKey,
+                set: {
+                    name: target.title,
+                    scale: atlasScale,
+                    status: atlasStatus,
+                    mapDocId: target.docId,
+                },
+            }];
+            if (args.playerHere === true) {
+                atlasOps.push({ op: 'move-actor', actorKey: 'player', locationKey: target.locationKey });
+            }
+            const atlasPatch = applyAtlasOps(atlas, atlasOps);
+            if (atlasPatch.failed.length) {
+                const firstFailure = atlasPatch.failed[0];
+                return {
+                    ok: false,
+                    file: target.sceneName,
+                    scene: target.sceneName,
+                    summary: `MapSceneEdit saved nothing for ${target.sceneName}: world atlas link failed before write.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    changed: false,
+                    appliedCount: 0,
+                    satisfiedCount: compiled.satisfiedCount,
+                    failedCount: compiled.skipped.length + atlasPatch.failed.length,
+                    applied: compiled.applied,
+                    skipped: [
+                        ...compiled.skipped,
+                        ...atlasPatch.failed.map((failure) => ({
+                            index: failure.index,
+                            id: `world:${target.locationKey}`,
+                            reason: failure.error,
+                            hint: failure.hint || describeMapPatchError(failure.error),
+                        })),
+                    ],
+                    warnings: [...new Set([...compiled.warnings, ...atlasPatch.warnings])],
+                    error: firstFailure?.error || 'map_scene_atlas_link_failed',
+                };
+            }
+
+            if (!compiled.effectiveOps.length && compiled.skipped.length && !compiled.applied.length) {
+                return {
+                    ok: false,
+                    file: target.sceneName,
+                    scene: target.sceneName,
+                    summary: `MapSceneEdit saved nothing for ${target.sceneName}: all ${compiled.skipped.length} element(s) were skipped.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    changed: false,
+                    appliedCount: 0,
+                    satisfiedCount: compiled.satisfiedCount,
+                    failedCount: compiled.skipped.length,
+                    applied: compiled.applied,
+                    skipped: compiled.skipped,
+                    warnings: compiled.warnings,
+                    error: 'map_scene_edit_no_valid_elements',
+                };
+            }
+
+            if (args.dryRun === true) {
+                return {
+                    ok: true,
+                    file: target.sceneName,
+                    scene: target.sceneName,
+                    summary: `Dry run compiled ${compiled.applied.length} scene element(s), skipped ${compiled.skipped.length}. Nothing was saved.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    title: mapTitle(compiled.document),
+                    revision: Number(existing?.revision) || 0,
+                    changed: compiled.changed || atlasPatch.changed,
+                    appliedCount: compiled.appliedCount,
+                    satisfiedCount: compiled.satisfiedCount,
+                    failedCount: compiled.skipped.length,
+                    applied: compiled.applied,
+                    skipped: compiled.skipped,
+                    changedIds: compiled.changedIds,
+                    removedElements: compiled.removedElements,
+                    warnings: [...new Set([...compiled.warnings, ...atlasPatch.warnings])],
+                    meta: cloneJson(compiled.document.meta),
+                    elementCount: compiled.document.elements.length,
+                    document: compiled.document,
+                };
+            }
+
+            let mapResult: TavernStateToolResult;
+            let atlasResult: TavernStateToolResult;
+            const timestamp = now();
+            if (compiled.effectiveOps.length || atlasPatch.changed) {
+                await options.beforeWriteGuard?.();
+                const currentRevision = Number(existing?.revision) || 0;
+                const nextRevision = currentRevision + 1;
+                const atlasCurrentRevision = Number(atlasRecord?.revision) || 0;
+                const atlasNextRevision = atlasCurrentRevision + 1;
+                let saved: TavernStructuredStateDocumentRecord | null = null;
+                let nextDocument = compiled.document;
+                let effectiveOps = [...compiled.effectiveOps];
+                let removedElements = [...compiled.removedElements];
+                let changedIds = [...compiled.changedIds];
+                await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernSessionsTable, async () => {
+                    if (compiled.effectiveOps.length) {
+                        const actorDedupe = await dedupeActorElementsForSavedDocument({
+                            sessionId: id,
+                            docType: MAP_DOC_TYPE,
+                            docId: target.docId,
+                            document: compiled.document,
+                            timestamp,
+                            managerRunId: options.managerRunId,
+                            sourceUserOrder: options.sourceUserOrder,
+                            sourceAssistantOrder: options.sourceAssistantOrder,
+                        });
+                        nextDocument = actorDedupe.document;
+                        effectiveOps = [
+                            ...compiled.effectiveOps,
+                            ...actorDedupe.removedElements.map((element) => ({ op: 'remove' as const, id: element.id })),
+                        ];
+                        removedElements = [...compiled.removedElements, ...actorDedupe.removedElements];
+                        changedIds = [...new Set([
+                            ...compiled.changedIds,
+                            ...actorDedupe.removedElements.map((element) => element.id),
+                        ])];
+                        const digest = createMapDigest(nextDocument, nextRevision);
+                        saved = await putTavernStructuredStateDocument({
+                            sessionId: id,
+                            docType: MAP_DOC_TYPE,
+                            docId: target.docId,
+                            title: mapTitle(nextDocument),
+                            revision: nextRevision,
+                            data: nextDocument,
+                            digest,
+                            status: 'active',
+                            source: options.caller || 'auto',
+                            createdAt: Number(existing?.createdAt) || timestamp,
+                            updatedAt: timestamp,
+                        });
+                        await appendTavernStructuredStatePatch({
+                            sessionId: id,
+                            docType: MAP_DOC_TYPE,
+                            docId: target.docId,
+                            revision: nextRevision,
+                            status: 'active',
+                            managerRunId: options.managerRunId,
+                            sourceUserOrder: options.sourceUserOrder,
+                            sourceAssistantOrder: options.sourceAssistantOrder,
+                            source: options.caller || 'auto',
+                            summary: normalizeText(args.desc || `MapSceneEdit ${nextRevision}`, 400),
+                            ops: effectiveOps,
+                            changedIds,
+                            removedElements,
+                        });
+                    }
+                    if (atlasPatch.changed) {
+                        await putTavernStructuredStateDocument({
+                            sessionId: id,
+                            docType: ATLAS_DOC_TYPE,
+                            docId: DEFAULT_ATLAS_DOC_ID,
+                            title: atlasTitle(atlasPatch.document),
+                            revision: atlasNextRevision,
+                            data: atlasPatch.document,
+                            digest: createAtlasDigest(atlasPatch.document),
+                            status: 'active',
+                            source: options.caller || 'auto',
+                            createdAt: Number(atlasRecord?.createdAt) || timestamp,
+                            updatedAt: timestamp,
+                        });
+                        await appendTavernStructuredStatePatch({
+                            sessionId: id,
+                            docType: ATLAS_DOC_TYPE,
+                            docId: DEFAULT_ATLAS_DOC_ID,
+                            revision: atlasNextRevision,
+                            status: 'active',
+                            managerRunId: options.managerRunId,
+                            sourceUserOrder: options.sourceUserOrder,
+                            sourceAssistantOrder: options.sourceAssistantOrder,
+                            source: options.caller || 'auto',
+                            summary: normalizeText(args.desc || `Link scene ${target.sceneName}`, 400),
+                            ops: atlasPatch.effectiveOps,
+                            changedIds: atlasPatch.changedIds,
+                            removedElements: [],
+                        });
+                    }
+                });
+                mapResult = {
+                    ok: true,
+                    summary: compiled.effectiveOps.length
+                        ? `Updated scene ${target.sceneName} to revision ${saved?.revision || nextRevision} with ${compiled.appliedCount} applied op(s).`
+                        : `Scene ${target.sceneName} is already at the target result. No scene write was needed.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    title: saved?.title || mapTitle(nextDocument),
+                    revision: saved?.revision || Number(existing?.revision) || 0,
+                    digest: saved?.digest || (existing ? createMapDigest(currentDocument, Number(existing.revision) || 0) : createMapDigest(currentDocument, 0)),
+                    changed: compiled.effectiveOps.length > 0,
+                    appliedCount: compiled.appliedCount,
+                    satisfiedCount: compiled.satisfiedCount,
+                    failedCount: 0,
+                    changedIds,
+                    removedElements,
+                    warnings: compiled.warnings,
+                    meta: cloneJson(nextDocument.meta),
+                    elementCount: nextDocument.elements.length,
+                };
+                atlasResult = {
+                    ok: true,
+                    summary: atlasPatch.changed
+                        ? `Linked world atlas to scene ${target.sceneName}, revision ${atlasNextRevision}.`
+                        : `World atlas already links scene ${target.sceneName}.`,
+                    docType: ATLAS_DOC_TYPE,
+                    docId: DEFAULT_ATLAS_DOC_ID,
+                    title: atlasTitle(atlasPatch.document),
+                    revision: atlasPatch.changed ? atlasNextRevision : atlasCurrentRevision,
+                    digest: createAtlasDigest(atlasPatch.document),
+                    changed: atlasPatch.changed,
+                    appliedCount: atlasPatch.appliedCount,
+                    satisfiedCount: atlasPatch.satisfiedCount,
+                    failedCount: 0,
+                    changedIds: atlasPatch.changedIds,
+                    warnings: atlasPatch.warnings,
+                };
+            } else {
+                mapResult = {
+                    ok: true,
+                    summary: `Scene ${target.sceneName} is already at the target result. No scene write was needed.`,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    revision: Number(existing?.revision) || 0,
+                    changed: false,
+                    appliedCount: 0,
+                    satisfiedCount: compiled.satisfiedCount,
+                    failedCount: 0,
+                    warnings: compiled.warnings,
+                };
+                atlasResult = {
+                    ok: true,
+                    summary: `World atlas already links scene ${target.sceneName}.`,
+                    docType: ATLAS_DOC_TYPE,
+                    docId: DEFAULT_ATLAS_DOC_ID,
+                    revision: Number(atlasRecord?.revision) || 0,
+                    changed: false,
+                    appliedCount: 0,
+                    satisfiedCount: atlasPatch.satisfiedCount,
+                    failedCount: 0,
+                    warnings: atlasPatch.warnings,
+                };
+            }
+
+            return {
+                ...mapResult,
+                ok: mapResult.ok && atlasResult.ok,
+                file: target.sceneName,
+                scene: target.sceneName,
+                summary: [
+                    `Edited scene ${target.sceneName}: ${compiled.applied.length} element(s) compiled, ${compiled.skipped.length} skipped.`,
+                    atlasResult.ok ? 'World atlas is linked.' : `World atlas link failed: ${atlasResult.summary}`,
+                ].join(' '),
+                changed: !!mapResult.changed || !!atlasResult.changed,
+                applied: compiled.applied,
+                skipped: compiled.skipped,
+                failedCount: compiled.skipped.length + (atlasResult.ok ? 0 : 1),
+                warnings: [...new Set([
+                    ...(mapResult.warnings || []),
+                    ...(atlasResult.warnings || []),
+                ])],
+                details: {
+                    scene: target.sceneName,
+                    locationKey: target.locationKey,
+                    mapDocId: target.docId,
+                    atlas: atlasResult.ok ? { changed: atlasResult.changed, revision: atlasResult.revision } : atlasResult,
+                },
+            };
+        }
+
         const explicitDocType = normalizeText(args.docType, 40);
         const hasExplicitDocType = !!explicitDocType;
         const docType = normalizeDocType(explicitDocType || MAP_DOC_TYPE);

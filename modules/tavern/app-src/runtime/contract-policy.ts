@@ -17,7 +17,12 @@ const SOURCE_WRITE_TOOL_NAMES: string[] = [
     TAVERN_SOURCE_FILE_TOOL_NAMES.EDIT,
     TAVERN_SOURCE_FILE_TOOL_NAMES.WRITE,
 ];
-const STATE_TOOL_NAMES: string[] = Object.values(TAVERN_STATE_TOOL_NAMES);
+const INTERNAL_STATE_TOOL_NAMES: string[] = Object.values(TAVERN_STATE_TOOL_NAMES);
+const MODEL_STATE_TOOL_NAMES: string[] = [
+    TAVERN_STATE_TOOL_NAMES.READ_ATLAS,
+    TAVERN_STATE_TOOL_NAMES.READ_SCENE,
+    TAVERN_STATE_TOOL_NAMES.EDIT_SCENE,
+];
 const TASK_TOOL_NAMES: string[] = Object.values(TAVERN_TASK_TOOL_NAMES);
 
 export interface TavernAutoManagerToolPolicy {
@@ -30,13 +35,13 @@ function getAutoManagerToolModuleKey(toolName = ''): 'memoryArchiving' | 'cartog
     const name = String(toolName || '').trim();
     if (!name || SOURCE_READ_TOOL_NAMES.includes(name)) {return null;}
     if (SOURCE_WRITE_TOOL_NAMES.includes(name)) {return 'memoryArchiving';}
-    if (STATE_TOOL_NAMES.includes(name)) {return 'cartographyEngine';}
+    if (INTERNAL_STATE_TOOL_NAMES.includes(name)) {return 'cartographyEngine';}
     if (TASK_TOOL_NAMES.includes(name)) {return 'questOrchestration';}
     return null;
 }
 
 function isStateToolName(toolName = ''): boolean {
-    return STATE_TOOL_NAMES.includes(String(toolName || '').trim());
+    return INTERNAL_STATE_TOOL_NAMES.includes(String(toolName || '').trim());
 }
 
 function isTaskToolName(toolName = ''): boolean {
@@ -52,13 +57,13 @@ export function resolveTavernAutoManagerToolPolicy(
         allowedToolNames.push(...SOURCE_WRITE_TOOL_NAMES);
     }
     if (runtime.includeStructuredStates) {
-        allowedToolNames.push(...STATE_TOOL_NAMES);
+        allowedToolNames.push(...MODEL_STATE_TOOL_NAMES);
     }
     if (runtime.includeQuestOrchestration) {
         allowedToolNames.push(...TASK_TOOL_NAMES);
     }
     const allowed = new Set(allowedToolNames);
-    const deniedToolNames = [...SOURCE_WRITE_TOOL_NAMES, ...STATE_TOOL_NAMES, ...TASK_TOOL_NAMES].filter((name) => !allowed.has(name));
+    const deniedToolNames = [...SOURCE_WRITE_TOOL_NAMES, ...INTERNAL_STATE_TOOL_NAMES, ...TASK_TOOL_NAMES].filter((name) => !allowed.has(name));
     return {
         runtime,
         allowedToolNames: [...allowed],

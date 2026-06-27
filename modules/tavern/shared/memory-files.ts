@@ -1,6 +1,6 @@
 import { applyTextEdits } from '../../agent-core/tools/text-edit.js';
 
-import { getTavernStateToolDefinitions } from './structured-state';
+import { getTavernManagerStateToolDefinitions } from './structured-state';
 import { getTavernTaskToolDefinitions } from './tasks';
 import type { XbTavernContext, XbTavernWorldBook, XbTavernWorldEntry } from './message-assembler';
 import db, {
@@ -1553,7 +1553,7 @@ export function getTavernMemoryToolDefinitions(): Array<{ type: 'function'; func
 export function getTavernManagerToolDefinitions(): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
     return [
         ...getTavernSourceFileToolDefinitions(),
-        ...getTavernStateToolDefinitions(),
+        ...getTavernManagerStateToolDefinitions(),
         ...getTavernTaskToolDefinitions(),
     ];
 }

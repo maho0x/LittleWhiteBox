@@ -23,6 +23,7 @@ import {
     clearTavernManagerRunSnapshots,
     createTavernManagerRun,
     deleteTavernManagerMessages,
+    appendTavernManagerMessage,
     getTavernMessage,
     getTavernSession,
     listPendingAcceptedTurnManagerRuns,
@@ -126,6 +127,7 @@ export interface XbTavernManagerRunResult {
     changedFiles?: string[];
     changedStates?: string[];
     changedTasks?: string[];
+    protocolMessages?: XbTavernMessage[];
     error?: string;
 }
 
@@ -209,8 +211,11 @@ function safeJson(value: unknown): string {
 }
 
 function getManagerToolArgumentSchemaHint(toolName = ''): string {
+    if (toolName === TAVERN_STATE_TOOL_NAMES.EDIT_SCENE) {
+        return 'Expected MapSceneEdit arguments: {"scene":"酒馆大厅","playerHere":true,"viewBox":[0,0,360,240],"elements":[{"id":"outer-wall","cat":"wall","shape":"rect","geo":{"at":[20,20],"size":[300,180]},"label":"大厅"},{"id":"player","cat":"actor","actorKey":"player","shape":"circle","geo":{"at":[160,120],"radius":8},"label":"玩家"}]}.';
+    }
     if (toolName === TAVERN_STATE_TOOL_NAMES.PATCH) {
-        return 'Expected MapPatch arguments: {"docType":"tavern.map","docId":"main","activate":true,"ops":[{"op":"meta","set":{"name":"...","viewBox":[0,0,320,220],"status":"active"}},{"op":"add","element":{"id":"room","cat":"wall","at":[30,30],"rect":[240,140]}},{"op":"add","element":{"id":"player","cat":"actor","actorKey":"player","at":[150,110],"circle":8}}]}. Use one shape key per element and omit empty path/curve fields.';
+        return 'MapPatch is advanced/internal. Prefer MapSceneEdit with scene + elements using shape/geo/label. If you must use MapPatch, arguments must be a valid JSON object with an ops array.';
     }
     if (toolName === 'Edit') {
         return 'Expected Edit arguments: {"filePath":"memory/state.md","edits":[{"oldString":"...","newString":"..."}]} or line-range edits with startLine/endLine/newString.';
@@ -306,7 +311,7 @@ function buildAutoManagerUserPrompt(input: {
         step += 1;
     }
     if (allowMap) {
-        requirements.push(`${step}. Spatial maintenance has two layers: \`tavern.atlas/main\` is the single world index, and each local scene map lives in its own place-named \`tavern.map/<docId>\`. Move the player in atlas only when the story reaches a new named or trackable place; small movement inside the same place belongs in the scene map actor coordinates. Map \`activate:true\` only switches the map tool doc and does not move the player.`);
+        requirements.push(`${step}. Spatial maintenance uses map files: read \`world\` with MapAtlasRead, then edit an explicit scene name with MapSceneEdit. Move the player in \`world\` only when the story reaches a new named or trackable place; small movement inside the same place belongs in that scene map actor coordinates.`);
         step += 1;
     }
     if (allowMemory && allowMap) {
@@ -654,7 +659,7 @@ async function runManagerAgentWithTools(input: {
         threshold: 3,
         getMessageText: (name: string, code: string, count: number) => [
             `[工具失败提示] ${name} 已连续 ${count} 次因为 ${code} 失败。`,
-            '不要继续原样重复同一个工具调用。先按工具错误改参数；MapPatch 首图优先用 meta + rect 房间 + player circle，并省略空 path/curve 字段。若仍无法修复，直接向用户汇报阻塞点。',
+            '不要继续原样重复同一个工具调用。先按工具错误改参数；地图首选 MapAtlasRead + MapSceneEdit，用 scene、shape、geo、label 重写失败元素。若仍无法修复，直接向用户汇报阻塞点。',
         ].join('\n'),
     });
     const emitProtocolEvent = (event: TavernManagerProtocolEvent) => {
@@ -1289,6 +1294,37 @@ export function splitTavernManagerMessagesIntoTurns(messages: TavernManagerMessa
     return turns.filter((turn) => turn.length);
 }
 
+async function appendAcceptedTurnProtocolMessages(input: {
+    sessionId: string;
+    messages?: XbTavernMessage[];
+    provider?: string;
+    model?: string;
+}) {
+    const sessionId = String(input.sessionId || '').trim();
+    if (!sessionId || !Array.isArray(input.messages) || !input.messages.length) {return;}
+    for (const message of input.messages) {
+        const hasToolCalls = (Array.isArray(message.toolCalls) && message.toolCalls.length)
+            || (Array.isArray(message.tool_calls) && message.tool_calls.length);
+        const isToolProtocol = message.role === 'tool' || (message.role === 'assistant' && hasToolCalls);
+        if (!isToolProtocol) {continue;}
+        await appendTavernManagerMessage(sessionId, {
+            role: message.role,
+            content: String(message.content || ''),
+            name: message.name,
+            thoughts: message.thoughts,
+            providerPayload: message.providerPayload,
+            toolCalls: message.toolCalls,
+            tool_calls: message.tool_calls,
+            toolCallId: message.toolCallId || message.tool_call_id,
+            toolName: message.toolName,
+            toolDisplay: message.toolDisplay,
+            provider: message.role === 'assistant' ? input.provider : undefined,
+            model: message.role === 'assistant' ? input.model : undefined,
+            error: false,
+        });
+    }
+}
+
 function throwIfAborted(signal?: AbortSignal) {
     if (!signal?.aborted) {return;}
     const error = new Error('manager_chat_compaction_aborted');
@@ -1435,6 +1471,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             changedFiles: [],
             changedStates: [],
             changedTasks: [],
+            protocolMessages: [],
         };
     }
     const inputSummary = buildInputSummary({
@@ -1495,9 +1532,18 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             onProtocolEvent: input.onProtocolEvent,
         });
         if (!result.ok) {
+            if (!input.signal?.aborted) {
+                await appendAcceptedTurnProtocolMessages({
+                    sessionId,
+                    messages: result.protocolMessages,
+                    provider: result.managerRun.provider,
+                    model: result.managerRun.model,
+                });
+            }
             return {
                 ok: false,
                 managerRun: result.managerRun,
+                protocolMessages: result.protocolMessages,
                 error: result.error,
             };
         }
@@ -1529,12 +1575,19 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
                 });
             }
         }
+        await appendAcceptedTurnProtocolMessages({
+            sessionId,
+            messages: result.protocolMessages,
+            provider: completedRun.provider,
+            model: completedRun.model,
+        });
         return {
             ok: true,
             managerRun: completedRun,
             changedFiles,
             changedStates: result.changedStates,
             changedTasks,
+            protocolMessages: result.protocolMessages,
         };
     } catch (error) {
         const errorText = error instanceof Error ? error.message : String(error || 'manager_failed');
@@ -1550,6 +1603,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
         return {
             ok: false,
             managerRun: rolledBack?.managerRun || failed,
+            protocolMessages: [],
             error: errorText,
         };
     }
