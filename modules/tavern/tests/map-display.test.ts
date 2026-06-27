@@ -123,6 +123,43 @@ test('map scene surface promotes the dominant terrain into the viewport backgrou
     assert.match(getTavernMapSceneSurfaceBackground(surface), /#486d3e/);
 });
 
+test('map scene surface supports RP room-scale surface materials', () => {
+    const materials = [
+        ['tatami', /#d3c282/],
+        ['sand', /#ead7a4/],
+        ['marble', /#eef0f3/],
+    ] as const;
+
+    materials.forEach(([material, expectedBackground]) => {
+        const surface: TavernMapElement = { id: `${material}-surface`, at: [0, 0], rect: [320, 220], cat: 'terrain', material };
+
+        assert.equal(getTavernMapSceneSurfaceFill(surface), `url(#mat-${material})`);
+        assert.match(getTavernMapSceneSurfaceBackground(surface), expectedBackground);
+    });
+});
+
+test('map scene surface ignores bedding and fabric materials reserved for furniture', () => {
+    const document: TavernMapDocument = {
+        meta: { name: 'Soft Furnishings', theme: 'parchment', viewBox: null, status: 'active' },
+        elements: [
+            { id: 'oversized-sheet', at: [0, 0], rect: [520, 360], cat: 'terrain', material: 'bed-sheet' },
+            { id: 'floor', at: [20, 20], rect: [240, 160], cat: 'terrain', material: 'wood' },
+            { id: 'sofa', at: [80, 70], rect: [90, 34], cat: 'furniture', material: 'fabric' },
+        ],
+    };
+
+    const surface = getTavernMapSceneSurfaceElement(document);
+
+    assert.equal(surface?.id, 'floor');
+    assert.equal(getTavernMapSceneSurfaceElement({
+        meta: { name: 'Only Bedding', theme: 'parchment', viewBox: null, status: 'active' },
+        elements: [
+            { id: 'sheet', at: [0, 0], rect: [520, 360], cat: 'terrain', material: 'bed-sheet' },
+            { id: 'drape', at: [0, 0], rect: [420, 220], cat: 'terrain', material: 'fabric' },
+        ],
+    }), null);
+});
+
 test('map scene surface ignores non-terrain areas and light-layer terrain', () => {
     const document: TavernMapDocument = {
         meta: { name: 'Marked Floor', theme: 'parchment', viewBox: null, status: 'active' },

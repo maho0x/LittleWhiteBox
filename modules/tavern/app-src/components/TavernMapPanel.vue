@@ -1271,186 +1271,140 @@ function handleMapWheel(event: WheelEvent) {
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <filter
+            id="tavern-map-shadow"
+            x="-20%"
+            y="-20%"
+            width="140%"
+            height="140%"
+          >
+            <feDropShadow
+              dx="0"
+              dy="4"
+              stdDeviation="3"
+              flood-color="#05050a"
+              flood-opacity="0.6"
+            />
+          </filter>
+          <filter
+            id="tavern-mat-texture"
+            x="0"
+            y="0"
+            width="100%"
+            height="100%"
+          >
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.7"
+              numOctaves="3"
+              seed="4"
+              result="noise"
+            />
+            <feColorMatrix
+              type="matrix"
+              in="noise"
+              values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.12 0"
+              result="grain"
+            />
+            <feBlend
+              in="SourceGraphic"
+              in2="grain"
+              mode="multiply"
+            />
+          </filter>
           <pattern
             id="mat-wood"
-            width="36"
-            height="18"
+            width="40"
+            height="20"
             patternUnits="userSpaceOnUse"
           >
             <rect
-              width="36"
-              height="18"
-              fill="#5d422c"
+              width="40"
+              height="20"
+              fill="#4a3018"
+            />
+            <rect
+              x="0"
+              y="0"
+              width="20"
+              height="10"
+              fill="#583c22"
+            />
+            <rect
+              x="20"
+              y="10"
+              width="20"
+              height="10"
+              fill="#54371e"
             />
             <path
-              d="M0 9 H36 M12 0 V9 M28 9 V18"
-              stroke="#382517"
-              stroke-width="1.2"
-              opacity="0.85"
-            />
-            <path
-              d="M2 4 C8 2 12 6 18 4 M4 14 C12 12 18 16 30 13"
-              stroke="#77563a"
-              stroke-width="0.8"
+              d="M0 10 H40 M0 20 H40 M20 0 V10 M0 10 V20 M40 10 V20"
+              stroke="#1a0e05"
+              stroke-width="1.4"
               fill="none"
-              opacity="0.6"
+              opacity="0.9"
             />
+            <path
+              d="M0 1 H20 M20 11 H40"
+              stroke="#74543a"
+              stroke-width="0.9"
+              fill="none"
+              opacity="0.7"
+            />
+            <path
+              d="M3 4 Q8 3 12 5 T18 4 M23 14 Q28 13 32 15 T38 14"
+              stroke="#3b2412"
+              stroke-width="0.6"
+              fill="none"
+            />
+            <circle cx="2" cy="2" r="0.8" fill="#1a0e05" />
+            <circle cx="18" cy="2" r="0.8" fill="#1a0e05" />
+            <circle cx="22" cy="12" r="0.8" fill="#1a0e05" />
+            <circle cx="38" cy="12" r="0.8" fill="#1a0e05" />
           </pattern>
           <pattern
             id="mat-stone"
-            width="54"
-            height="30"
+            width="48"
+            height="48"
             patternUnits="userSpaceOnUse"
           >
             <rect
-              width="54"
-              height="30"
-              fill="#55505a"
+              width="48"
+              height="48"
+              fill="#52535e"
             />
             <path
-              d="M0 15 H54 M18 0 V15 M38 15 V30"
-              stroke="#2b2931"
+              d="M0 0 H28 V22 H0 Z"
+              fill="#5a5b66"
+            />
+            <path
+              d="M28 0 H48 V26 H28 Z"
+              fill="#4d4e58"
+            />
+            <path
+              d="M0 22 H22 V48 H0 Z"
+              fill="#4f5059"
+            />
+            <path
+              d="M22 26 H48 V48 H22 Z"
+              fill="#585964"
+            />
+            <path
+              d="M28 0 V22 H0 M22 22 V48 M22 26 H48"
+              stroke="#2c2d36"
               stroke-width="2"
               fill="none"
-              opacity="0.82"
+            />
+            <path
+              d="M0 1 H27 M0 23 H21"
+              stroke="#73747f"
+              stroke-width="0.8"
+              opacity="0.6"
+              fill="none"
             />
           </pattern>
           <pattern
             id="mat-tile"
-            width="28"
-            height="28"
-            patternUnits="userSpaceOnUse"
-          >
-            <rect
-              width="28"
-              height="28"
-              fill="#343746"
-            />
-            <rect
-              x="2"
-              y="2"
-              width="24"
-              height="24"
-              rx="2"
-              fill="#404454"
-              stroke="#20232d"
-              stroke-width="1.4"
-            />
-          </pattern>
-          <pattern
-            id="mat-carpet"
-            width="22"
-            height="22"
-            patternUnits="userSpaceOnUse"
-          >
-            <rect
-              width="22"
-              height="22"
-              fill="#8d2638"
-            />
-            <path
-              d="M0 11 H22 M11 0 V22 M4 4 L18 18 M18 4 L4 18"
-              stroke="#f0c77c"
-              stroke-width="0.8"
-              opacity="0.45"
-            />
-          </pattern>
-          <radialGradient id="mat-blood">
-            <stop
-              offset="0%"
-              stop-color="#5b1118"
-              stop-opacity="0.92"
-            />
-            <stop
-              offset="100%"
-              stop-color="#5b1118"
-              stop-opacity="0.18"
-            />
-          </radialGradient>
-          <pattern
-            id="mat-water"
-            width="34"
-            height="18"
-            patternUnits="userSpaceOnUse"
-          >
-            <rect
-              width="34"
-              height="18"
-              fill="#2f7990"
-              opacity="0.72"
-            />
-            <path
-              d="M0 6 C8 1 14 11 22 6 S30 4 34 7 M0 14 C7 10 14 17 22 13 S31 10 34 13"
-              stroke="#bde9ee"
-              stroke-width="1"
-              fill="none"
-              opacity="0.5"
-            />
-          </pattern>
-          <pattern
-            id="mat-grass"
-            width="24"
-            height="24"
-            patternUnits="userSpaceOnUse"
-          >
-            <rect
-              width="24"
-              height="24"
-              fill="#486d3e"
-            />
-            <path
-              d="M5 20 L8 12 M12 22 L14 11 M18 20 L16 10 M3 10 L6 5 M21 13 L19 7"
-              stroke="#7ca45f"
-              stroke-width="1.2"
-              opacity="0.68"
-            />
-          </pattern>
-          <pattern
-            id="mat-dirt"
-            width="26"
-            height="26"
-            patternUnits="userSpaceOnUse"
-          >
-            <rect
-              width="26"
-              height="26"
-              fill="#76583a"
-            />
-            <circle
-              cx="7"
-              cy="9"
-              r="1.8"
-              fill="#4b3725"
-              opacity="0.45"
-            />
-            <circle
-              cx="18"
-              cy="17"
-              r="2.2"
-              fill="#9b7651"
-              opacity="0.45"
-            />
-          </pattern>
-          <pattern
-            id="mat-snow"
-            width="30"
-            height="30"
-            patternUnits="userSpaceOnUse"
-          >
-            <rect
-              width="30"
-              height="30"
-              fill="#dce8ed"
-            />
-            <path
-              d="M5 8 H11 M8 5 V11 M20 20 H26 M23 17 V23"
-              stroke="#ffffff"
-              stroke-width="1.4"
-              opacity="0.75"
-            />
-          </pattern>
-          <pattern
-            id="mat-metal"
             width="32"
             height="32"
             patternUnits="userSpaceOnUse"
@@ -1458,56 +1412,527 @@ function handleMapWheel(event: WheelEvent) {
             <rect
               width="32"
               height="32"
-              fill="#62666d"
+              fill="#2a2a38"
+            />
+            <rect
+              x="1.5"
+              y="1.5"
+              width="29"
+              height="29"
+              rx="2"
+              fill="#34344a"
             />
             <path
-              d="M-4 28 L28 -4 M6 36 L38 4"
-              stroke="#a8adb4"
-              stroke-width="3"
-              opacity="0.28"
+              d="M1.5 1.5 H30.5 M1.5 1.5 V30.5"
+              stroke="#43435e"
+              stroke-width="1.2"
+              fill="none"
+              opacity="0.8"
+            />
+            <path
+              d="M30.5 1.5 V30.5 M1.5 30.5 H30.5"
+              stroke="#1c1c28"
+              stroke-width="1.2"
+              fill="none"
+              opacity="0.9"
             />
           </pattern>
           <pattern
-            id="mat-rune"
-            width="34"
-            height="34"
+            id="mat-carpet"
+            width="24"
+            height="24"
             patternUnits="userSpaceOnUse"
           >
             <rect
-              width="34"
-              height="34"
-              fill="#44335e"
+              width="24"
+              height="24"
+              fill="#7a1f30"
+            />
+            <rect
+              width="24"
+              height="24"
+              fill="#8a2438"
+              opacity="0.5"
+            />
+            <path
+              d="M12 2 L22 12 L12 22 L2 12 Z"
+              fill="none"
+              stroke="#c9a24a"
+              stroke-width="1.2"
+              opacity="0.7"
+            />
+            <path
+              d="M12 7 L17 12 L12 17 L7 12 Z"
+              fill="#5e1624"
+              opacity="0.6"
+            />
+            <path
+              d="M0 0 H24 M0 24 H24"
+              stroke="#5e1624"
+              stroke-width="1.5"
+            />
+          </pattern>
+          <pattern
+            id="mat-bed-sheet"
+            width="48"
+            height="48"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect width="48" height="48" fill="#e8e3dc" />
+            <rect width="48" height="48" fill="#f2eee8" opacity="0.5" />
+            <path
+              d="M0 14 Q12 8 24 14 T48 14"
+              stroke="#d2ccc2"
+              stroke-width="3"
+              fill="none"
+              opacity="0.6"
+            />
+            <path
+              d="M0 30 Q14 36 28 30 T48 32"
+              stroke="#d2ccc2"
+              stroke-width="3"
+              fill="none"
+              opacity="0.6"
+            />
+            <path
+              d="M0 12 Q12 6 24 12 T48 12"
+              stroke="#fbf8f3"
+              stroke-width="1.5"
+              fill="none"
+              opacity="0.7"
+            />
+            <path
+              d="M0 28 Q14 34 28 28 T48 30"
+              stroke="#fbf8f3"
+              stroke-width="1.5"
+              fill="none"
+              opacity="0.7"
+            />
+            <path
+              d="M6 44 Q20 40 34 44 M14 4 Q28 0 42 4"
+              stroke="#dcd6cc"
+              stroke-width="0.8"
+              fill="none"
+              opacity="0.4"
+            />
+          </pattern>
+          <pattern
+            id="mat-fabric"
+            width="16"
+            height="16"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect width="16" height="16" fill="#6b5b73" />
+            <rect width="16" height="16" fill="#74647c" opacity="0.4" />
+            <path
+              d="M0 4 H16 M0 12 H16"
+              stroke="#5a4b62"
+              stroke-width="2"
+              opacity="0.5"
+            />
+            <path
+              d="M4 0 V16 M12 0 V16"
+              stroke="#5a4b62"
+              stroke-width="2"
+              opacity="0.5"
+            />
+            <path
+              d="M0 3 H16 M3 0 V16"
+              stroke="#857391"
+              stroke-width="0.6"
+              opacity="0.5"
+            />
+            <circle cx="2" cy="2" r="0.7" fill="#857391" opacity="0.5" />
+            <circle cx="10" cy="8" r="0.7" fill="#5a4b62" opacity="0.6" />
+          </pattern>
+          <pattern
+            id="mat-tatami"
+            width="80"
+            height="40"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect width="80" height="40" fill="#c9b878" />
+            <rect width="80" height="40" fill="#d3c282" opacity="0.4" />
+            <path
+              d="M0 4 H80 M0 8 H80 M0 12 H80 M0 16 H80 M0 20 H80 M0 24 H80 M0 28 H80 M0 32 H80 M0 36 H80"
+              stroke="#b3a268"
+              stroke-width="0.8"
+              opacity="0.6"
+            />
+            <path
+              d="M0 4 H80 M0 12 H80 M0 20 H80 M0 28 H80 M0 36 H80"
+              stroke="#dcca8a"
+              stroke-width="0.5"
+              opacity="0.5"
+            />
+            <rect
+              x="0"
+              y="0"
+              width="80"
+              height="40"
+              fill="none"
+              stroke="#2a2620"
+              stroke-width="2.5"
+            />
+            <path
+              d="M40 0 V40"
+              stroke="#2a2620"
+              stroke-width="2.5"
+              opacity="0.9"
+            />
+          </pattern>
+          <pattern
+            id="mat-sand"
+            width="40"
+            height="40"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect width="40" height="40" fill="#e0cb96" />
+            <rect width="40" height="40" fill="#ead7a4" opacity="0.4" />
+            <path
+              d="M0 10 Q10 7 20 10 T40 10"
+              stroke="#d3bd84"
+              stroke-width="1.2"
+              fill="none"
+              opacity="0.5"
+            />
+            <path
+              d="M0 26 Q12 23 24 26 T40 27"
+              stroke="#d3bd84"
+              stroke-width="1.2"
+              fill="none"
+              opacity="0.5"
+            />
+            <circle cx="6" cy="6" r="0.8" fill="#c2a96e" />
+            <circle cx="22" cy="14" r="0.6" fill="#fff" opacity="0.7" />
+            <circle cx="30" cy="8" r="0.7" fill="#c2a96e" />
+            <circle cx="14" cy="30" r="0.8" fill="#c2a96e" />
+            <circle cx="34" cy="32" r="0.6" fill="#fff" opacity="0.6" />
+            <circle cx="4" cy="34" r="0.7" fill="#c2a96e" />
+          </pattern>
+          <pattern
+            id="mat-marble"
+            width="80"
+            height="80"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect width="80" height="80" fill="#eef0f3" />
+            <rect width="80" height="80" fill="#f6f7fa" opacity="0.5" />
+            <path
+              d="M0 20 Q20 10 35 28 T70 32 Q78 36 80 30"
+              stroke="#c2c7d0"
+              stroke-width="1.5"
+              fill="none"
+              opacity="0.7"
+            />
+            <path
+              d="M10 0 Q24 22 18 44 T30 80"
+              stroke="#cdd2da"
+              stroke-width="1.2"
+              fill="none"
+              opacity="0.6"
+            />
+            <path
+              d="M50 0 Q58 18 72 24 T80 60"
+              stroke="#c2c7d0"
+              stroke-width="1"
+              fill="none"
+              opacity="0.5"
+            />
+            <path
+              d="M0 55 Q22 50 40 62 T80 58"
+              stroke="#d6dae1"
+              stroke-width="0.8"
+              fill="none"
+              opacity="0.5"
+            />
+            <path
+              d="M30 30 q8 6 4 16 M60 40 q-6 8 2 14"
+              stroke="#b8bdc7"
+              stroke-width="0.6"
+              fill="none"
+              opacity="0.4"
+            />
+          </pattern>
+          <pattern
+            id="mat-blood"
+            width="40"
+            height="40"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect width="40" height="40" fill="#5a0c14" />
+            <ellipse cx="14" cy="12" rx="11" ry="8" fill="#3d070e" />
+            <ellipse cx="30" cy="28" rx="9" ry="11" fill="#48090f" />
+            <ellipse cx="20" cy="22" rx="6" ry="4" fill="#6e1018" opacity="0.7" />
+            <circle cx="34" cy="8" r="2" fill="#3d070e" />
+            <circle cx="6" cy="32" r="2.5" fill="#3d070e" />
+          </pattern>
+          <pattern
+            id="mat-water"
+            width="44"
+            height="24"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="44"
+              height="24"
+              fill="#1f5f7a"
+            />
+            <rect
+              width="44"
+              height="24"
+              fill="#2a7396"
+              opacity="0.5"
+            />
+            <path
+              d="M0 6 Q11 2 22 6 T44 6"
+              stroke="#7fd0e8"
+              stroke-width="1.2"
+              fill="none"
               opacity="0.55"
             />
             <path
-              d="M17 4 L27 17 L17 30 L7 17 Z M17 9 V25 M9 17 H25"
-              stroke="#bda5ff"
-              stroke-width="1.2"
+              d="M0 16 Q11 12 22 16 T44 16"
+              stroke="#5bb6d6"
+              stroke-width="1"
               fill="none"
-              opacity="0.72"
+              opacity="0.4"
             />
+            <path
+              d="M0 21 Q11 18 22 21 T44 21"
+              stroke="#9fe0f2"
+              stroke-width="0.8"
+              fill="none"
+              opacity="0.3"
+            />
+          </pattern>
+          <pattern
+            id="mat-grass"
+            width="28"
+            height="28"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="28"
+              height="28"
+              fill="#2f5226"
+            />
+            <rect
+              width="28"
+              height="28"
+              fill="#37602c"
+              opacity="0.5"
+            />
+            <path
+              d="M4 26 Q3 18 5 14 M4 26 Q6 19 8 16"
+              stroke="#4a7a38"
+              stroke-width="1.1"
+              fill="none"
+            />
+            <path
+              d="M16 28 Q15 20 17 15 M16 28 Q18 21 21 17"
+              stroke="#3f6b30"
+              stroke-width="1.1"
+              fill="none"
+            />
+            <path
+              d="M24 26 Q23 20 25 16"
+              stroke="#54883f"
+              stroke-width="1"
+              fill="none"
+            />
+            <circle cx="10" cy="8" r="1" fill="#54883f" opacity="0.6" />
+            <circle cx="22" cy="6" r="1" fill="#4a7a38" opacity="0.6" />
+          </pattern>
+          <pattern
+            id="mat-dirt"
+            width="36"
+            height="36"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="36"
+              height="36"
+              fill="#5a4226"
+            />
+            <rect
+              width="36"
+              height="36"
+              fill="#634a2c"
+              opacity="0.4"
+            />
+            <circle
+              cx="8"
+              cy="10"
+              r="2"
+              fill="#6e5536"
+              opacity="0.7"
+            />
+            <circle
+              cx="26"
+              cy="14"
+              r="1.6"
+              fill="#4a3420"
+              opacity="0.8"
+            />
+            <circle cx="16" cy="26" r="2.4" fill="#6e5536" opacity="0.6" />
+            <circle cx="31" cy="30" r="1.3" fill="#4a3420" />
+            <circle cx="4" cy="28" r="1.2" fill="#73593a" opacity="0.6" />
+            <path
+              d="M12 6 q4 2 8 1 M20 32 q4 1 8 -1"
+              stroke="#4a3420"
+              stroke-width="0.8"
+              fill="none"
+              opacity="0.5"
+            />
+          </pattern>
+          <pattern
+            id="mat-snow"
+            width="36"
+            height="36"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="36"
+              height="36"
+              fill="#dfe7f0"
+            />
+            <ellipse
+              cx="12"
+              cy="14"
+              rx="9"
+              ry="6"
+              fill="#c4d2e2"
+              opacity="0.6"
+            />
+            <ellipse
+              cx="28"
+              cy="26"
+              rx="8"
+              ry="5"
+              fill="#cdd9e8"
+              opacity="0.5"
+            />
+            <circle cx="6" cy="6" r="1" fill="#fff" />
+            <circle cx="22" cy="8" r="1.2" fill="#fff" />
+            <circle cx="30" cy="14" r="0.9" fill="#fff" />
+            <circle cx="14" cy="28" r="1.1" fill="#fff" />
+            <circle cx="32" cy="32" r="0.9" fill="#fff" />
+          </pattern>
+          <pattern
+            id="mat-metal"
+            width="40"
+            height="40"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="40"
+              height="40"
+              fill="#3d4148"
+            />
+            <path
+              d="M0 5 H40 M0 13 H40 M0 21 H40 M0 29 H40 M0 37 H40"
+              stroke="#4a4f57"
+              stroke-width="0.6"
+              opacity="0.5"
+            />
+            <path
+              d="M0 2 H40"
+              stroke="#5c626c"
+              stroke-width="0.5"
+              opacity="0.4"
+            />
+            <rect
+              x="2"
+              y="2"
+              width="36"
+              height="36"
+              rx="3"
+              fill="none"
+              stroke="#2a2d33"
+              stroke-width="2"
+            />
+            <circle cx="6" cy="6" r="1.8" fill="#5c626c" />
+            <circle cx="34" cy="6" r="1.8" fill="#5c626c" />
+            <circle cx="6" cy="34" r="1.8" fill="#5c626c" />
+            <circle cx="34" cy="34" r="1.8" fill="#5c626c" />
+            <circle cx="6" cy="6" r="0.7" fill="#23262b" />
+            <circle cx="34" cy="6" r="0.7" fill="#23262b" />
+          </pattern>
+          <pattern
+            id="mat-rune"
+            width="48"
+            height="48"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width="48"
+              height="48"
+              fill="#2a1840"
+            />
+            <circle
+              cx="24"
+              cy="24"
+              r="18"
+              fill="none"
+              stroke="#7b4fd0"
+              stroke-width="1"
+              opacity="0.7"
+            />
+            <circle
+              cx="24"
+              cy="24"
+              r="12"
+              fill="none"
+              stroke="#9a6ff0"
+              stroke-width="0.8"
+              opacity="0.55"
+            />
+            <path
+              d="M24 6 L24 42 M6 24 L42 24 M11 11 L37 37 M37 11 L11 37"
+              stroke="#8a5fe0"
+              stroke-width="0.6"
+              fill="none"
+              opacity="0.4"
+            />
+            <path
+              d="M24 14 l4 6 l-8 0 z M20 28 l8 0 l-4 6 z"
+              fill="#c9a8ff"
+              opacity="0.6"
+            />
+            <circle cx="24" cy="24" r="2" fill="#d9c0ff" opacity="0.8" />
           </pattern>
           <radialGradient id="grad-warm">
             <stop
               offset="0%"
-              stop-color="#ffb15e"
-              stop-opacity="0.8"
+              stop-color="#ffd9a0"
+              stop-opacity="0.9"
+            />
+            <stop
+              offset="45%"
+              stop-color="#ff9d4a"
+              stop-opacity="0.45"
             />
             <stop
               offset="100%"
-              stop-color="#ff8a3c"
+              stop-color="#ff7a2a"
               stop-opacity="0"
             />
           </radialGradient>
           <radialGradient id="grad-cold">
             <stop
               offset="0%"
-              stop-color="#86c7ff"
-              stop-opacity="0.56"
+              stop-color="#cfe4ff"
+              stop-opacity="0.7"
+            />
+            <stop
+              offset="50%"
+              stop-color="#7fb0e8"
+              stop-opacity="0.3"
             />
             <stop
               offset="100%"
-              stop-color="#3567aa"
+              stop-color="#4d80c0"
               stop-opacity="0"
             />
           </radialGradient>
@@ -1603,9 +2028,13 @@ function handleMapWheel(event: WheelEvent) {
           :width="sceneSurface.width"
           :height="sceneSurface.height"
           :fill="sceneSurface.fill"
+          filter="url(#tavern-mat-texture)"
           :style="sceneSurface.style"
         />
-        <g class="map-fill-layer">
+        <g
+          class="map-fill-layer"
+          filter="url(#tavern-mat-texture)"
+        >
           <path
             v-for="item in fillItems"
             :key="item.id"
@@ -1617,55 +2046,57 @@ function handleMapWheel(event: WheelEvent) {
             :style="itemStyle(item)"
           />
         </g>
-        <g
-          class="map-line-layer"
-          filter="url(#tavern-map-sketch)"
-        >
-          <path
-            v-for="item in regularLineCasingItems"
-            :key="item.id"
-            :d="item.path"
-            :fill="item.fill"
-            :stroke="item.color"
-            :stroke-width="item.strokeWidth"
-            :stroke-dasharray="item.dash"
-            :transform="item.transform"
-            :fill-rule="item.fillRule"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :class="itemClass(item)"
-            :style="itemStyle(item)"
-          />
-          <path
-            v-for="item in regularLineCoreItems"
-            :key="item.id"
-            :d="item.path"
-            :fill="item.fill"
-            :stroke="item.color"
-            :stroke-width="item.strokeWidth"
-            :stroke-dasharray="item.dash"
-            :transform="item.transform"
-            :fill-rule="item.fillRule"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :class="itemClass(item)"
-            :style="itemStyle(item)"
-          />
+        <g filter="url(#tavern-map-shadow)">
           <g
-            v-for="item in gameIconLineItems"
-            :key="item.id"
-            :transform="item.glyphTransform"
-            :class="itemClass(item)"
-            :style="itemStyle(item)"
+            class="map-line-layer"
+            filter="url(#tavern-map-sketch)"
           >
-            <g :transform="item.glyphScaleTransform">
-              <path
-                :d="item.path"
-                :fill="item.fill"
-                :fill-rule="item.fillRule"
-                transform="translate(-256, -256)"
-                class="map-game-icon-path"
-              />
+            <path
+              v-for="item in regularLineCasingItems"
+              :key="item.id"
+              :d="item.path"
+              :fill="item.fill"
+              :stroke="item.color"
+              :stroke-width="item.strokeWidth"
+              :stroke-dasharray="item.dash"
+              :transform="item.transform"
+              :fill-rule="item.fillRule"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              :class="itemClass(item)"
+              :style="itemStyle(item)"
+            />
+            <path
+              v-for="item in regularLineCoreItems"
+              :key="item.id"
+              :d="item.path"
+              :fill="item.fill"
+              :stroke="item.color"
+              :stroke-width="item.strokeWidth"
+              :stroke-dasharray="item.dash"
+              :transform="item.transform"
+              :fill-rule="item.fillRule"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              :class="itemClass(item)"
+              :style="itemStyle(item)"
+            />
+            <g
+              v-for="item in gameIconLineItems"
+              :key="item.id"
+              :transform="item.glyphTransform"
+              :class="itemClass(item)"
+              :style="itemStyle(item)"
+            >
+              <g :transform="item.glyphScaleTransform">
+                <path
+                  :d="item.path"
+                  :fill="item.fill"
+                  :fill-rule="item.fillRule"
+                  transform="translate(-256, -256)"
+                  class="map-game-icon-path"
+                />
+              </g>
             </g>
           </g>
         </g>
@@ -1781,7 +2212,10 @@ function handleMapWheel(event: WheelEvent) {
             {{ item.text }}
           </text>
         </g>
-        <g class="map-avatar-layer">
+        <g
+          class="map-avatar-layer"
+          filter="url(#tavern-map-shadow)"
+        >
           <image
             v-for="item in avatarImageItems"
             :key="item.id"

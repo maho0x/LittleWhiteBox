@@ -2670,7 +2670,7 @@ function buildMapElementSchema() {
             material: {
                 type: 'string',
                 enum: [...TAVERN_MAP_MATERIALS],
-                description: 'Optional renderer-owned material enum. Use only when RP facts confirm it. Common values include wood, stone, tile, carpet, blood, water, grass, dirt, snow, metal, rune, warm-light, cold-light, shadow, or unknown. Do not invent material names.',
+                description: 'Optional renderer-owned material enum. Use only when RP facts confirm it. Common values include wood, stone, tile, carpet, bed-sheet, fabric, tatami, sand, marble, blood, water, grass, dirt, snow, metal, rune, warm-light, cold-light, shadow, or unknown. Use bed-sheet/fabric for bedding, upholstery, curtains, cushions, or other furniture/soft goods, not floor/ground terrain. Do not invent material names.',
             },
             certainty: {
                 type: 'string',
@@ -2943,7 +2943,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'Each element has `id` and `cat`, plus exactly one shape field: `rect`, `circle`, `path`, `curve`, `icon`, or `text`. Most elements use `at:[x,y]`; `path` and `curve` may omit `at` and use the first point as the anchor.',
                     'Omit unused shape keys entirely. Never send empty `path:[]`, `curve:[]`, `points:[]`, or `line:[]`; for a rectangular room use only `rect`, for the player marker use only `circle`.',
                     'Minimal first scene-map example: `{"docType":"tavern.map","docId":"main","activate":true,"ops":[{"op":"meta","set":{"name":"测试房间","viewBox":[0,0,320,220],"status":"active"}},{"op":"add","element":{"id":"room","cat":"wall","at":[30,30],"rect":[240,140],"text":"房间"}},{"op":"add","element":{"id":"player","cat":"actor","actorKey":"player","at":[150,110],"circle":8,"text":"玩家"}}]}`.',
-                    'Use semantic material/certainty instead of renderer styling. Material enum is unknown/wood/stone/tile/carpet/blood/water/grass/dirt/snow/metal/rune/warm-light/cold-light/shadow. Certainty enum is confirmed/inferred/unknown; omit confirmed fields.',
+                    'Use semantic material/certainty instead of renderer styling. Material enum is unknown/wood/stone/tile/carpet/bed-sheet/fabric/tatami/sand/marble/blood/water/grass/dirt/snow/metal/rune/warm-light/cold-light/shadow. Use bed-sheet/fabric only for bedding, upholstery, curtains, cushions, or other furniture/soft goods, not floor/ground terrain. Certainty enum is confirmed/inferred/unknown; omit confirmed fields.',
                     'Use cat:"terrain" for ground/floor, cat:"light" for light/glow/shadow areas, and material for appearance. Do not use floor, ground, region, subtype, opacity, zIndex, rotation, visual scale, blur, or custom fill colors in new map patches.',
                     'For `cat:"actor"`, optional `actorKey` is the full-session identity key. If omitted, the element id is used. The runtime keeps only the latest actor with the same final key across all map documents.',
                     'With `at`, `path` and `curve` points are relative offsets. Without `at`, the points are treated as absolute coordinates and the stored result becomes relative to the first point.',

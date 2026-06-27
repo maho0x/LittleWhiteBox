@@ -29,7 +29,7 @@ export function buildSeedMapHint(): string {
         'Use the scene name as the map scope title. Area labels are allowed only when they mark a concrete visible region; place them inside or next to that region, not at the top edge as a second title.',
         '`viewBox` is the camera. Changing it does not move any element. Move the player by updating the player coordinates, then adjust `viewBox` only if the camera should follow.',
         'Elements use `id`, `cat`, one `shape`, `geo`, and optional independent `label`. Put coordinates and dimensions inside `geo`; do not write internal rect/circle/path/curve/icon/text sibling fields.',
-        'Use material/mood/certainty only for confirmed semantic facts. Material is a closed enum: unknown/wood/stone/tile/carpet/blood/water/grass/dirt/snow/metal/rune/warm-light/cold-light/shadow. Use terrain for ground/floor and light for glow/shadow; do not use region/subtype/opacity/custom fill colors or update only for aesthetics.',
+        'Use material/mood/certainty only for confirmed semantic facts. Material is a closed enum: unknown/wood/stone/tile/carpet/bed-sheet/fabric/tatami/sand/marble/blood/water/grass/dirt/snow/metal/rune/warm-light/cold-light/shadow. Use terrain for ground/floor and light for glow/shadow; use bed-sheet/fabric only for bedding, upholstery, curtains, cushions, or other furniture/soft goods, not floor/ground terrain. Do not use region/subtype/opacity/custom fill colors or update only for aesthetics.',
     ].join(' ');
 }
 

@@ -767,6 +767,13 @@ test('tavern map update badge stays collapsed until requested', () => {
     assert.match(mapPanelSource, /const visibleRenderItems = computed<MapRenderItem\[\]>\(\(\) => \{[\s\S]*sceneSurfaceElementId\.value[\s\S]*filter\(\(item\) => item\.element\.id !== surfaceId\)/);
     assert.match(mapPanelSource, /:class="\[`theme-\$\{theme\}`, `mode-\$\{replayMode\}`, \{ 'is-panning': mapDrag, 'has-scene-surface': sceneSurface \}\]"/);
     assert.match(mapPanelSource, /class="map-scene-surface"[\s\S]*:fill="sceneSurface\.fill"[\s\S]*class="map-fill-layer"/);
+    assert.match(mapPanelSource, /id="tavern-map-shadow"[\s\S]*<feDropShadow[\s\S]*flood-opacity="0\.6"/);
+    assert.match(mapPanelSource, /id="tavern-mat-texture"[\s\S]*<feTurbulence[\s\S]*baseFrequency="0\.7"[\s\S]*<feBlend[\s\S]*mode="multiply"/);
+    assert.match(mapPanelSource, /id="mat-wood"[\s\S]*id="mat-stone"[\s\S]*id="mat-tile"[\s\S]*id="mat-carpet"[\s\S]*id="mat-bed-sheet"[\s\S]*id="mat-fabric"[\s\S]*id="mat-tatami"[\s\S]*id="mat-sand"[\s\S]*id="mat-marble"[\s\S]*id="mat-blood"[\s\S]*id="mat-water"[\s\S]*id="mat-grass"[\s\S]*id="mat-dirt"[\s\S]*id="mat-snow"[\s\S]*id="mat-metal"[\s\S]*id="mat-rune"/);
+    assert.match(mapPanelSource, /id="grad-warm"[\s\S]*stop-color="#ffd9a0"[\s\S]*id="grad-cold"[\s\S]*stop-color="#cfe4ff"/);
+    assert.match(mapPanelSource, /class="map-scene-surface"[\s\S]*filter="url\(#tavern-mat-texture\)"[\s\S]*class="map-fill-layer"[\s\S]*filter="url\(#tavern-mat-texture\)"/);
+    assert.match(mapPanelSource, /<g filter="url\(#tavern-map-shadow\)">[\s\S]*class="map-line-layer"[\s\S]*filter="url\(#tavern-map-sketch\)"/);
+    assert.match(mapPanelSource, /class="map-avatar-layer"[\s\S]*filter="url\(#tavern-map-shadow\)"/);
     assert.match(mapPanelSource, /class="tavern-map-zoom-controls"[\s\S]*@click="zoomMapBy\(-0\.25\)"[\s\S]*{{ mapZoomLabel }}[\s\S]*@click="zoomMapBy\(0\.25\)"/);
     assert.match(mapPanelSource, /@pointerdown="handleMapPointerDown"[\s\S]*@pointermove="handleMapPointerMove"[\s\S]*@pointerup="handleMapPointerEnd"[\s\S]*@pointercancel="handleMapPointerEnd"[\s\S]*@wheel="handleMapWheel"/);
     assert.match(mapPanelSource, /function pickPenAnimationItem[\s\S]*!item\.gameIcon[\s\S]*item\.layer !== 'label'[\s\S]*!!item\.path/);

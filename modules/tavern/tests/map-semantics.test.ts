@@ -12,6 +12,11 @@ import type { TavernMapDocument } from '../shared/structured-state';
 
 test('map material entries are deterministic renderer-owned structures', () => {
     assert.deepEqual(materialEntry('wood'), { paint: 'url(#mat-wood)', blend: 'normal', layer: 'fill' });
+    assert.deepEqual(materialEntry('bed-sheet'), { paint: 'url(#mat-bed-sheet)', blend: 'normal', layer: 'fill' });
+    assert.deepEqual(materialEntry('fabric'), { paint: 'url(#mat-fabric)', blend: 'normal', layer: 'fill' });
+    assert.deepEqual(materialEntry('tatami'), { paint: 'url(#mat-tatami)', blend: 'normal', layer: 'fill' });
+    assert.deepEqual(materialEntry('sand'), { paint: 'url(#mat-sand)', blend: 'normal', layer: 'fill' });
+    assert.deepEqual(materialEntry('marble'), { paint: 'url(#mat-marble)', blend: 'normal', layer: 'fill' });
     assert.deepEqual(materialEntry('warm-light'), { paint: 'url(#grad-warm)', blend: 'screen', layer: 'light', opacity: 0.7 });
     assert.deepEqual(materialEntry('shadow'), { paint: '#000', blend: 'multiply', layer: 'light', opacity: 0.5 });
     assert.equal(materialEntry('oak wood'), null);

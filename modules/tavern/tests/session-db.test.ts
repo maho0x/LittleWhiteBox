@@ -1420,7 +1420,7 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
     assert.match(patchTool?.function.description || '', /Never send empty `path:\[\]`, `curve:\[\]`, `points:\[\]`, or `line:\[\]`/i);
     assert.match(patchTool?.function.description || '', /Minimal first scene-map example/i);
     assert.match(patchTool?.function.description || '', /Mood enum is neutral\/warm\/cold\/dark\/mystic\/danger\/calm/i);
-    assert.match(patchTool?.function.description || '', /Material enum is unknown\/wood\/stone\/tile\/carpet\/blood\/water\/grass\/dirt\/snow\/metal\/rune\/warm-light\/cold-light\/shadow/i);
+    assert.match(patchTool?.function.description || '', /Material enum is unknown\/wood\/stone\/tile\/carpet\/bed-sheet\/fabric\/tatami\/sand\/marble\/blood\/water\/grass\/dirt\/snow\/metal\/rune\/warm-light\/cold-light\/shadow/i);
     assert.match(patchTool?.function.description || '', /Use cat:"terrain" for ground\/floor, cat:"light"/i);
     assert.match(patchTool?.function.description || '', /Do not use floor, ground, region, subtype, opacity/i);
     assert.match(patchTool?.function.description || '', /visual scale/i);
@@ -1443,6 +1443,11 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
         'stone',
         'tile',
         'carpet',
+        'bed-sheet',
+        'fabric',
+        'tatami',
+        'sand',
+        'marble',
         'blood',
         'water',
         'grass',
@@ -1468,6 +1473,11 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
         'stone',
         'tile',
         'carpet',
+        'bed-sheet',
+        'fabric',
+        'tatami',
+        'sand',
+        'marble',
         'blood',
         'water',
         'grass',
