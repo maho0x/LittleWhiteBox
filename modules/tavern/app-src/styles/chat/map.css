@@ -285,6 +285,14 @@
     mask-image: radial-gradient(circle at center, #000 0, #000 68%, transparent 100%);
 }
 
+.tavern-chat.xb-page .tavern-map-canvas.has-scene-surface::before {
+    background:
+        linear-gradient(90deg, rgba(18, 24, 16, 0.035) 1px, transparent 1px),
+        linear-gradient(rgba(18, 24, 16, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.72;
+}
+
 .tavern-chat.xb-page .tavern-map-canvas::after {
     content: "";
     position: absolute;
@@ -315,6 +323,7 @@
     opacity: 0.9;
 }
 
+.tavern-chat.xb-page .map-scene-surface,
 .tavern-chat.xb-page .map-light-layer,
 .tavern-chat.xb-page .map-mood-overlay {
     pointer-events: none;

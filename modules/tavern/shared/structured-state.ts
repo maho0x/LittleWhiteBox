@@ -1980,7 +1980,7 @@ function firstPositiveNumber(...values: unknown[]): number | null {
 }
 
 type MapIntentRectCandidate = {
-    at?: [number, number];
+    center?: [number, number];
     rect: [number, number];
 };
 
@@ -1988,7 +1988,7 @@ function normalizeMapIntentRectCandidate(value: unknown): MapIntentRectCandidate
     if (Array.isArray(value)) {
         const numbers = value.map((item) => Number(item));
         if (numbers.length >= 4 && numbers.slice(0, 4).every((item) => Number.isFinite(item)) && numbers[2] > 0 && numbers[3] > 0) {
-            return { at: [numbers[0], numbers[1]], rect: [numbers[2], numbers[3]] };
+            return { center: [numbers[0], numbers[1]], rect: [numbers[2], numbers[3]] };
         }
         const rect = positiveNumberPair(value);
         return rect ? { rect } : null;
@@ -1996,13 +1996,20 @@ function normalizeMapIntentRectCandidate(value: unknown): MapIntentRectCandidate
     if (isPlainObject(value)) {
         const rect = positiveNumberPair(value.size ?? value.rect ?? [value.width ?? value.w, value.height ?? value.h]);
         if (!rect) {return null;}
-        const at = normalizePoint(value.at ?? value.pos ?? value.center ?? {
+        const center = normalizePoint(value.center ?? value.at ?? value.pos ?? {
             x: value.x ?? value.left,
             y: value.y ?? value.top,
         });
-        return at ? { at, rect } : { rect };
+        return center ? { center, rect } : { rect };
     }
     return null;
+}
+
+function topLeftFromRectCenter(center: [number, number], rect: [number, number]): [number, number] {
+    return [
+        Number((center[0] - rect[0] / 2).toFixed(2)),
+        Number((center[1] - rect[1] / 2).toFixed(2)),
+    ];
 }
 
 function firstMapIntentRect(source: Record<string, unknown>, geo: Record<string, unknown>): MapIntentRectCandidate | null {
@@ -2102,9 +2109,13 @@ function buildMapIntentElementInput(rawElement: unknown, index: number, warnings
     if (shape === 'rect') {
         const rect = firstMapIntentRect(rawElement, geo);
         if (!rect) {throw new Error(`map_element_rect_invalid:${id}`);}
-        if (!at && rect.at) {
-            at = rect.at;
-            element.at = at;
+        const center = normalizePoint(geo.center ?? rawElement.center ?? geo.at ?? rawElement.at ?? geo.pos ?? rawElement.pos) ?? rect.center ?? at;
+        if (!center) {throw new Error(`map_element_at_required:${id}`);}
+        at = topLeftFromRectCenter(center, rect.rect);
+        element.at = at;
+        const hasRectCenter = Object.prototype.hasOwnProperty.call(geo, 'center') || Object.prototype.hasOwnProperty.call(rawElement, 'center');
+        if (!hasRectCenter && (Object.prototype.hasOwnProperty.call(geo, 'at') || Object.prototype.hasOwnProperty.call(rawElement, 'at'))) {
+            warnings.push(`Interpreted rect position for ${id} as center; use geo.center with geo.size for rectangles.`);
         }
         element.rect = rect.rect;
     } else if (shape === 'circle') {
@@ -2864,7 +2875,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'Edit one scene map file with tolerant map intent. Use this as the normal map write tool.',
                     'Always provide an explicit `scene` name. The runtime creates the scene file if needed, links it from the world atlas, normalizes intent into canonical map ops, and saves only clean canonical results.',
                     'Elements use one `shape` plus `geo`; label is independent and does not count as a shape. Renderer styling such as opacity, color, zIndex, blur, pattern, and custom fill is not accepted.',
-                    'Use only the minimum geo for the chosen shape: rect={at,size}, circle={at,radius}, icon={at,icon}, path={points}, curve={curve}, label={at}+label. Do not fill unused geo keys.',
+                    'Use only the minimum geo for the chosen shape: rect={center,size}, circle={at,radius}, icon={at,icon}, path={points}, curve={curve}, label={at}+label. Do not fill unused geo keys.',
                     'If one element is bad, that element is skipped and the other valid elements can still save. Read the returned applied/skipped/warnings report before retrying only failed elements.',
                 ].join('\n'),
                 parameters: {
@@ -2893,7 +2904,8 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                                         type: 'object',
                                         description: 'Minimal geometry for the chosen shape only. Omit unused keys.',
                                         properties: {
-                                            at: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'Position [x,y] for rect, circle, icon, or label.' },
+                                            center: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'Center [x,y] for shape:"rect".' },
+                                            at: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'Position [x,y] for circle, icon, or label.' },
                                             size: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'Rect size [width,height].' },
                                             radius: { type: 'number', description: 'Circle radius.' },
                                             points: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 }, description: 'Path points.' },

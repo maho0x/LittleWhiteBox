@@ -3005,6 +3005,7 @@ test('MapSceneEdit infers shape from geo without exposing multiple shape fields'
     assert.equal('label' in (elementSchema?.properties || {}), true);
     assert.deepEqual(Object.keys(((elementSchema?.properties?.geo as { properties?: Record<string, unknown> } | undefined)?.properties || {})).sort(), [
         'at',
+        'center',
         'curve',
         'icon',
         'points',
@@ -3116,9 +3117,9 @@ test('MapSceneEdit saves a complete tavern first map from common filled-geo mode
         viewBox: [0, 0, 420, 300],
         mood: 'warm',
         elements: [
-            { id: 'hall-floor', cat: 'terrain', shape: 'rect', geo: { at: [40, 36], size: [340, 226], rect: [0, 0], path: [], curve: [] }, material: 'wood' },
-            { id: 'outer-wall', cat: 'wall', shape: 'rect', geo: { at: [40, 36], size: [340, 226], radius: 0, points: [], curve: [] }, material: 'stone', label: '测试小酒馆' },
-            { id: 'bar-counter', cat: 'furniture', shape: 'rect', geo: { at: [66, 58], size: [104, 34], circle: 0, path: [] }, material: 'wood', label: '吧台' },
+            { id: 'hall-floor', cat: 'terrain', shape: 'rect', geo: { center: [210, 149], size: [340, 226], rect: [0, 0], path: [], curve: [] }, material: 'wood' },
+            { id: 'outer-wall', cat: 'wall', shape: 'rect', geo: { center: [210, 149], size: [340, 226], radius: 0, points: [], curve: [] }, material: 'stone', label: '测试小酒馆' },
+            { id: 'bar-counter', cat: 'furniture', shape: 'rect', geo: { center: [118, 75], size: [104, 34], circle: 0, path: [] }, material: 'wood', label: '吧台' },
             { id: 'front-door', cat: 'door', shape: 'icon', geo: { at: [210, 262], icon: 'door', rect: [0, 0], radius: 0, path: [], curve: [] }, label: '正门' },
             { id: 'round-table-a', cat: 'furniture', shape: 'circle', geo: { at: [250, 125], radius: 23, rect: [0, 0], path: [], curve: [] }, label: '圆桌' },
             { id: 'round-table-b', cat: 'furniture', shape: 'circle', geo: { at: [315, 178], radius: 20, rect: [0, 0], path: [], curve: [] }, label: '圆桌' },
@@ -3135,9 +3136,9 @@ test('MapSceneEdit saves a complete tavern first map from common filled-geo mode
     assert.equal(result.skipped?.length, 0);
     assert.deepEqual(document.meta.viewBox, [0, 0, 420, 300]);
     assert.equal(document.meta.mood, 'warm');
-    assert.equal(document.elements.some((element) => element.id === 'hall-floor'), true);
-    assert.equal(document.elements.some((element) => element.id === 'outer-wall'), true);
-    assert.equal(document.elements.some((element) => element.id === 'bar-counter'), true);
+    assert.deepEqual(document.elements.find((element) => element.id === 'hall-floor')?.at, [40, 36]);
+    assert.deepEqual(document.elements.find((element) => element.id === 'outer-wall')?.at, [40, 36]);
+    assert.deepEqual(document.elements.find((element) => element.id === 'bar-counter')?.at, [66, 58]);
     assert.equal(document.elements.find((element) => element.id === 'front-door')?.icon, 'door');
     assert.equal(document.elements.find((element) => element.id === 'round-table-a')?.circle, 23);
     assert.equal(document.elements.find((element) => element.id === 'round-table-b')?.circle, 20);
@@ -3146,6 +3147,40 @@ test('MapSceneEdit saves a complete tavern first map from common filled-geo mode
     assert.equal(savedOpsJson.includes('"rect":[0,0]'), false);
     assert.equal(savedOpsJson.includes('"path":[]'), false);
     assert.equal(savedOpsJson.includes('"curve":[]'), false);
+});
+
+test('MapSceneEdit treats rect at as center so model-centered layouts stay aligned', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Scene edit centered rect' });
+    const result = await executeTavernStateTool(session.id, 'MapSceneEdit', {
+        scene: '测试酒馆',
+        viewBox: [-130, -90, 260, 180],
+        mood: 'warm',
+        theme: 'parchment',
+        elements: [
+            { id: 'floor-main', cat: 'terrain', shape: 'rect', geo: { at: [0, 0], size: [220, 140] }, material: 'wood' },
+            { id: 'table-west', cat: 'furniture', shape: 'icon', geo: { at: [-70, -35], icon: 'table' }, material: 'wood', label: '西侧桌' },
+            { id: 'table-east', cat: 'furniture', shape: 'icon', geo: { at: [45, -25], icon: 'table' }, material: 'wood', label: '东侧桌' },
+            { id: 'door-south', cat: 'door', shape: 'icon', geo: { at: [0, 70], icon: 'door' }, material: 'wood', label: '南门' },
+            { id: 'actor-player', cat: 'actor', actorKey: 'player', shape: 'icon', geo: { at: [0, 25], icon: 'o' }, material: 'unknown', label: '你' },
+        ],
+    });
+    const scene = await executeTavernStateTool(session.id, 'MapSceneRead', { scene: '测试酒馆', mode: 'document' });
+    const document = scene.document as TavernMapDocument;
+    const floor = document.elements.find((element) => element.id === 'floor-main');
+
+    assert.equal(result.ok, true);
+    assert.equal(result.skipped?.length, 0);
+    assert.match((result.warnings || []).join('\n'), /Interpreted rect position for floor-main as center/);
+    assert.deepEqual(floor?.at, [-110, -70]);
+    assert.deepEqual(floor?.rect, [220, 140]);
+    assert.equal(document.elements.every((element) => {
+        if (element.id.startsWith('__label__') || element.id === 'floor-main') {return true;}
+        const [x, y] = element.at;
+        return x >= -110 && x <= 110 && y >= -70 && y <= 70;
+    }), true);
 });
 
 test('MapSceneEdit repeats the same scene intent without increasing scene revision', async () => {

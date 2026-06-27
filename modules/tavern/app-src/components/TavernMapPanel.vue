@@ -8,9 +8,24 @@ import type { TavernMapDocument, TavernMapElement, TavernMapStateDocumentItem } 
 import { isRenderableMapDocument } from '../../shared/map-state-content';
 import { createSeedMapDocument } from '../../shared/map-state-seed';
 import { applyTrustedMapPatchOps } from '../../shared/map-state-ops';
-import { canMapElementUseAreaFill, compareMapStableText, materialEntry, zOf } from '../../shared/map-semantics';
+import { compareMapStableText, materialEntry, zOf } from '../../shared/map-semantics';
 import { getTavernMapDisplayViewBox, getTavernMapElementBounds, type TavernMapBounds } from '../map-display';
 import { layoutTavernMapLabels } from '../map-label-layout';
+import {
+    getTavernMapSceneSurfaceBackground,
+    getTavernMapSceneSurfaceElement,
+    getTavernMapSceneSurfaceFill,
+    getTavernMapSceneSurfaceOpacity,
+} from '../map-scene-surface';
+import {
+    tavernMapElementBlend,
+    tavernMapElementColor,
+    tavernMapElementFill,
+    tavernMapElementHasAreaShape,
+    tavernMapElementLineCasing,
+    tavernMapElementStrokeWidth,
+    type TavernMapElementVisualContext,
+} from '../map-render-style';
 import {
     gameIconScaleTransform,
     gameIconTranslateTransform,
@@ -49,6 +64,7 @@ interface MapRenderItem {
     glyphScaleTransform?: string;
     fillRule: 'nonzero' | 'evenodd';
     gameIcon: boolean;
+    role?: string;
     avatarHref?: string;
     avatarClipId?: string;
     avatarX?: number;
@@ -62,6 +78,16 @@ interface MapReplayFrame {
     document: TavernMapDocument;
     patch: TavernStructuredStatePatchRecord;
     index: number;
+}
+
+interface MapSceneSurface {
+    elementId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    fill: string;
+    style: CSSProperties;
 }
 
 function pickPenAnimationItem<T extends { gameIcon: boolean; layer: string; path: string }>(items: T[]): T | null {
@@ -253,6 +279,35 @@ const normalizedPlayerAvatarUrl = computed(() => String(props.playerAvatarUrl ||
 const timelineLabel = computed(() => activeTimelineFrame.value ? `${activeTimelineFrame.value.index + 1} / ${timelineFrames.value.length}` : '0 / 0');
 const hasRenderableMap = computed(() => isRenderableMapDocument(activeMapDocument.value));
 const showMapBadge = computed(() => !!activePatch.value);
+const sceneSurfaceElement = computed(() => getTavernMapSceneSurfaceElement(activeMapDocument.value));
+const sceneSurfaceElementId = computed(() => String(sceneSurfaceElement.value?.id || '').trim());
+const sceneSurface = computed<MapSceneSurface | null>(() => {
+    const element = sceneSurfaceElement.value;
+    if (!element) {return null;}
+    const [x, y, width, height] = viewBoxArray.value;
+    return {
+        elementId: element.id,
+        x,
+        y,
+        width,
+        height,
+        fill: getTavernMapSceneSurfaceFill(element),
+        style: {
+            opacity: getTavernMapSceneSurfaceOpacity(element),
+        },
+    };
+});
+const mapCanvasStyle = computed<CSSProperties>(() => {
+    const background = getTavernMapSceneSurfaceBackground(sceneSurfaceElement.value);
+    return background ? { background } : {};
+});
+
+function mapVisualContext(): TavernMapElementVisualContext {
+    return {
+        surfaceElementId: sceneSurfaceElementId.value,
+        surfaceMaterial: String(sceneSurfaceElement.value?.material || '').trim(),
+    };
+}
 
 watch(() => props.document?.revision, () => {
     replayMode.value = 'patch';
@@ -408,37 +463,11 @@ function elementPath(element: TavernMapElement): string {
 }
 
 function elementColor(element: TavernMapElement): string {
-    if (element.style?.color) {return String(element.style.color);}
-    const materialLineColors: Record<string, string> = {
-        stone: '#6b6570',
-        tile: '#565b69',
-        wood: '#5d422c',
-        metal: '#6f757b',
-    };
-    if (['wall', 'door'].includes(String(element.cat || '').trim()) && element.material && materialLineColors[element.material]) {
-        return materialLineColors[element.material];
-    }
-    const colors: Record<string, string> = {
-        wall: '#2f2418',
-        road: '#9a8253',
-        water: '#2d7490',
-        terrain: '#55734b',
-        furniture: '#765d37',
-        door: '#a5652b',
-        danger: '#b94035',
-        marker: '#b94035',
-        actor: '#b94035',
-        label: '#2b2118',
-        grid: '#9f987f',
-        magic: '#76539a',
-        secret: '#68625b',
-        light: '#d48a42',
-    };
-    return colors[String(element.cat || 'wall')] || colors.wall;
+    return tavernMapElementColor(element, mapVisualContext());
 }
 
 function hasAreaShape(element: TavernMapElement): boolean {
-    return !!element.rect || typeof element.circle === 'number' || ((!!element.path || !!element.curve) && element.closed === true);
+    return tavernMapElementHasAreaShape(element);
 }
 
 function certaintyOpacity(element: TavernMapElement): number {
@@ -448,23 +477,15 @@ function certaintyOpacity(element: TavernMapElement): number {
 }
 
 function elementFill(element: TavernMapElement): string {
-    if (!canMapElementUseAreaFill(element.cat)) {return element.fill ? String(element.fill) : 'none';}
-    const material = materialEntry(element.material);
-    if (material?.layer === 'fill') {return hasAreaShape(element) ? material.paint : 'none';}
-    if (element.fill) {return String(element.fill);}
-    const fills: Record<string, string> = {
-        water: 'rgba(63, 136, 167, 0.24)',
-        terrain: 'rgba(87, 121, 70, 0.18)',
-        danger: 'rgba(180, 64, 54, 0.15)',
-        magic: 'rgba(126, 83, 154, 0.16)',
-        secret: 'rgba(63, 56, 48, 0.10)',
-    };
-    return hasAreaShape(element) ? (fills[String(element.cat || '')] || 'rgba(92, 70, 36, 0.08)') : 'none';
+    return tavernMapElementFill(element, mapVisualContext());
+}
+
+function elementBlend(element: TavernMapElement): MapBlendMode {
+    return tavernMapElementBlend(element, mapVisualContext());
 }
 
 function strokeWidth(element: TavernMapElement): number {
-    const width = Number(element.style?.width || 2);
-    return Number.isFinite(width) && width > 0 ? width : 2;
+    return tavernMapElementStrokeWidth(element);
 }
 
 function dashArray(element: TavernMapElement): string {
@@ -586,7 +607,7 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
     const opKind = forcedOpKind || opKindFor(element);
     const material = materialEntry(element.material);
     const baseOpacity = (material?.opacity ?? 1) * certaintyOpacity(element);
-    const baseBlend = material?.blend || 'normal';
+    const baseBlend = elementBlend(element);
     const z = zOf(element.cat, element.material);
     const baseDelay = forcedOpKind === 'remove'
         ? index * 110
@@ -785,6 +806,35 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
             gameIcon: false,
         });
     }
+    const casing = forcedOpKind === 'remove' ? null : tavernMapElementLineCasing(element);
+    if (casing) {
+        items.push({
+            element,
+            id: `${element.id}-line-casing`,
+            layer: 'line',
+            path,
+            color: casing.color,
+            fill: 'none',
+            blend: 'normal',
+            opacity: casing.opacity * certaintyOpacity(element),
+            z,
+            strokeWidth: casing.width,
+            dash: dashArray(element),
+            delayMs: baseDelay,
+            durationMs,
+            length,
+            opKind,
+            text: '',
+            x: 0,
+            y: 0,
+            fontSize: 0,
+            anchor: 'middle',
+            transform: '',
+            fillRule: 'nonzero',
+            gameIcon: false,
+            role: 'line-casing',
+        });
+    }
     items.push({
         element,
         id: `${element.id}-line`,
@@ -809,6 +859,7 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
         transform: '',
         fillRule: 'nonzero',
         gameIcon: false,
+        role: 'line-core',
     });
     if (isPlayer) {
         const ringRadius = element.icon ? 18 : typeof element.circle === 'number' ? element.circle + 5 : 16;
@@ -843,8 +894,13 @@ function buildRenderItemsForElement(element: TavernMapElement, index: number, fo
 
 const renderItems = computed<MapRenderItem[]>(() => (activeMapDocument.value?.elements || [])
     .flatMap((element, index) => buildRenderItemsForElement(element, index)));
+const visibleRenderItems = computed<MapRenderItem[]>(() => {
+    const surfaceId = sceneSurfaceElementId.value;
+    if (!surfaceId) {return renderItems.value;}
+    return renderItems.value.filter((item) => item.element.id !== surfaceId);
+});
 
-const fillItems = computed(() => renderItems.value
+const fillItems = computed(() => visibleRenderItems.value
     .filter((item) => item.layer === 'fill')
     .sort((left, right) => left.z - right.z || compareMapStableText(left.element.id, right.element.id) || compareMapStableText(left.id, right.id)));
 const avatarItems = computed(() => renderItems.value
@@ -852,13 +908,15 @@ const avatarItems = computed(() => renderItems.value
     .sort((left, right) => left.z - right.z || compareMapStableText(left.element.id, right.element.id) || compareMapStableText(left.id, right.id)));
 const avatarImageItems = computed<MapAvatarImageItem[]>(() => avatarItems.value.filter((item): item is MapAvatarImageItem => !!item.avatarClipId && !!item.avatarHref));
 const avatarPathItems = computed(() => avatarItems.value.filter((item) => !item.avatarHref));
-const lineItems = computed(() => renderItems.value.filter((item) => item.layer === 'line'));
+const lineItems = computed(() => visibleRenderItems.value.filter((item) => item.layer === 'line'));
 const regularLineItems = computed(() => lineItems.value.filter((item) => !item.gameIcon));
+const regularLineCasingItems = computed(() => regularLineItems.value.filter((item) => item.role === 'line-casing'));
+const regularLineCoreItems = computed(() => regularLineItems.value.filter((item) => item.role !== 'line-casing'));
 const gameIconLineItems = computed(() => lineItems.value.filter((item) => item.gameIcon));
-const lightItems = computed(() => renderItems.value
+const lightItems = computed(() => visibleRenderItems.value
     .filter((item) => item.layer === 'light')
     .sort((left, right) => left.z - right.z || compareMapStableText(left.element.id, right.element.id) || compareMapStableText(left.id, right.id)));
-const labelItems = computed(() => renderItems.value.filter((item) => item.layer === 'label'));
+const labelItems = computed(() => visibleRenderItems.value.filter((item) => item.layer === 'label'));
 const laidOutLabelItems = computed(() => layoutTavernMapLabels(labelItems.value, viewBoxArray.value, {
     priority: labelLayoutPriority,
 }));
@@ -869,7 +927,7 @@ const removedLineItems = computed(() => removedRenderItems.value.filter((item) =
 const regularRemovedLineItems = computed(() => removedLineItems.value.filter((item) => !item.gameIcon));
 const gameIconRemovedLineItems = computed(() => removedLineItems.value.filter((item) => item.gameIcon));
 const removedLabelItems = computed(() => removedRenderItems.value.filter((item) => item.layer === 'label'));
-const animatedItems = computed(() => renderItems.value.filter((item) => replayMode.value === 'full' || item.opKind !== 'stable'));
+const animatedItems = computed(() => visibleRenderItems.value.filter((item) => replayMode.value === 'full' || item.opKind !== 'stable'));
 const totalAnimationMs = computed(() => {
     const animated = animatedItems.value;
     if (!animated.length) {return 1200;}
@@ -935,6 +993,7 @@ function itemClass(item: MapRenderItem) {
     return [
         'map-element',
         item.gameIcon ? 'map-game-icon' : `map-${item.layer}`,
+        item.role ? `role-${item.role}` : '',
         `cat-${item.element.cat || 'wall'}`,
         `op-${item.opKind}`,
         {
@@ -1109,7 +1168,8 @@ function handleMapWheel(event: WheelEvent) {
     <div
       v-if="hasRenderableMap"
       class="tavern-map-canvas"
-      :class="[`theme-${theme}`, `mode-${replayMode}`, { 'is-panning': mapDrag }]"
+      :class="[`theme-${theme}`, `mode-${replayMode}`, { 'is-panning': mapDrag, 'has-scene-surface': sceneSurface }]"
+      :style="mapCanvasStyle"
     >
       <div
         v-if="compact"
@@ -1535,6 +1595,16 @@ function handleMapWheel(event: WheelEvent) {
             />
           </clipPath>
         </defs>
+        <rect
+          v-if="sceneSurface"
+          class="map-scene-surface"
+          :x="sceneSurface.x"
+          :y="sceneSurface.y"
+          :width="sceneSurface.width"
+          :height="sceneSurface.height"
+          :fill="sceneSurface.fill"
+          :style="sceneSurface.style"
+        />
         <g class="map-fill-layer">
           <path
             v-for="item in fillItems"
@@ -1552,7 +1622,22 @@ function handleMapWheel(event: WheelEvent) {
           filter="url(#tavern-map-sketch)"
         >
           <path
-            v-for="item in regularLineItems"
+            v-for="item in regularLineCasingItems"
+            :key="item.id"
+            :d="item.path"
+            :fill="item.fill"
+            :stroke="item.color"
+            :stroke-width="item.strokeWidth"
+            :stroke-dasharray="item.dash"
+            :transform="item.transform"
+            :fill-rule="item.fillRule"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :class="itemClass(item)"
+            :style="itemStyle(item)"
+          />
+          <path
+            v-for="item in regularLineCoreItems"
             :key="item.id"
             :d="item.path"
             :fill="item.fill"
