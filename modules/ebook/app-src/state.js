@@ -68,6 +68,7 @@ export function createEbookState() {
         colorTheme: getInitialColorTheme(),
         isSettingsOpen: false,
         isDeleteBookOpen: false,
+        isBookTransferMenuOpen: false,
         isBookExportOpen: false,
         bookTransferProgress: null,
         configPage: 'main',

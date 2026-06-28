@@ -340,11 +340,31 @@ export function bindEbookEvents(options = {}) {
         if (state.isShelfLoading || state.shelfLoadError) return;
         void bookController.createNewBook();
     });
-    root.querySelector('#xb-library-import-book')?.addEventListener('click', () => {
+    root.querySelector('#xb-library-transfer-book')?.addEventListener('click', () => {
         if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        state.isBookTransferMenuOpen = true;
+        render();
+    });
+    root.querySelector('#xb-book-transfer-menu-close')?.addEventListener('click', () => {
+        state.isBookTransferMenuOpen = false;
+        render();
+    });
+    root.querySelector('#xb-book-transfer-menu-overlay')?.addEventListener('click', (event) => {
+        if (event.target !== event.currentTarget) return;
+        state.isBookTransferMenuOpen = false;
+        render();
+    });
+    root.querySelector('#xb-book-transfer-upload')?.addEventListener('click', () => {
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        state.isBookTransferMenuOpen = false;
+        render();
         openBookPackageFilePicker(bookController);
     });
-    root.querySelector('#xb-library-export-book')?.addEventListener('click', () => void bookController.openExportDialog());
+    root.querySelector('#xb-book-transfer-download')?.addEventListener('click', () => {
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        state.isBookTransferMenuOpen = false;
+        void bookController.openExportDialog();
+    });
     root.querySelector('#xb-library-delete-book')?.addEventListener('click', () => {
         state.isDeleteBookOpen = true;
         render();

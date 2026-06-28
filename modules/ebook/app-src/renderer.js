@@ -914,6 +914,17 @@ function renderExportIcon() {
     `;
 }
 
+function renderTransferTrayIcon() {
+    return `
+        <svg class="xb-theme-icon xb-transfer-tray-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v10"></path>
+            <path d="m8 9 4 4 4-4"></path>
+            <path d="M5 14.5v3.2c0 1 .8 1.8 1.8 1.8h10.4c1 0 1.8-.8 1.8-1.8v-3.2"></path>
+            <path d="M8 16.5h8"></path>
+        </svg>
+    `;
+}
+
 export function renderThemeToggleIcon(colorTheme = 'dark') {
     const isLight = colorTheme === 'light';
     if (isLight) {
@@ -931,6 +942,35 @@ export function renderThemeToggleIcon(colorTheme = 'dark') {
             <path d="m6.34 17.66-1.41 1.41"></path>
             <path d="m19.07 4.93-1.41 1.41"></path>
         </svg>
+    `;
+}
+
+function renderBookTransferMenuDialog(state = {}) {
+    if (!state.isBookTransferMenuOpen) return '';
+    const bookCount = Array.isArray(state.books) ? state.books.length : 0;
+    const transferActive = !!state.bookTransferProgress;
+    const disabled = state.isBusy || transferActive || state.isShelfLoading || state.shelfLoadError;
+    return `
+        <div class="xb-ebook-delete-overlay xb-ebook-transfer-menu-overlay" id="xb-book-transfer-menu-overlay">
+            <div class="xb-ebook-delete-dialog xb-ebook-transfer-menu-dialog" role="dialog" aria-modal="true" aria-labelledby="xb-book-transfer-menu-title">
+                <div class="xb-ebook-delete-head">
+                    <div>
+                        <h2 id="xb-book-transfer-menu-title">书籍传输</h2>
+                    </div>
+                    <button id="xb-book-transfer-menu-close" class="xb-icon-button" type="button" title="关闭" aria-label="关闭">×</button>
+                </div>
+                <div class="xb-book-transfer-menu-list">
+                    <button class="xb-book-transfer-menu-choice" type="button" id="xb-book-transfer-download" ${disabled || !bookCount ? 'disabled' : ''}>
+                        <span>${renderExportIcon()}</span>
+                        <strong>下载书籍</strong>
+                    </button>
+                    <button class="xb-book-transfer-menu-choice" type="button" id="xb-book-transfer-upload" ${disabled ? 'disabled' : ''}>
+                        <span>${renderImportIcon()}</span>
+                        <strong>上传书籍</strong>
+                    </button>
+                </div>
+            </div>
+        </div>
     `;
 }
 
@@ -1013,8 +1053,7 @@ function renderLibraryShell(options = {}) {
                     <div class="xb-archive-meta">${escapeHtml(metaText)}</div>
                 </div>
                 <div class="xb-global-actions">
-                    <button id="xb-library-import-book" class="xb-glass-button xb-transfer-button" type="button" title="导入作品包" aria-label="导入作品包" ${state.isBusy || transferActive || shelfBusy ? 'disabled' : ''}>${renderImportIcon()}</button>
-                    <button id="xb-library-export-book" class="xb-glass-button xb-transfer-button" type="button" title="导出作品包" aria-label="导出作品包" ${bookCount && !state.isBusy && !transferActive && !shelfBusy ? '' : 'disabled'}>${renderExportIcon()}</button>
+                    <button id="xb-library-transfer-book" class="xb-glass-button xb-transfer-button" type="button" title="书籍传输" aria-label="书籍传输" ${state.isBusy || transferActive || shelfBusy ? 'disabled' : ''}>${renderTransferTrayIcon()}</button>
                     <button id="xb-theme-toggle" class="xb-glass-button xb-theme-button" type="button" title="${escapeHtml(themeToggleTitle)}" aria-label="${escapeHtml(themeToggleTitle)}">${themeToggleIcon}</button>
                     <button id="xb-close" class="xb-glass-button xb-exit-button" type="button" title="退出电纸书" aria-label="退出电纸书">${renderExitIcon()}</button>
                 </div>
@@ -1026,6 +1065,7 @@ function renderLibraryShell(options = {}) {
                     ${renderLibraryShelfActions(state, bookCount)}
                 </section>
             </main>
+            ${renderBookTransferMenuDialog(state)}
             ${renderBookExportDialog(state)}
             ${renderBookTransferOverlay(state)}
             ${state.toast ? `<div class="xb-toast">${escapeHtml(state.toast)}</div>` : ''}

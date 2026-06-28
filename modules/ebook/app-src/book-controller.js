@@ -777,6 +777,7 @@ export function createBookController(deps = {}) {
 
     function openExportDialog() {
         if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        state.isBookTransferMenuOpen = false;
         state.isBookExportOpen = true;
         render();
     }

@@ -2298,8 +2298,7 @@ test('Initializing on an empty database keeps the shelf empty', async () => {
     assert.match(html, /Agent 沉浸式创作与阅读平台/);
     assert.match(html, /class="xb-shelf-actions"/);
     assert.match(html, /id="xb-library-new-book"/);
-    assert.match(html, /id="xb-library-import-book"/);
-    assert.match(html, /id="xb-library-export-book"[^>]*disabled/);
+    assert.match(html, /id="xb-library-transfer-book"/);
     assert.match(html, /id="xb-library-delete-book"[^>]*disabled/);
     const headerHtml = html.slice(html.indexOf('<header'), html.indexOf('<main'));
     assert.doesNotMatch(headerHtml, /xb-library-new-book|xb-library-delete-book|xb-delete-book-close/);
@@ -2332,8 +2331,8 @@ test('Library shelf actions stay inside the shelf after the rendered books', () 
     assert.match(headerHtml, /class="xb-archive-subtitle">Agent 沉浸式创作与阅读平台/);
     assert.match(html, /id="xb-library-new-book"/);
     assert.match(html, /id="xb-library-delete-book"/);
-    assert.match(headerHtml, /id="xb-library-import-book"/);
-    assert.match(headerHtml, /id="xb-library-export-book"/);
+    assert.match(headerHtml, /id="xb-library-transfer-book"/);
+    assert.doesNotMatch(headerHtml, /id="xb-library-import-book"|id="xb-library-export-book"/);
     assert.match(html, /xb-shelf-action-ring/);
     assert.match(headerHtml, /id="xb-close"[^>]*aria-label="退出电纸书"/);
     assert.match(headerHtml, /class="xb-exit-icon"/);
@@ -2341,6 +2340,36 @@ test('Library shelf actions stay inside the shelf after the rendered books', () 
     assert.match(html, />0章<\/em>/);
     assert.doesNotMatch(html, /打开后选择创作或阅读/);
     assert.doesNotMatch(headerHtml, /xb-library-new-book|xb-library-delete-book|xb-delete-book-close/);
+});
+
+test('Library transfer menu groups download and upload actions behind one header button', () => {
+    const state = {
+        book: null,
+        books: [
+            { id: 'book-transfer-a', title: '可传输书', updatedAt: 1716039600000 },
+        ],
+        files: [],
+        selectedPath: '',
+        readerPath: '',
+        viewMode: 'library',
+        editorContent: '',
+        savedContent: '',
+        isBusy: false,
+        toast: '',
+        isDeleteBookOpen: false,
+        isBookTransferMenuOpen: true,
+        colorTheme: 'dark',
+    };
+
+    const html = renderEbookShell({ state });
+    const headerHtml = html.slice(html.indexOf('<header'), html.indexOf('<main'));
+    assert.match(headerHtml, /id="xb-library-transfer-book"/);
+    assert.match(headerHtml, /class="xb-theme-icon xb-transfer-tray-icon"/);
+    assert.doesNotMatch(headerHtml, /📥/);
+    assert.match(html, /id="xb-book-transfer-menu-overlay"/);
+    assert.match(html, /id="xb-book-transfer-menu-title">书籍传输/);
+    assert.match(html, /id="xb-book-transfer-download"[\s\S]*下载书籍/);
+    assert.match(html, /id="xb-book-transfer-upload"[\s\S]*上传书籍/);
 });
 
 test('Library export dialog lists books without selecting one from the shelf', () => {
@@ -2397,8 +2426,7 @@ test('Library shows an animated transfer overlay while importing or exporting pa
     assert.match(html, /class="xb-ebook-transfer-overlay"/);
     assert.match(html, /导出作品包/);
     assert.match(html, /正在打包 3 个阅读器配图/);
-    assert.match(html, /id="xb-library-import-book"[^>]*disabled/);
-    assert.match(html, /id="xb-library-export-book"[^>]*disabled/);
+    assert.match(html, /id="xb-library-transfer-book"[^>]*disabled/);
     assert.match(html, /data-export-book-id="book-transfer-a"[^>]*disabled/);
 });
 
