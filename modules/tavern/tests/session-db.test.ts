@@ -1521,7 +1521,7 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
     assert.deepEqual(setProperties.certainty?.enum, ['confirmed', 'inferred', 'unknown']);
 });
 
-test('State tools support tavern atlas without entering map element semantics', async () => {
+test('Map tools support tavern atlas without entering map element semantics', async () => {
     await db.delete();
     await db.open();
 
@@ -1733,7 +1733,7 @@ test('Map activate does not move atlas and spatial digest uses atlas active map'
     assert.doesNotMatch(build.meta.rawMessagesJson, /地图：家/);
 });
 
-test('StatePatch creates and updates tavern map documents with semantic ops', async () => {
+test('MapPatch creates and updates tavern map documents with semantic ops', async () => {
     await db.delete();
     await db.open();
 
@@ -1813,7 +1813,7 @@ test('StatePatch creates and updates tavern map documents with semantic ops', as
     assert.equal(Array.isArray(removed?.[0]?.curve), true);
 });
 
-test('StatePatch rejects quoted ops, revision conflicts, invalid ids, and keeps atomic state', async () => {
+test('MapPatch rejects quoted ops, revision conflicts, invalid ids, and keeps atomic state', async () => {
     await db.delete();
     await db.open();
 
@@ -1847,7 +1847,7 @@ test('StatePatch rejects quoted ops, revision conflicts, invalid ids, and keeps 
     assert.equal(elements.some((element) => element.id === 'valid-later'), false);
 });
 
-test('StatePatch rejects map elements without drawable geometry', async () => {
+test('MapPatch rejects map elements without drawable geometry', async () => {
     await db.delete();
     await db.open();
 
@@ -1891,7 +1891,7 @@ test('StatePatch rejects map elements without drawable geometry', async () => {
     assert.equal(elements.find((element) => element.id === 'private-note')?.icon, 'heart');
 });
 
-test('StatePatch accepts common map geometry aliases and explains failures', async () => {
+test('MapPatch accepts common map geometry aliases and explains failures', async () => {
     await db.delete();
     await db.open();
 
@@ -1952,7 +1952,7 @@ function createStoredMapRecord(
     };
 }
 
-test('StatePatch repairs stored map duplicate ids while keeping model input strict', async () => {
+test('MapPatch repairs stored map duplicate ids while keeping model input strict', async () => {
     await db.delete();
     await db.open();
 
@@ -1985,7 +1985,7 @@ test('StatePatch repairs stored map duplicate ids while keeping model input stri
     assert.match(duplicateInput.summary, /strict is duplicated/i);
 });
 
-test('StatePatch repairs stored geometry text collisions with derived labels', async () => {
+test('MapPatch repairs stored geometry text collisions with derived labels', async () => {
     await db.delete();
     await db.open();
 
@@ -2017,7 +2017,7 @@ test('StatePatch repairs stored geometry text collisions with derived labels', a
     assert.equal(labels[0]?.text, '玛雅（压制）');
 });
 
-test('StatePatch repairs stale derived labels when later stored geometry wins', async () => {
+test('MapPatch repairs stale derived labels when later stored geometry wins', async () => {
     await db.delete();
     await db.open();
 
@@ -2045,7 +2045,7 @@ test('StatePatch repairs stale derived labels when later stored geometry wins', 
     assert.equal(explicitElements.find((element) => element.id === '__label__dup')?.text, 'EXPLICIT');
 });
 
-test('StatePatch keeps system-derived label ids readable while rejecting reserved ids from model input', async () => {
+test('MapPatch keeps system-derived label ids readable while rejecting reserved ids from model input', async () => {
     await db.delete();
     await db.open();
 
@@ -2075,7 +2075,7 @@ test('StatePatch keeps system-derived label ids readable while rejecting reserve
     assert.match(reserved.summary, /reserved `__label__` prefix/i);
 });
 
-test('StatePatch stores map material mood certainty and treats repeated semantic patches as no-op', async () => {
+test('MapPatch stores map material mood certainty and treats repeated semantic patches as no-op', async () => {
     await db.delete();
     await db.open();
 
@@ -2110,7 +2110,7 @@ test('StatePatch stores map material mood certainty and treats repeated semantic
     assert.equal(data.elements.find((element) => element.id === 'uncertain-door')?.certainty, 'inferred');
 });
 
-test('StatePatch rejects material styling escape hatches and invalid enum churn', async () => {
+test('MapPatch rejects material styling escape hatches and invalid enum churn', async () => {
     await db.delete();
     await db.open();
 
@@ -2166,7 +2166,7 @@ test('StatePatch rejects material styling escape hatches and invalid enum churn'
     assert.equal(invalid.warnings?.some((warning) => /invalid map certainty.*maybe/i.test(warning)), true);
 });
 
-test('StatePatch replay preserves canonical field deletions', async () => {
+test('MapPatch replay preserves canonical field deletions', async () => {
     await db.delete();
     await db.open();
 
@@ -2204,7 +2204,7 @@ test('StatePatch replay preserves canonical field deletions', async () => {
     assert.deepEqual(effectiveClearOps?.find((op) => op.op === 'modify' && op.id === 'floor')?.set, { material: null });
 });
 
-test('StatePatch label lifecycle skips terrain and light and clears stale derived labels', async () => {
+test('MapPatch label lifecycle skips terrain and light and clears stale derived labels', async () => {
     await db.delete();
     await db.open();
 
@@ -2247,7 +2247,7 @@ test('StatePatch label lifecycle skips terrain and light and clears stale derive
     assert.equal(elements.find((element) => element.id === 'rug')?.text, undefined);
 });
 
-test('StatePatch canonicalizes modify text on geometry into a derived label upsert', async () => {
+test('MapPatch canonicalizes modify text on geometry into a derived label upsert', async () => {
     await db.delete();
     await db.open();
 
@@ -2287,7 +2287,7 @@ test('StatePatch canonicalizes modify text on geometry into a derived label upse
     assert.equal(ids.filter((id) => id === '__label__player_actor').length, 1);
 });
 
-test('StatePatch canonicalizes modify shape plus text after candidate merge', async () => {
+test('MapPatch canonicalizes modify shape plus text after candidate merge', async () => {
     await db.delete();
     await db.open();
 
@@ -2319,7 +2319,7 @@ test('StatePatch canonicalizes modify shape plus text after candidate merge', as
     assert.equal(label?.text, '储物间');
 });
 
-test('StatePatch label upsert patch replays over bad derived labels canonically', async () => {
+test('MapPatch label upsert patch replays over bad derived labels canonically', async () => {
     await db.delete();
     await db.open();
 
@@ -2356,7 +2356,7 @@ test('StatePatch label upsert patch replays over bad derived labels canonically'
     assert.equal(replayedLabel?.actorKey, undefined);
 });
 
-test('StatePatch keeps direct derived label modify canonical even with geometry input', async () => {
+test('MapPatch keeps direct derived label modify canonical even with geometry input', async () => {
     await db.delete();
     await db.open();
 
@@ -2396,7 +2396,7 @@ test('StatePatch keeps direct derived label modify canonical even with geometry 
     assert.equal(replayed.elements.some((element) => element.id === '__label____label__player_actor'), false);
 });
 
-test('StatePatch direct derived label style changes replay canonically', async () => {
+test('MapPatch direct derived label style changes replay canonically', async () => {
     await db.delete();
     await db.open();
 
@@ -2458,7 +2458,7 @@ test('StatePatch direct derived label style changes replay canonically', async (
     assert.equal(replayedClearedLabel?.style, undefined);
 });
 
-test('StatePatch infers path anchors without at and keeps at optional in the public schema', async () => {
+test('MapPatch infers path anchors without at and keeps at optional in the public schema', async () => {
     await db.delete();
     await db.open();
 
@@ -2476,13 +2476,13 @@ test('StatePatch infers path anchors without at and keeps at optional in the pub
     assert.deepEqual(road?.at, [20, 160]);
     assert.deepEqual(road?.path, [[0, 0], [240, 0]]);
 
-    const statePatch = getTavernStateToolDefinitions().find((tool) => tool.function.name === 'MapPatch');
-    const required = (((statePatch?.function.parameters as { properties?: { ops?: { items?: { properties?: { element?: { required?: string[] } } } } } })
+    const mapPatch = getTavernStateToolDefinitions().find((tool) => tool.function.name === 'MapPatch');
+    const required = (((mapPatch?.function.parameters as { properties?: { ops?: { items?: { properties?: { element?: { required?: string[] } } } } } })
         ?.properties?.ops?.items?.properties?.element?.required) || []);
     assert.equal(required.includes('at'), false);
 });
 
-test('StatePatch ignores model soft remove flags and still reports missing targets', async () => {
+test('MapPatch ignores model soft remove flags and still reports missing targets', async () => {
     await db.delete();
     await db.open();
 
@@ -2496,7 +2496,7 @@ test('StatePatch ignores model soft remove flags and still reports missing targe
     assert.match(result.summary, /missing does not exist/i);
 });
 
-test('StatePatch keeps weak maps uninitialized until they have spatial content', async () => {
+test('MapPatch keeps weak maps uninitialized until they have spatial content', async () => {
     await db.delete();
     await db.open();
 
@@ -2525,7 +2525,7 @@ test('StatePatch keeps weak maps uninitialized until they have spatial content',
     assert.equal(strongRead.meta?.status, 'active');
 });
 
-test('StatePatch accepts large initial map patches without the old low op ceiling', async () => {
+test('MapPatch accepts large initial map patches without the old low op ceiling', async () => {
     await db.delete();
     await db.open();
 
@@ -2549,7 +2549,7 @@ test('StatePatch accepts large initial map patches without the old low op ceilin
     assert.equal(((doc?.data as { elements?: unknown[] })?.elements || []).length, 120);
 });
 
-test('StatePatch dryRun keeps revision stable and legacy reset/init inputs are still absorbed atomically', async () => {
+test('MapPatch dryRun keeps revision stable and legacy reset/init inputs are still absorbed atomically', async () => {
     await db.delete();
     await db.open();
 
@@ -2596,7 +2596,7 @@ test('StatePatch dryRun keeps revision stable and legacy reset/init inputs are s
     assert.deepEqual(ids, ['new-room']);
 });
 
-test('StatePatch manager map writes are not rolled back by message rollback', async () => {
+test('MapPatch manager map writes are not rolled back by message rollback', async () => {
     await db.delete();
     await db.open();
 
@@ -2630,7 +2630,7 @@ test('StatePatch manager map writes are not rolled back by message rollback', as
     assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id, includeRolledBack: true }))[0]?.status, 'active');
 });
 
-test('StatePatch serializes concurrent map writes without losing elements', async () => {
+test('MapPatch serializes concurrent map writes without losing elements', async () => {
     await db.delete();
     await db.open();
 
@@ -2654,7 +2654,7 @@ test('StatePatch serializes concurrent map writes without losing elements', asyn
     assert.deepEqual((await listTavernStructuredStatePatches({ sessionId: session.id })).map((patch) => patch.revision), [1, 2]);
 });
 
-test('StatePatch supports explicit active map switching without replacing other maps', async () => {
+test('MapPatch supports explicit active map switching without replacing other maps', async () => {
     await db.delete();
     await db.open();
 
@@ -3317,7 +3317,7 @@ test('MapSceneEdit clears an existing derived label when label is empty', async 
     assert.equal(savedOps.some((op) => op.op === 'remove' && op.id === '__label__room'), true);
 });
 
-test('StatePatch dedupes actors by actorKey across map documents', async () => {
+test('MapPatch dedupes actors by actorKey across map documents', async () => {
     await db.delete();
     await db.open();
 
@@ -3379,7 +3379,7 @@ test('StatePatch dedupes actors by actorKey across map documents', async () => {
     assert.deepEqual(homeActors.map((element) => element.id), ['player-home']);
 });
 
-test('StatePatch actor dedupe keeps same-document patch replay equivalent', async () => {
+test('MapPatch actor dedupe keeps same-document patch replay equivalent', async () => {
     await db.delete();
     await db.open();
 
@@ -3415,7 +3415,7 @@ test('StatePatch actor dedupe keeps same-document patch replay equivalent', asyn
     assert.deepEqual(replayed, office?.data);
 });
 
-test('StatePatch actor dedupe falls back to actor id when actorKey is missing', async () => {
+test('MapPatch actor dedupe falls back to actor id when actorKey is missing', async () => {
     await db.delete();
     await db.open();
 
@@ -3473,7 +3473,7 @@ test('manager range cancellation does not roll back map-only writes', async () =
     assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'cancelled');
 });
 
-test('State tools are in the unified manager tool schema', () => {
+test('Map tools are in the unified manager tool schema', () => {
     const names = getTavernManagerToolDefinitions().map((tool) => tool.function.name);
     assert.deepEqual(names.filter((name) => ['LS', 'Grep', 'Read', 'Edit', 'Write', 'MapDocs', 'MapInspect', 'MapPatch', 'MapAtlasRead', 'MapSceneRead', 'MapSceneEdit', 'EventInspect', 'EventPatch'].includes(name)).sort(), [
         'Edit',
@@ -3498,11 +3498,11 @@ test('State tools are in the unified manager tool schema', () => {
     assert.equal(names.includes('StatePatch'), false);
     assert.equal(names.includes('TaskPatch'), false);
 
-    const statePatch = getTavernStateToolDefinitions().find((tool) => tool.function.name === 'MapPatch');
-    assert.match(statePatch?.function.description || '', /Canonical ops are .*meta.*add.*modify.*remove/i);
-    assert.match(statePatch?.function.description || '', /one atomic transaction/);
-    assert.match(statePatch?.function.description || '', /at:\[x,y\]/);
-    assert.match(statePatch?.function.description || '', /Legacy .*init.*reset.*replace.*still absorbed/i);
+    const mapPatch = getTavernStateToolDefinitions().find((tool) => tool.function.name === 'MapPatch');
+    assert.match(mapPatch?.function.description || '', /Canonical ops are .*meta.*add.*modify.*remove/i);
+    assert.match(mapPatch?.function.description || '', /one atomic transaction/);
+    assert.match(mapPatch?.function.description || '', /at:\[x,y\]/);
+    assert.match(mapPatch?.function.description || '', /Legacy .*init.*reset.*replace.*still absorbed/i);
 
     const eventInspect = getTavernManagerToolDefinitions().find((tool) => tool.function.name === 'EventInspect');
     const eventInspectSchema = JSON.stringify(eventInspect?.function.parameters || {});

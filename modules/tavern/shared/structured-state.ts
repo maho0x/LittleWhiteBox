@@ -58,25 +58,11 @@ export const TAVERN_STATE_TOOL_NAMES = {
     EDIT_SCENE: 'MapSceneEdit',
 } as const;
 
-const LEGACY_TAVERN_STATE_TOOL_NAMES = {
-    LIST: 'StateList',
-    READ: 'StateRead',
-    PATCH: 'StatePatch',
-} as const;
-
 const MODEL_FACING_STATE_TOOL_NAMES = new Set<string>([
     TAVERN_STATE_TOOL_NAMES.READ_ATLAS,
     TAVERN_STATE_TOOL_NAMES.READ_SCENE,
     TAVERN_STATE_TOOL_NAMES.EDIT_SCENE,
 ]);
-
-function normalizeTavernStateToolName(toolName = ''): string {
-    const name = String(toolName || '').trim();
-    if (name === LEGACY_TAVERN_STATE_TOOL_NAMES.LIST) {return TAVERN_STATE_TOOL_NAMES.LIST;}
-    if (name === LEGACY_TAVERN_STATE_TOOL_NAMES.READ) {return TAVERN_STATE_TOOL_NAMES.READ;}
-    if (name === LEGACY_TAVERN_STATE_TOOL_NAMES.PATCH) {return TAVERN_STATE_TOOL_NAMES.PATCH;}
-    return name;
-}
 
 export type TavernMapElementCategory =
     | 'wall'
@@ -3091,7 +3077,7 @@ export async function executeTavernStateTool(
     } = {},
 ): Promise<TavernStateToolResult> {
     const id = String(sessionId || '').trim();
-    const normalizedToolName = normalizeTavernStateToolName(toolName);
+    const normalizedToolName = String(toolName || '').trim();
     if (!id) {return { ok: false, summary: 'Missing sessionId.', error: 'state_session_required' };}
     try {
         if (normalizedToolName === TAVERN_STATE_TOOL_NAMES.READ_ATLAS) {

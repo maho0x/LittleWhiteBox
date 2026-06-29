@@ -68,7 +68,7 @@ const {
     currentAssistantFloor,
 } = session;
 
-const stateWorkspaceView = ref<'scene' | 'world'>('scene');
+const mapWorkspaceView = ref<'scene' | 'world'>('scene');
 const mapPreviewDocId = ref('');
 const mapPreviewPinned = ref(false);
 const atlasDocument = computed<TavernAtlasDocument>(() => {
@@ -285,8 +285,8 @@ function selectDirectoryMemoryFile(path: string) {
     <div class="tavern-workspace-tabs">
       <button
         type="button"
-        :class="{ active: chatWorkspacePanel === 'state' }"
-        @click="chatWorkspacePanel = 'state'"
+        :class="{ active: chatWorkspacePanel === 'map' }"
+        @click="chatWorkspacePanel = 'map'"
       >
         地图
       </button>
@@ -306,39 +306,39 @@ function selectDirectoryMemoryFile(path: string) {
       </button>
     </div>
     <section
-      v-if="chatWorkspacePanel === 'state'"
-      class="tavern-state-panel"
+      v-if="chatWorkspacePanel === 'map'"
+      class="tavern-map-workspace"
     >
       <div
-        class="tavern-state-viewport"
-        :class="`is-${stateWorkspaceView}`"
+        class="tavern-map-viewport"
+        :class="`is-${mapWorkspaceView}`"
       >
         <div
-          class="tavern-state-inline-switcher"
+          class="tavern-map-inline-switcher"
           role="tablist"
           aria-label="地图视图"
         >
           <button
             type="button"
             role="tab"
-            :aria-selected="stateWorkspaceView === 'scene'"
-            :class="{ active: stateWorkspaceView === 'scene' }"
-            @click="stateWorkspaceView = 'scene'"
+            :aria-selected="mapWorkspaceView === 'scene'"
+            :class="{ active: mapWorkspaceView === 'scene' }"
+            @click="mapWorkspaceView = 'scene'"
           >
             场景图
           </button>
           <button
             type="button"
             role="tab"
-            :aria-selected="stateWorkspaceView === 'world'"
-            :class="{ active: stateWorkspaceView === 'world' }"
-            @click="stateWorkspaceView = 'world'"
+            :aria-selected="mapWorkspaceView === 'world'"
+            :class="{ active: mapWorkspaceView === 'world' }"
+            @click="mapWorkspaceView = 'world'"
           >
             世界图
           </button>
         </div>
         <TavernMapPanel
-          v-if="stateWorkspaceView === 'scene' && selectedMapRecord"
+          v-if="mapWorkspaceView === 'scene' && selectedMapRecord"
           v-model:selected-doc-id="selectedMapDocId"
           compact
           :documents="mapStateDocuments"
@@ -349,7 +349,7 @@ function selectDirectoryMemoryFile(path: string) {
           :player-avatar-url="visibleUserAvatar"
         />
         <TavernAtlasPanel
-          v-else-if="stateWorkspaceView === 'world'"
+          v-else-if="mapWorkspaceView === 'world'"
           display-mode="graph"
           :document="atlasStateDocument"
           :patches="atlasStatePatches"
@@ -368,10 +368,10 @@ function selectDirectoryMemoryFile(path: string) {
       </div>
       <article
         class="tavern-map-info"
-        :class="{ 'is-world': stateWorkspaceView === 'world' }"
+        :class="{ 'is-world': mapWorkspaceView === 'world' }"
       >
         <TavernAtlasPanel
-          v-if="stateWorkspaceView === 'world'"
+          v-if="mapWorkspaceView === 'world'"
           display-mode="detail"
           :document="atlasStateDocument"
           :patches="atlasStatePatches"

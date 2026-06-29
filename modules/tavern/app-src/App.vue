@@ -151,6 +151,7 @@ import {
     type TavernManagerContext,
     type TavernMemoryContext,
     type TavernSessionContext,
+    type TavernChatWorkspacePanelKey,
     type TavernShellContext,
     type TavernWorkspaceContext,
 } from './components/tavern-app-context';
@@ -292,7 +293,7 @@ const memoryEditorLoadedPath = ref('');
 const memoryEditorBaseContent = ref('');
 const memoryEditorMode = ref<'preview' | 'edit'>('preview');
 const memoryEditorStatus = ref('');
-const chatWorkspacePanel = ref<'state' | 'memory' | 'event'>('state');
+const chatWorkspacePanel = ref<TavernChatWorkspacePanelKey>('map');
 const mapStateDocuments = ref<TavernMapStateDocumentItem[]>([]);
 const activeMapDocId = ref('main');
 const mapStateDocument = ref<TavernStructuredStateDocumentRecord | null>(null);

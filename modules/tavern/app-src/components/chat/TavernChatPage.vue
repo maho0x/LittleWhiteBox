@@ -10,6 +10,7 @@ import {
     useTavernSettingsContext,
     useTavernShellContext,
     useTavernWorkspaceContext,
+    type TavernChatWorkspacePanelKey,
 } from '../tavern-app-context';
 import TavernCharacterWorkspacePanel from '../TavernCharacterWorkspacePanel.vue';
 import TavernAssistantPresetSettingsPanel from '../settings/TavernAssistantPresetSettingsPanel.vue';
@@ -187,7 +188,7 @@ function closeMobileChatPanel() {
     memoryDirectoryOpen.value = false;
 }
 
-function toggleMobileWorkspacePanel(panel: 'state' | 'memory' | 'event') {
+function toggleMobileWorkspacePanel(panel: TavernChatWorkspacePanelKey) {
     closeChatAppMenu();
     const sameOpenPanel = mobileChatPanel.value === 'workspace' && chatWorkspacePanel.value === panel;
     chatWorkspacePanel.value = panel;
@@ -747,10 +748,10 @@ onUpdated(() => {
         <button
           type="button"
           class="chat-mobile-context-button"
-          :class="{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'state' }"
+          :class="{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'map' }"
           title="地图"
           aria-label="地图"
-          @click="toggleMobileWorkspacePanel('state')"
+          @click="toggleMobileWorkspacePanel('map')"
         >
           地图
         </button>

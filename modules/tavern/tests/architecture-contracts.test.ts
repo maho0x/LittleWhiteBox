@@ -2065,7 +2065,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(contractModalSource, /封印中\.\.\.[\s\S]*封存誓约[\s\S]*项授权已启用/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-context-row"[\s\S]*title="请求日志"/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-context-row"[\s\S]*>\s*会话\s*</);
-    assert.match(chatPageSource, /:class="\{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'state' \}"/);
+    assert.match(contextSource, /export type TavernChatWorkspacePanelKey = 'map' \| 'status' \| 'memory' \| 'event';/);
+    assert.match(appSource, /const chatWorkspacePanel = ref<TavernChatWorkspacePanelKey>\('map'\);/);
+    assert.match(chatPageSource, /:class="\{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'map' \}"/);
     assert.match(chatPageSource, /:class="\{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'memory' \}"/);
     assert.match(conversationPanelSource, /createNewChatSession,[\s\S]*const composeMenuOpen = ref\(false\)/);
     assert.match(conversationPanelSource, /const sessionArchiveOpen = ref\(false\)/);
@@ -2111,9 +2113,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(conversationPanelSource, /useTavernCharacterContext|selectedCharacterSessions/);
     assert.match(conversationPanelSource, /v-if="sessionArchiveOpen"[\s\S]*class="character-session-archive-overlay chat-session-archive-overlay"[\s\S]*v-for="archivedSession in currentChatCharacterSessions"[\s\S]*@click="openArchivedSession\(archivedSession\.id\)"/);
     assert.match(managerPanelSource, /v-model="managerInputDraft"[\s\S]*rows="1"/);
-    assert.match(workspacePanelSource, /<button[\s\S]*chatWorkspacePanel === 'state'[\s\S]*>\s*地图\s*<\/button>/);
-    assert.match(workspacePanelSource, /class="tavern-state-viewport"[\s\S]*class="tavern-state-inline-switcher"[\s\S]*场景图[\s\S]*世界图/);
-    assert.match(workspacePanelSource, /class="tavern-state-viewport"[\s\S]*<TavernAtlasPanel[\s\S]*display-mode="graph"/);
+    assert.match(workspacePanelSource, /<button[\s\S]*chatWorkspacePanel === 'map'[\s\S]*>\s*地图\s*<\/button>/);
+    assert.match(workspacePanelSource, /class="tavern-map-viewport"[\s\S]*class="tavern-map-inline-switcher"[\s\S]*场景图[\s\S]*世界图/);
+    assert.match(workspacePanelSource, /class="tavern-map-viewport"[\s\S]*<TavernAtlasPanel[\s\S]*display-mode="graph"/);
     assert.match(workspacePanelSource, /class="tavern-map-info"[\s\S]*<TavernAtlasPanel[\s\S]*display-mode="detail"/);
     assert.doesNotMatch(workspacePanelSource, /class="tavern-state-view-tabs"/);
     assert.doesNotMatch(workspacePanelSource, /回到当前位置|tavern-state-follow-button/);

@@ -496,13 +496,15 @@ export interface TavernMemoryContext {
     stateMemoryFile: Ref<TavernMemoryFileRecord | null>;
 }
 
+export type TavernChatWorkspacePanelKey = 'map' | 'status' | 'memory' | 'event';
+
 export interface TavernWorkspaceContext {
     activeMemoryFiles: TavernReadable<TavernMemoryIndexFileEntry[]>;
     activeMapDocId: Ref<string>;
     atlasActiveLocationKey: Ref<string>;
     atlasStateDocument: Ref<TavernStructuredStateDocumentRecord | null>;
     atlasStatePatches: Ref<TavernStructuredStatePatchRecord[]>;
-    chatWorkspacePanel: Ref<string>;
+    chatWorkspacePanel: Ref<TavernChatWorkspacePanelKey>;
     displayUserName: TavernReadable<string>;
     mapStateDocuments: Ref<TavernMapStateDocumentItem[]>;
     mapStateDocument: Ref<TavernStructuredStateDocumentRecord | null>;

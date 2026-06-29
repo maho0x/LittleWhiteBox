@@ -41,7 +41,7 @@
     color: var(--xb-ink);
 }
 
-.tavern-chat.xb-page .tavern-state-panel {
+.tavern-chat.xb-page .tavern-map-workspace {
     min-width: 0;
     min-height: 0;
     flex: 1 1 auto;
@@ -51,7 +51,7 @@
     background: var(--xb-chat-panel-bg);
 }
 
-.tavern-chat.xb-page .tavern-state-viewport {
+.tavern-chat.xb-page .tavern-map-viewport {
     position: relative;
     flex: 1 1 60%;
     min-height: 260px;
@@ -61,17 +61,17 @@
     border-bottom: 0;
 }
 
-.tavern-chat.xb-page .tavern-state-panel .tavern-map-panel {
+.tavern-chat.xb-page .tavern-map-workspace .tavern-map-panel {
     flex: 1 1 auto;
     min-height: 0;
 }
 
-.tavern-chat.xb-page .tavern-state-viewport > .tavern-atlas-panel {
+.tavern-chat.xb-page .tavern-map-viewport > .tavern-atlas-panel {
     flex: 1 1 auto;
     min-height: 0;
 }
 
-.tavern-chat.xb-page .tavern-state-inline-switcher {
+.tavern-chat.xb-page .tavern-map-inline-switcher {
     position: absolute;
     bottom: 10px;
     right: 12px;
@@ -88,13 +88,13 @@
     backdrop-filter: blur(10px);
 }
 
-.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-state-inline-switcher {
+.xb-os-shell.theme-dark .tavern-chat.xb-page .tavern-map-inline-switcher {
     border-color: rgba(220, 210, 190, 0.12);
     background: rgba(26, 24, 21, 0.84);
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
 }
 
-.tavern-chat.xb-page .tavern-state-inline-switcher button {
+.tavern-chat.xb-page .tavern-map-inline-switcher button {
     height: 28px;
     border: 0;
     border-radius: 5px;
@@ -105,7 +105,7 @@
     white-space: nowrap;
 }
 
-.tavern-chat.xb-page .tavern-state-inline-switcher button.active {
+.tavern-chat.xb-page .tavern-map-inline-switcher button.active {
     background: rgba(var(--xb-accent-rgb), 0.12);
     color: var(--xb-ink);
 }
@@ -815,7 +815,7 @@
         padding: 8px 14px 0;
     }
 
-    .tavern-chat.xb-page .tavern-state-viewport {
+    .tavern-chat.xb-page .tavern-map-viewport {
         min-height: 210px;
     }
 
@@ -906,7 +906,7 @@
         display: none;
     }
 
-    .tavern-chat.xb-page .tavern-state-viewport {
+    .tavern-chat.xb-page .tavern-map-viewport {
         flex: 3 1 0;
         min-height: 0;
     }
