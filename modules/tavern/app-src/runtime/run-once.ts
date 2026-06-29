@@ -499,6 +499,18 @@ export interface TavernRunStreamSnapshot {
     liveActionCheckEvents?: TavernActionCheckRuntimeEvent[];
 }
 
+export type TavernRunStatusLabel =
+    | '整理上下文'
+    | '构建请求'
+    | '请求就绪'
+    | '连接模型'
+    | '接收流式'
+    | '保存回复';
+
+export interface TavernRunStatusSnapshot {
+    label: TavernRunStatusLabel;
+}
+
 export interface TavernRunOnceOptions {
     agentConfig: Record<string, unknown>;
     messages: XbTavernMessage[];
@@ -604,6 +616,7 @@ export interface XbTavernRunTurnInput {
     historyMode?: XbTavernRuntimeState['historyMode'];
     signal?: AbortSignal;
     onStreamProgress?: (snapshot: TavernRunStreamSnapshot) => void;
+    onRuntimeStatus?: (snapshot: TavernRunStatusSnapshot) => void;
     onUserMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
     onAssistantMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
     onManagerRunSaved?: (sessionId: string, managerRunId: string) => void | Promise<void>;
@@ -783,6 +796,15 @@ async function notifyRunCallback(callback: (() => void | Promise<void>) | undefi
         await callback();
     } catch (error) {
         console.warn('[小白酒馆] run callback failed', error);
+    }
+}
+
+function notifyRunStatus(callback: ((snapshot: TavernRunStatusSnapshot) => void) | undefined, label: TavernRunStatusLabel) {
+    if (!callback) {return;}
+    try {
+        callback({ label });
+    } catch (error) {
+        console.warn('[小白酒馆] run status callback failed', error);
     }
 }
 
@@ -2111,6 +2133,7 @@ export async function waitForPendingAcceptedTurnManagers(sessionId = ''): Promis
 }
 
 export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTavernRunResult> {
+    notifyRunStatus(input.onRuntimeStatus, '整理上下文');
     const chatPreset = resolveInputChatPreset(input);
     if (!input.sessionId) {
         assertUsableTavernContext(input.contextSnapshot || {});
@@ -2255,6 +2278,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         },
         history: buildContextHistory(contextWindow.historyMessages),
     };
+    notifyRunStatus(input.onRuntimeStatus, '构建请求');
     const nativeContext = await runTavernStage('turn_native_worldbook_runtime', () => injectNativeWorldInfoRuntime({
         getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
         context: contextForBuildRaw,
@@ -2369,7 +2393,12 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         presetName: String(chatPreset.name || baseSession.presetName || ''),
     }) || baseSession;
     let latestStreamText = '';
+    let sawStreamProgress = false;
     const handleStreamProgress = (snapshot: TavernRunStreamSnapshot) => {
+        if (!sawStreamProgress) {
+            sawStreamProgress = true;
+            notifyRunStatus(input.onRuntimeStatus, '接收流式');
+        }
         if (typeof snapshot.text === 'string') {latestStreamText = snapshot.text;}
         input.onStreamProgress?.(snapshot);
     };
@@ -2389,6 +2418,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             requestKind: 'actual',
             regexApplications,
         })).requestSnapshot;
+        notifyRunStatus(input.onRuntimeStatus, '请求就绪');
     } catch {
         requestSnapshot = buildTavernRequestSnapshot(input.agentConfig, buildResult.messages, {
             requestKind: 'fallback',
@@ -2400,6 +2430,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 toolChoice: actionCheckCapabilities.toolChoice,
             },
         });
+        notifyRunStatus(input.onRuntimeStatus, '请求就绪');
     }
     const presetId = String(chatPreset.id || session.chatPresetId || session.presetId || '');
     const presetName = String(chatPreset.name || session.chatPresetName || session.presetName || '');
@@ -2425,6 +2456,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
 
     try {
         const executeRunOnce = input.executeRunOnce || createDefaultTavernRunOnceExecutor(input.agentConfig);
+        notifyRunStatus(input.onRuntimeStatus, '连接模型');
         const result = sessionContractRuntime.includeActionChecks
             ? await runTavernActionCheckLoop({
                 agentConfig: input.agentConfig,
@@ -2444,6 +2476,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 signal: input.signal,
                 onStreamProgress: handleStreamProgress,
             });
+        notifyRunStatus(input.onRuntimeStatus, '保存回复');
         const rawAssistantRuntimeEvents = sessionContractRuntime.includeActionChecks
             ? getActionCheckEvents((result as TavernRunOnceResult & { runtimeEvents?: TavernRuntimeEvent[] }).runtimeEvents)
             : [];

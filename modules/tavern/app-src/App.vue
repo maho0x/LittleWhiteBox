@@ -249,10 +249,10 @@ const {
     isRunning,
     runtimeActionCheckEvents,
     runtimeError,
-    runtimeFinalizedAssistantMessage,
     runtimeModel,
     runtimePendingUserMessage,
     runtimeProvider,
+    runtimeStatusLabel,
     runtimeText,
     runtimeThoughts,
     runtimeUserMessageVisible,
@@ -419,12 +419,10 @@ const chatLayout = ref<ChatLayout>('balanced');
 const chatComposeTextareaRef = ref<HTMLTextAreaElement | null>(null);
 const managerComposeTextareaRef = ref<HTMLTextAreaElement | null>(null);
 const managerWorkRef = ref<HTMLElement | null>(null);
-let flushDeferredChatDomCommits = () => false;
 const chatScrollPane = useTavernScrollPane({
     totalItems: () => selectedSessionMessageTotal.value,
     defaultLimit: hiddenOutsideCount,
     loadBatchSize,
-    onReturnToBottom: () => flushDeferredChatDomCommits(),
 });
 const managerScrollPane = useTavernScrollPane({
     totalItems: () => managerChatMessageDisplayItems.value.length,
@@ -3409,7 +3407,6 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rollback
         await restoreAcceptedMemoryAndTaskStateBeforeMessage(message.sessionId, message.order);
     }
     if (updated && selectedSessionId.value) {
-        chatRunController.resolveDeferredAssistantCommit({ sessionId: message.sessionId });
         await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
         if (shouldRollbackState) {
             await refreshManagerRecords(selectedSessionId.value);
@@ -3482,10 +3479,6 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
         await restoreAcceptedMemoryAndTaskStateBeforeMessage(message.sessionId, fromOrder);
     }
     if (selectedSessionId.value) {
-        chatRunController.resolveDeferredAssistantCommit({
-            sessionId: message.sessionId,
-            discardOrders: deleted > 0 ? ordersToDelete : [],
-        });
         await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
         await refreshManagerRecords(selectedSessionId.value);
     }
@@ -3875,17 +3868,6 @@ const chatRunController = useTavernChatRunController({
     upsertLoadedSessionMessage,
     cancelDrawJobsForMessageRange: drawContext.cancelJobsForMessageRange,
 });
-
-flushDeferredChatDomCommits = () => {
-    const changed = chatRunController.flushDeferredAssistantCommit();
-    if (changed) {
-        void nextTick(() => {
-            enhanceChatMarkdown();
-            updateChatScrollButtons();
-        });
-    }
-    return changed;
-};
 
 function cancelActiveRun() {
     chatRunController.cancelActiveRun();
@@ -4285,7 +4267,6 @@ watch([
     () => chatMessageWindow.value.startIndex,
     () => visibleChatMarkdownSignature.value,
     () => runtimeText.value,
-    () => `${runtimeFinalizedAssistantMessage.value?.sessionId || ''}:${runtimeFinalizedAssistantMessage.value?.order ?? ''}:${String(runtimeFinalizedAssistantMessage.value?.content || '').length}`,
     () => runtimePendingUserMessage.value,
     () => runtimeThoughtsSignature.value,
     () => runtimeActionCheckSignature.value,
@@ -4501,7 +4482,7 @@ const chatContext = {
     runtimeText,
     runtimeThoughts,
     runtimeActionCheckEvents,
-    runtimeFinalizedAssistantMessage,
+    runtimeStatusLabel,
     runtimeUserMessageVisible,
     runtimePendingUserMessage,
     saveEditMessage,

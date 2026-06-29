@@ -15,6 +15,7 @@ import type {
 } from '../../../shared/message-assembler';
 import {
     runXbTavernTurn,
+    type TavernRunStatusLabel,
     type TavernBuildNativeChatPromptRuntime,
     type TavernRunStreamSnapshot,
 } from '../../runtime/run-once';
@@ -25,22 +26,16 @@ export interface TavernChatRunOptions {
     rerollRuntimeEvents?: boolean;
 }
 
-export interface TavernDeferredAssistantResolutionOptions {
-    discardFromOrder?: number;
-    discardOrders?: number[];
-    sessionId?: string;
-}
-
 export interface TavernChatRunState {
     currentUserMessage: Ref<string>;
     isCancellingRun: Ref<boolean>;
     isRunning: Ref<boolean>;
     runtimeActionCheckEvents: Ref<TavernActionCheckRuntimeEvent[]>;
     runtimeError: Ref<string>;
-    runtimeFinalizedAssistantMessage: Ref<TavernMessageRecord | null>;
     runtimeModel: Ref<string>;
     runtimePendingUserMessage: Ref<string>;
     runtimeProvider: Ref<string>;
+    runtimeStatusLabel: Ref<TavernRunStatusLabel | ''>;
     runtimeText: Ref<string>;
     runtimeThoughts: Ref<Array<{ label?: string; text?: string }>>;
     runtimeUserMessageVisible: Ref<boolean>;
@@ -101,10 +96,10 @@ export function createTavernChatRunState(): TavernChatRunState {
         isRunning: ref(false),
         runtimeActionCheckEvents: ref<TavernActionCheckRuntimeEvent[]>([]),
         runtimeError: ref(''),
-        runtimeFinalizedAssistantMessage: ref<TavernMessageRecord | null>(null),
         runtimeModel: ref(''),
         runtimePendingUserMessage: ref(''),
         runtimeProvider: ref(''),
+        runtimeStatusLabel: ref<TavernRunStatusLabel | ''>(''),
         runtimeText: ref(''),
         runtimeThoughts: ref<Array<{ label?: string; text?: string }>>([]),
         runtimeUserMessageVisible: ref(false),
@@ -168,7 +163,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         state.runtimeText.value = '';
         state.runtimeThoughts.value = [];
         state.runtimeActionCheckEvents.value = [];
-        state.runtimeFinalizedAssistantMessage.value = null;
+        state.runtimeStatusLabel.value = '';
         state.runtimeUserMessageVisible.value = false;
         state.runtimePendingUserMessage.value = '';
     }
@@ -178,39 +173,8 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         state.runtimeError.value = '';
         state.runtimeProvider.value = '';
         state.runtimeModel.value = '';
+        state.runtimeStatusLabel.value = '';
         clearRuntimeAssistantLiveState();
-    }
-
-    function hasDeferredAssistantCommit() {
-        return !!state.runtimeFinalizedAssistantMessage.value;
-    }
-
-    function resolveDeferredAssistantCommit(resolveOptions: TavernDeferredAssistantResolutionOptions = {}) {
-        const message = state.runtimeFinalizedAssistantMessage.value;
-        if (!message) {return false;}
-        const targetSessionId = String(resolveOptions.sessionId || message.sessionId || '').trim();
-        if (targetSessionId && message.sessionId !== targetSessionId) {return false;}
-        const messageOrder = Number(message.order);
-        const discardFromOrder = Number(resolveOptions.discardFromOrder);
-        const discardOrders = Array.isArray(resolveOptions.discardOrders)
-            ? resolveOptions.discardOrders.map((order) => Number(order)).filter((order) => Number.isFinite(order))
-            : [];
-        const shouldDiscard = Number.isFinite(messageOrder) && (
-            (Number.isFinite(discardFromOrder) && messageOrder >= discardFromOrder)
-            || discardOrders.includes(messageOrder)
-        );
-        if (shouldDiscard) {
-            clearRuntimeAssistantLiveState();
-            return true;
-        }
-        options.upsertLoadedSessionMessage(message);
-        options.touchSessionLocally(message.sessionId, message.createdAt);
-        clearRuntimeAssistantLiveState();
-        return true;
-    }
-
-    function flushDeferredAssistantCommit() {
-        return resolveDeferredAssistantCommit();
     }
 
     function abortActiveRun() {
@@ -273,6 +237,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         state.runtimePendingUserMessage.value = '';
         state.runtimeProvider.value = '';
         state.runtimeModel.value = '';
+        state.runtimeStatusLabel.value = '整理上下文';
         const followRunAtBottom = options.chatAutoScroll.value !== false;
         if (followRunAtBottom) {
             options.chatAutoScroll.value = true;
@@ -280,10 +245,6 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
 
         const reusedUserMessageOrder = Number(runOptions.reuseUserMessageOrder);
         const isReusedUserMessageRun = Number.isFinite(reusedUserMessageOrder);
-        resolveDeferredAssistantCommit({
-            sessionId: options.selectedSessionId.value,
-            discardFromOrder: isReusedUserMessageRun ? reusedUserMessageOrder + 1 : undefined,
-        });
         const defaultChatMessageWindowLimit = options.normalizeHiddenOutsideCount(options.hiddenOutsideCount.value);
         if (isReusedUserMessageRun && Number(options.chatMessageWindowLimit.value) !== defaultChatMessageWindowLimit) {
             options.setSuppressNextChatWindowLimitReload();
@@ -374,6 +335,9 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                 onStreamProgress: (snapshot) => {
                     scheduleRuntimeStreamSnapshot(snapshot);
                 },
+                onRuntimeStatus: (snapshot) => {
+                    state.runtimeStatusLabel.value = snapshot.label;
+                },
                 onUserMessageSaved: async (sessionId, message) => {
                     options.setSelectedSessionId(sessionId);
                     options.upsertLoadedSessionMessage(message);
@@ -397,14 +361,12 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     options.setSelectedSessionId(sessionId);
                     flushRuntimeStreamSnapshotNow();
                     options.touchSessionLocally(sessionId, message.createdAt);
-                    if (options.chatAutoScroll.value === false) {
-                        state.runtimeFinalizedAssistantMessage.value = message;
-                        state.runtimeUserMessageVisible.value = true;
-                        options.updateChatScrollButtons();
-                    } else {
-                        options.upsertLoadedSessionMessage(message);
-                        clearRuntimeAssistantLiveState();
+                    options.upsertLoadedSessionMessage(message);
+                    clearRuntimeAssistantLiveState();
+                    if (options.chatAutoScroll.value !== false) {
                         options.scrollChatToBottom();
+                    } else {
+                        options.updateChatScrollButtons();
                     }
                 },
                 onManagerRunSaved: async (sessionId) => {
@@ -413,15 +375,12 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             });
             options.setSelectedSessionId(result.sessionId);
             flushRuntimeStreamSnapshotNow();
-            const deferredAssistantCommit = hasDeferredAssistantCommit();
-            if (!deferredAssistantCommit) {
-                clearRuntimeAssistantLiveState();
-            }
+            clearRuntimeAssistantLiveState();
             state.runtimeError.value = result.error || '';
             state.runtimeProvider.value = result.provider || '';
             state.runtimeModel.value = result.model || '';
-            if (!deferredAssistantCommit) {
-                await options.refreshSessions();
+            await options.refreshSessions();
+            if (options.chatAutoScroll.value !== false) {
                 options.scrollChatToBottom();
             } else {
                 options.updateChatScrollButtons();
@@ -448,7 +407,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             }
             state.isCancellingRun.value = false;
             state.isRunning.value = false;
-            if (!hasDeferredAssistantCommit()) {
+            if (options.chatAutoScroll.value !== false) {
                 options.scrollChatToBottom();
             } else {
                 options.updateChatScrollButtons();
@@ -467,9 +426,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         cancelActiveRun,
         clearRuntimeAssistantLiveState,
         flushRuntimeStreamSnapshotNow,
-        flushDeferredAssistantCommit,
         handleChatSubmit,
-        resolveDeferredAssistantCommit,
         resetChatRunPreviewState,
         runOnce,
         scheduleRuntimeStreamSnapshot,

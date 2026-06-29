@@ -69,8 +69,8 @@ const {
     revealOlderChatMessages,
     roleLabel,
     runtimeActionCheckEvents,
-    runtimeFinalizedAssistantMessage,
     runtimePendingUserMessage,
+    runtimeStatusLabel,
     runtimeText,
     runtimeThoughts,
     runtimeUserMessageVisible,
@@ -169,9 +169,6 @@ function assistantMessageRenderState(message: TavernMessageRecord) {
 }
 
 const liveAssistantRenderState = computed(() => {
-    if (runtimeFinalizedAssistantMessage.value) {
-        return assistantMessageRenderState(runtimeFinalizedAssistantMessage.value);
-    }
     const projection = displayRuntimeRenderProjection(
         runtimeText.value,
         Array.isArray(runtimeActionCheckEvents.value) ? runtimeActionCheckEvents.value : [],
@@ -180,26 +177,18 @@ const liveAssistantRenderState = computed(() => {
 });
 const liveAssistantVisible = computed(() => hasRenderableLiveAssistantContent({
     text: liveAssistantRenderState.value.text,
-    thoughts: runtimeFinalizedAssistantMessage.value
-        ? displayMessageThoughtBlocks(runtimeFinalizedAssistantMessage.value)
-        : runtimeThoughts.value,
-    actionCheckEvents: runtimeFinalizedAssistantMessage.value
-        ? []
-        : runtimeActionCheckEvents.value,
+    thoughts: runtimeThoughts.value,
+    actionCheckEvents: runtimeActionCheckEvents.value,
 }));
 const liveAssistantCanRender = computed(() => (
-    (isRunning.value && runtimeUserMessageVisible.value)
-    || !!runtimeFinalizedAssistantMessage.value
+    isRunning.value && runtimeUserMessageVisible.value
 ));
 const liveAssistantMarkdownVisible = computed(() => hasRenderableLiveAssistantMarkdown({
     text: liveAssistantRenderState.value.text,
-    actionCheckEvents: runtimeFinalizedAssistantMessage.value
-        ? []
-        : runtimeActionCheckEvents.value,
+    actionCheckEvents: runtimeActionCheckEvents.value,
 }));
-const liveAssistantThoughtBlocks = computed(() => runtimeFinalizedAssistantMessage.value
-    ? displayMessageThoughtBlocks(runtimeFinalizedAssistantMessage.value)
-    : displayRuntimeThoughtBlocks(thoughtBlocks(runtimeThoughts.value)));
+const liveAssistantThoughtBlocks = computed(() => displayRuntimeThoughtBlocks(thoughtBlocks(runtimeThoughts.value)));
+const liveAssistantStatusLabel = computed(() => runtimeStatusLabel.value || '整理上下文');
 const pendingUserVisible = computed(() => isRunning.value && !runtimeUserMessageVisible.value && !!runtimePendingUserMessage.value.trim());
 const pendingUserRenderState = computed(() => {
     const text = runtimePendingUserMessage.value.trim();
@@ -652,7 +641,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
               </span>
               <span class="bubble-role-name">{{ roleLabel('assistant') }}</span>
             </span>
-            <small>{{ runtimeFinalizedAssistantMessage ? '已完成' : '生成中' }}</small>
+            <small>{{ liveAssistantStatusLabel }}</small>
           </div>
           <template
             v-for="displayRuntimeThoughts in [liveAssistantThoughtBlocks]"
@@ -707,7 +696,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
               </span>
               <span class="bubble-role-name">{{ roleLabel('assistant') }}</span>
             </span>
-            <small>{{ runtimeFinalizedAssistantMessage ? '已完成' : '生成中' }}</small>
+            <small>{{ liveAssistantStatusLabel }}</small>
           </div>
           <p>正在组织回复...</p>
         </div>

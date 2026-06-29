@@ -62,9 +62,11 @@ test('tavern scroll handlers collapse expanded message windows when returning to
     assert.match(scrollPaneSource, /node\.scrollTop = node\.scrollHeight;\s*lastScrollTop = Number\(node\.scrollTop \|\| 0\);/);
     assert.doesNotMatch(scrollPaneSource, /else if \(currentScrollTop < previousScrollTop\) \{[\s\S]*autoScroll\.value = false;/);
     assert.match(scrollPaneSource, /function findWheelScrollTarget\(event: WheelEvent, root: HTMLElement, deltaY: number\)/);
+    assert.match(scrollPaneSource, /const target = findWheelScrollTarget\(event, root, deltaY\);[\s\S]*if \(!target\) \{return;\}[\s\S]*if \(deltaY < 0 && target === root\) \{[\s\S]*autoScroll\.value = false;/);
+    assert.doesNotMatch(scrollPaneSource, /if \(deltaY < 0\) \{\s*autoScroll\.value = false;\s*\}\s*if \(!deltaY\) \{return;\}/);
     assert.match(scrollPaneSource, /requestAnimationFrame\(\(\) => \{[\s\S]*applyWheelFallback\(target, deltaY\);[\s\S]*if \(target === root\) \{[\s\S]*handleScroll\(\);/);
-    assert.match(scrollPaneSource, /onReturnToBottom\?: \(options: \{ collapseWindow: boolean; force: boolean \}\) => void \| boolean;/);
-    assert.match(scrollPaneSource, /function scrollToBottom\([\s\S]*const changed = notifyReturnToBottom\(!!scrollOptions\.collapseWindow, force\);[\s\S]*if \(scrollOptions\.collapseWindow \|\| changed\) \{[\s\S]*collapseMessageWindowIfBottom\(true\);/);
+    assert.doesNotMatch(scrollPaneSource, /onReturnToBottom|notifyReturnToBottom/);
+    assert.match(scrollPaneSource, /function scrollToBottom\([\s\S]*if \(scrollOptions\.collapseWindow\) \{[\s\S]*collapseMessageWindowIfBottom\(true\);/);
     assert.match(scrollPaneSource, /const apply = \(\) => \{[\s\S]*if \(!force && autoScroll\.value === false\) \{return false;\}[\s\S]*node\.scrollTop = node\.scrollHeight;[\s\S]*return true;/);
     assert.doesNotMatch(scrollPaneSource, /scrollOptions\.collapseWindow \|\| autoScroll\.value/);
     assert.match(scrollPaneSource, /watch\(\(\) => normalizeHiddenOutsideCount[\s\S]*if \(autoScroll\.value === false\) \{return;\}[\s\S]*resetWindowState\(\);/);

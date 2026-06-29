@@ -12,7 +12,6 @@ export interface TavernScrollPaneOptions {
     totalItems: () => number;
     defaultLimit?: number | Ref<number>;
     loadBatchSize?: number | Ref<number>;
-    onReturnToBottom?: (options: { collapseWindow: boolean; force: boolean }) => void | boolean;
 }
 
 export interface TavernScrollToBottomOptions {
@@ -91,10 +90,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         return true;
     }
 
-    function notifyReturnToBottom(collapseWindow: boolean, force: boolean) {
-        return options.onReturnToBottom?.({ collapseWindow, force }) === true;
-    }
-
     watch(() => normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT), () => {
         if (autoScroll.value === false) {return;}
         resetWindowState();
@@ -117,8 +112,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
                 if (!apply()) {return;}
                 requestAnimationFrame(() => {
                     if (!apply()) {return;}
-                    const changed = notifyReturnToBottom(!!scrollOptions.collapseWindow, force);
-                    if (scrollOptions.collapseWindow || changed) {
+                    if (scrollOptions.collapseWindow) {
                         collapseMessageWindowIfBottom(true);
                         void nextTick(() => {
                             if (!apply()) {return;}
@@ -157,7 +151,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         if (nearBottom) {
             if (autoScroll.value !== false || scrollingTowardBottom) {
                 autoScroll.value = true;
-                notifyReturnToBottom(false, false);
                 collapseMessageWindowIfBottom();
             }
         } else {
@@ -224,12 +217,12 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         const root = scrollRef.value;
         if (!root) {return;}
         const deltaY = normalizeWheelDeltaY(event, root);
-        if (deltaY < 0) {
-            autoScroll.value = false;
-        }
         if (!deltaY) {return;}
         const target = findWheelScrollTarget(event, root, deltaY);
         if (!target) {return;}
+        if (deltaY < 0 && target === root) {
+            autoScroll.value = false;
+        }
         const previousScrollTop = Number(target.scrollTop || 0);
         requestAnimationFrame(() => {
             if (!target.isConnected) {return;}
