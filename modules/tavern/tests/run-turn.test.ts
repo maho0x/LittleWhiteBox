@@ -3379,7 +3379,7 @@ test('xb tavern world entry substitution skips null worldbook records', async ()
     assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /null/);
 });
 
-test('xb tavern simulated request injects only the active map digest without full map JSON', async () => {
+test('xb tavern simulated request keeps active map digest in snapshot without injecting legacy prompt fallback', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const session = await createTavernSession({
@@ -3436,10 +3436,11 @@ test('xb tavern simulated request injects only the active map digest without ful
         currentUserMessage: '我看向地窖。',
     });
 
-    assert.match(result.buildSnapshot.rawMessagesJson, /状态摘要/);
-    assert.match(result.buildSnapshot.rawMessagesJson, /Office/);
-    assert.match(result.buildSnapshot.rawMessagesJson, /Desk/);
-    assert.match(result.buildSnapshot.rawMessagesJson, /可互动/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /状态摘要/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /空间地图状态/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /Office/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /Desk/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /可互动/);
     assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /氛围：|材质：|cold|metal/);
     assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /Hidden Cellar/);
     assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /revision 1|tavern\.map\/office|tavern\.map\/main|docId|docType/);
@@ -3450,7 +3451,7 @@ test('xb tavern simulated request injects only the active map digest without ful
     assert.ok(Number(result.buildSnapshot.structuredStates?.[0]?.digestChars) > 0);
 });
 
-test('xb tavern simulated request falls back to main map digest when active map id is orphaned', async () => {
+test('xb tavern simulated request keeps main map digest in snapshot when active map id is orphaned', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const session = await createTavernSession({
@@ -3506,8 +3507,9 @@ test('xb tavern simulated request falls back to main map digest when active map 
         currentUserMessage: '我回到广场。',
     });
 
-    assert.match(result.buildSnapshot.rawMessagesJson, /Main Square/);
-    assert.match(result.buildSnapshot.rawMessagesJson, /Square/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /状态摘要/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /Main Square/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /Square/);
     assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /Office/);
     assert.equal(result.buildSnapshot.structuredStates?.[0]?.docId, 'main');
 });
@@ -3571,7 +3573,7 @@ test('xb tavern simulated request injects only memory files when cartography is 
     assert.equal(result.buildSnapshot.structuredStates, undefined);
 });
 
-test('xb tavern simulated request injects only structured state when memory archiving is disabled', async () => {
+test('xb tavern simulated request does not inject legacy structured state prompt when memory archiving is disabled', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const session = await createTavernSession({
@@ -3625,8 +3627,8 @@ test('xb tavern simulated request injects only structured state when memory arch
         currentUserMessage: '前面有什么路？',
     });
 
-    assert.match(result.buildSnapshot.rawMessagesJson, /状态摘要/);
-    assert.match(result.buildSnapshot.rawMessagesJson, /River Road/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /状态摘要/);
+    assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /River Road/);
     assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /SECRET_MEMORY_NOTE/);
     assert.doesNotMatch(result.buildSnapshot.rawMessagesJson, /记忆|memory\/session\.md|tavern\.map\/main|revision/);
     assert.equal(result.buildSnapshot.structuredStates?.[0]?.docId, 'main');

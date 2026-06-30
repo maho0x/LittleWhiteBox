@@ -1725,7 +1725,7 @@ test('tavern roleplay html previews use stable code anchors and a local iframe b
     assert.match(markdownSource, /const htmlFenceMode = options\.htmlFenceMode === 'code' \? 'code' : 'placeholder';/);
     assert.match(markdownSource, /const protectRawHtmlBoundaries = options\.protectRawHtmlBoundaries !== false;/);
     assert.match(markdownSource, /shouldFoldAsHtml && htmlFenceMode !== 'code'/);
-    assert.match(markdownToolsSource, /renderOptions\.roleplay \? \{ htmlFenceMode: 'code', protectRawHtmlBoundaries: false \} : \{\}/);
+    assert.match(markdownToolsSource, /renderOptions\.roleplay \? \{ htmlFenceMode: 'code' \} : \{\}/);
     assert.match(markdownToolsSource, /const TAVERN_HTML_CODE_LANGUAGES = new Set\(\['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte'\]\);/);
     assert.match(markdownToolsSource, /function enhanceTavernHtmlCodeBlocks\(root: HTMLElement\)/);
     assert.match(markdownToolsSource, /function isTavernHtmlCodeLanguage\(codeBlock: HTMLElement\)[\s\S]*TAVERN_HTML_CODE_LANGUAGES\.has\(normalized\);/);

@@ -1705,7 +1705,6 @@ function buildSingleCharacterFieldBlock(title: string, content: unknown): string
 
 function buildMemoryBlock(memoryContext: XbTavernMemoryContext = {}): string {
     const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
-    const structuredStates = Array.isArray(memoryContext.structuredStates) ? memoryContext.structuredStates : [];
     const spatialState = normalizeText(memoryContext.spatialState);
     const questHooks = Array.isArray(memoryContext.questHooks)
         ? memoryContext.questHooks.map((hook) => normalizeText(hook)).filter(Boolean)
@@ -1733,17 +1732,8 @@ function buildMemoryBlock(memoryContext: XbTavernMemoryContext = {}): string {
         sections.push(`## 相关人物记忆\n${characterLines.join('\n\n')}`);
     }
 
-    const stateLines = spatialState ? [] : structuredStates
-        .map((state) => {
-            const digest = normalizeText(state.digest);
-            return digest;
-        })
-        .filter(Boolean);
-    if (stateLines.length) {
-        sections.push(`## 状态摘要\n${stateLines.join('\n\n')}`);
-    }
     if (spatialState) {
-        sections.push(`## 空间状态\n${spatialState}`);
+        sections.push(`## 空间地图状态\n${spatialState}`);
     }
 
     return sections.join('\n\n');

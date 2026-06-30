@@ -7180,10 +7180,7 @@ function A5(e) {
     return `${he.length}:${ke.toString(36)}`;
   }
   function f(Q = "", he = {}) {
-    const ke = he.roleplay ? f5(Q, he) : String(Q || ""), Be = he.roleplay ? {
-      htmlFenceMode: "code",
-      protectRawHtmlBoundaries: !1
-    } : {}, _e = !/(^|\n)(`{3,}|~{3,})[ \t]*(html|htm|xhtml|xml|svg|vue|svelte)?\b/i.test(ke) && !he.roleplay, xe = u(ke);
+    const ke = he.roleplay ? f5(Q, he) : String(Q || ""), Be = he.roleplay ? { htmlFenceMode: "code" } : {}, _e = !/(^|\n)(`{3,}|~{3,})[ \t]*(html|htm|xhtml|xml|svg|vue|svelte)?\b/i.test(ke) && !he.roleplay, xe = u(ke);
     if (_e && t.has(xe)) return t.get(xe) || "";
     const Ke = WK(ke, Be);
     if (_e && !Ke.includes("xb-markdown-html-placeholder") && (t.set(xe, Ke), t.size > 160)) {
@@ -8212,29 +8209,29 @@ function q5(e) {
 function ji(e = {}) {
   const t = B5(e);
   return {
-    prompt: nt(t.prompt),
+    prompt: rt(t.prompt),
     interval: db(t.interval, $w.interval),
     position: U5(t.position),
     depth: db(t.depth, $w.depth),
     role: q5(t.role),
     scan: t.scan === !0,
-    characterName: nt(t.characterName),
-    characterPrompt: nt(t.characterPrompt),
+    characterName: rt(t.characterName),
+    characterPrompt: rt(t.characterPrompt),
     characterUse: t.characterUse === !0,
     characterPosition: db(t.characterPosition, 0)
   };
 }
 function H5(e = {}, t = "") {
-  return (Array.isArray(e.history) ? e.history : []).filter((n) => Io(n.role ?? n.is_user) === "user").length + (nt(t) ? 1 : 0);
+  return (Array.isArray(e.history) ? e.history : []).filter((n) => Io(n.role ?? n.is_user) === "user").length + (rt(t) ? 1 : 0);
 }
 function K5(e = {}, t = "") {
   const n = ji(e.authorNote);
   let r = H5(e, t);
   n.interval === 1 && (r = 1);
   const a = r > 0 && n.interval > 0 && (r >= n.interval ? r % n.interval === 0 : !1);
-  let s = a ? nt(n.prompt) : "";
+  let s = a ? rt(n.prompt) : "";
   if (a && n.characterUse === !0) {
-    const o = nt(n.characterPrompt);
+    const o = rt(n.characterPrompt);
     switch (n.characterPosition) {
       case 1:
         s = [o, s].filter(Boolean).join(`
@@ -8260,7 +8257,7 @@ function K5(e = {}, t = "") {
 }
 function W5(e = {}, t = "") {
   const n = K5(e, t);
-  return n.scan && n.shouldAddPrompt ? nt(n.prompt) : "";
+  return n.scan && n.shouldAddPrompt ? rt(n.prompt) : "";
 }
 var Dw = {
   0: "system",
@@ -8297,7 +8294,7 @@ var Dw = {
   "afterHistory",
   "assistantPrefill"
 ];
-function nt(e = "") {
+function rt(e = "") {
   return String(e || "").trim();
 }
 function mr(e, t) {
@@ -8306,7 +8303,7 @@ function mr(e, t) {
     if (!n || typeof n != "object") return "";
     n = n[r];
   }
-  return nt(n);
+  return rt(n);
 }
 function Io(e, t = "system") {
   if (typeof e == "number" && Dw[e]) return Dw[e];
@@ -8319,7 +8316,7 @@ function Io(e, t = "system") {
   ].includes(n) ? n : t;
 }
 function Nc(e, t, n = {}) {
-  const r = nt(t);
+  const r = rt(t);
   return r ? {
     role: Io(e),
     content: r,
@@ -8328,9 +8325,9 @@ function Nc(e, t, n = {}) {
 }
 function Lw(e) {
   return Array.isArray(e) ? e.map((t, n) => {
-    const r = t && typeof t == "object" ? t : {}, a = nt(r.text);
+    const r = t && typeof t == "object" ? t : {}, a = rt(r.text);
     return a ? {
-      label: nt(r.label) || `reasoning ${n + 1}`,
+      label: rt(r.label) || `reasoning ${n + 1}`,
       text: a
     } : null;
   }).filter((t) => !!t) : [];
@@ -8340,7 +8337,7 @@ function V5(e = []) {
   return t.length ? [
     "<reasoning>",
     ...t.map((n) => [
-      `<thought label="${nt(n.label).replace(/"/g, "&quot;")}">`,
+      `<thought label="${rt(n.label).replace(/"/g, "&quot;")}">`,
       n.text,
       "</thought>"
     ].join(`
@@ -8361,20 +8358,20 @@ function J5(e) {
   } : n;
 }
 function cA(e) {
-  return e.filter((t) => !!t && !!nt(t.content));
+  return e.filter((t) => !!t && !!rt(t.content));
 }
 function Gn(e, t, n = "unknown", r = "", a = {}, s = "") {
   return {
     message: Nc(e, t, a),
     layer: n,
     label: r || n,
-    sourceId: nt(s)
+    sourceId: rt(s)
   };
 }
 function Y5(e = []) {
   const t = [], n = [];
   return e.forEach((r) => {
-    if (!r.message || !nt(r.message.content)) return;
+    if (!r.message || !rt(r.message.content)) return;
     const a = t.length;
     t.push(r.message);
     const s = r.message.content.length;
@@ -8393,8 +8390,8 @@ function Y5(e = []) {
   };
 }
 function Xi(e) {
-  if (Array.isArray(e)) return e.map((n) => nt(n)).filter(Boolean);
-  const t = nt(e);
+  if (Array.isArray(e)) return e.map((n) => rt(n)).filter(Boolean);
+  const t = rt(e);
   return t ? [t] : [];
 }
 function j5(e = "") {
@@ -8417,7 +8414,7 @@ function X5(e) {
   return Object.prototype.hasOwnProperty.call(RI, t) ? RI[t] : 1;
 }
 function uA(e = {}, t = 0) {
-  const n = e, r = e.extensions || {}, a = (u, f) => Object.prototype.hasOwnProperty.call(r, u) ? r[u] : n[f], s = j5(e.content || ""), o = e.uid ?? e.id ?? e.comment ?? e.name ?? t + 1, l = nt(e.sourceWorldBook || e.worldName || e.world), i = s.content || nt(e.content), c = n.order ?? n.insertion_order;
+  const n = e, r = e.extensions || {}, a = (u, f) => Object.prototype.hasOwnProperty.call(r, u) ? r[u] : n[f], s = j5(e.content || ""), o = e.uid ?? e.id ?? e.comment ?? e.name ?? t + 1, l = rt(e.sourceWorldBook || e.worldName || e.world), i = s.content || rt(e.content), c = n.order ?? n.insertion_order;
   return {
     ...e,
     uid: o,
@@ -8442,7 +8439,7 @@ function uA(e = {}, t = 0) {
     excludeRecursion: a("exclude_recursion", "excludeRecursion") === !0,
     preventRecursion: a("prevent_recursion", "preventRecursion") === !0,
     delayUntilRecursion: a("delay_until_recursion", "delayUntilRecursion"),
-    group: nt(a("group", "group")),
+    group: rt(a("group", "group")),
     groupOverride: a("group_override", "groupOverride") === !0,
     groupWeight: Number.isFinite(Number(a("group_weight", "groupWeight"))) ? Number(a("group_weight", "groupWeight")) : void 0,
     useGroupScoring: a("use_group_scoring", "useGroupScoring"),
@@ -8452,7 +8449,7 @@ function uA(e = {}, t = 0) {
     cooldown: a("cooldown", "cooldown"),
     delay: a("delay", "delay"),
     triggers: Xi(a("triggers", "triggers")),
-    outletName: nt(a("outlet_name", "outletName")),
+    outletName: rt(a("outlet_name", "outletName")),
     matchPersonaDescription: a("match_persona_description", "matchPersonaDescription"),
     matchCharacterDescription: a("match_character_description", "matchCharacterDescription"),
     matchCharacterPersonality: a("match_character_personality", "matchCharacterPersonality"),
@@ -8461,13 +8458,13 @@ function uA(e = {}, t = 0) {
     matchCreatorNotes: a("match_creator_notes", "matchCreatorNotes"),
     activationReason: "",
     sourceWorldBook: l,
-    worldSourceType: nt(e.worldSourceType),
+    worldSourceType: rt(e.worldSourceType),
     worldSourceIndex: Number.isFinite(Number(e.worldSourceIndex)) ? Number(e.worldSourceIndex) : t,
     contentChars: i.length
   };
 }
 function Q5(e, t, n = 0) {
-  return `${nt(e) || "direct"}\0${nt(t) || `index:${n}`}`;
+  return `${rt(e) || "direct"}\0${rt(t) || `index:${n}`}`;
 }
 function dA(e) {
   return z5[e] || "after character";
@@ -8484,7 +8481,7 @@ function tN(e = [], t = 2) {
 function Z5(e = {}, t) {
   const n = t?.scanDepth === null || t?.scanDepth === void 0 ? wh(e.scanDepth ?? 2, 2) : wh(t.scanDepth, 2), r = [
     Array.isArray(e.scanMessages) ? tN(e.scanMessages, n) : String(e.scanText || ""),
-    nt(e.injectScanText),
+    rt(e.injectScanText),
     String(e.recursionText || "")
   ], a = e.globalScanData || {};
   return t?.matchPersonaDescription && a.personaDescription && r.push(a.personaDescription), t?.matchCharacterDescription && a.characterDescription && r.push(a.characterDescription), t?.matchCharacterPersonality && a.characterPersonality && r.push(a.characterPersonality), t?.matchCharacterDepthPrompt && a.characterDepthPrompt && r.push(a.characterDepthPrompt), t?.matchScenario && a.scenario && r.push(a.scenario), t?.matchCreatorNotes && a.creatorNotes && r.push(a.creatorNotes), r.filter(Boolean).join(`
@@ -8554,13 +8551,13 @@ function aN(e, t) {
 function sN(e, t) {
   const n = e.characterFilter;
   if (!n || typeof n != "object") return !0;
-  const r = Array.isArray(n.names) ? n.names.map((u) => nt(u)).filter(Boolean) : [], a = Array.isArray(n.tags) ? n.tags.map((u) => nt(u)).filter(Boolean) : [];
+  const r = Array.isArray(n.names) ? n.names.map((u) => rt(u)).filter(Boolean) : [], a = Array.isArray(n.tags) ? n.tags.map((u) => rt(u)).filter(Boolean) : [];
   if (!r.length && !a.length) return !0;
-  const s = new Set((t.characterFilterData?.names || []).map((u) => nt(u)).filter(Boolean)), o = new Set((t.characterFilterData?.tags || []).map((u) => nt(u)).filter(Boolean)), l = r.some((u) => s.has(u)), i = a.some((u) => o.has(u)), c = l || i;
+  const s = new Set((t.characterFilterData?.names || []).map((u) => rt(u)).filter(Boolean)), o = new Set((t.characterFilterData?.tags || []).map((u) => rt(u)).filter(Boolean)), l = r.some((u) => s.has(u)), i = a.some((u) => o.has(u)), c = l || i;
   return n.isExclude ? !c : c;
 }
 function nW(e, t) {
-  if (e.disable === !0 || e.disabled === !0 || e.triggers?.length && !e.triggers.includes(nt(t.trigger) || "normal") || !sN(e, t)) return "";
+  if (e.disable === !0 || e.disabled === !0 || e.triggers?.length && !e.triggers.includes(rt(t.trigger) || "normal") || !sN(e, t)) return "";
   const n = Number(t.turn) || 0, r = fA(t, e), a = hA(e, t), s = rN(t);
   if (Number(r.delayUntilTurn) > n || Number(e.delay) > 0 && n < Number(e.delay) || Number(r.cooldownUntilTurn) > n && !a || s > 0 && e.excludeRecursion && !a || !aN(e, s) && !a) return "";
   if (e.decorators.includes("@@activate")) return "decorator";
@@ -8575,7 +8572,7 @@ function rW(e, t) {
     status: "disabled",
     activationReason: ""
   };
-  if (e.triggers?.length && !e.triggers.includes(nt(t.trigger) || "normal")) return {
+  if (e.triggers?.length && !e.triggers.includes(rt(t.trigger) || "normal")) return {
     status: "trigger_filtered",
     activationReason: ""
   };
@@ -8629,14 +8626,14 @@ function rW(e, t) {
   };
 }
 function NI(e, t = {}) {
-  const n = nt(e.worldSourceType);
+  const n = rt(e.worldSourceType);
   if (n === "chat") return 0;
   if (n === "persona") return 1;
   const r = Number(t.insertionStrategy ?? 1);
   return n === "character" ? r === 2 ? 3 : 2 : n === "global" ? r === 1 ? 3 : 2 : 4;
 }
 function $I(e, t = {}) {
-  const n = nt(e.worldSourceType);
+  const n = rt(e.worldSourceType);
   if (Number(t.insertionStrategy ?? 1) === 0) {
     if (n === "global") return 0;
     if (n === "character") return 1;
@@ -8682,7 +8679,7 @@ function tg(e = [], t = {}) {
   };
 }
 function DI(e) {
-  return nt(e.group).split(/,\s*/).map((t) => t.trim()).filter(Boolean);
+  return rt(e.group).split(/,\s*/).map((t) => t.trim()).filter(Boolean);
 }
 function sW(e, t = {}) {
   const n = ly(t, e), r = e.key.filter((s) => n(s)).length;
@@ -8804,7 +8801,7 @@ function cW(e = [], t = [], n = {}, r = tg(t, n)) {
     return {
       uid: i.uid,
       activationKey: i.activationKey,
-      title: nt(i.comment || i.title || i.name || i.uid),
+      title: rt(i.comment || i.title || i.name || i.uid),
       sourceWorldBook: i.sourceWorldBook,
       worldSourceType: i.worldSourceType,
       worldSourceIndex: i.worldSourceIndex,
@@ -8830,14 +8827,14 @@ function cW(e = [], t = [], n = {}, r = tg(t, n)) {
 function uW(e = []) {
   return (Array.isArray(e) ? e : []).map((t, n) => ({
     ...uA(t, n),
-    activationReason: nt(t.activationReason) || "native"
+    activationReason: rt(t.activationReason) || "native"
   })).filter((t) => !!t.content);
 }
 function dW(e = []) {
   return e.map((t) => ({
     uid: t.uid,
     activationKey: t.activationKey,
-    title: nt(t.comment || t.title || t.name || t.uid),
+    title: rt(t.comment || t.title || t.name || t.uid),
     sourceWorldBook: t.sourceWorldBook,
     worldSourceType: t.worldSourceType,
     worldSourceIndex: t.worldSourceIndex,
@@ -8862,7 +8859,7 @@ function fW(e = {}) {
   const t = [];
   let n = 0;
   const r = (s, o, l = {}) => {
-    const i = nt(s);
+    const i = rt(s);
     if (!i) return;
     const c = `native:${o}:${n}`;
     t.push({
@@ -8885,7 +8882,7 @@ function fW(e = {}) {
     }), n += 1;
   };
   r(e.worldInfoBefore, 0), r(e.worldInfoAfter, 1), (Array.isArray(e.worldInfoExamples) ? e.worldInfoExamples : []).forEach((s) => {
-    const o = nt(s?.position) === "after" ? 6 : 5;
+    const o = rt(s?.position) === "after" ? 6 : 5;
     r(s?.content, o);
   }), (Array.isArray(e.anBefore) ? e.anBefore : []).forEach((s) => {
     r(s, 2);
@@ -8924,7 +8921,7 @@ function cy(e) {
     case 6:
       return "example messages bottom";
     case 7:
-      return `outlet:${nt(e.outletName || e.outlet || "default")}`;
+      return `outlet:${rt(e.outletName || e.outlet || "default")}`;
     default:
       return dA(e.position);
   }
@@ -8950,7 +8947,7 @@ function hW(e = []) {
           t.atDepth.push(n);
           break;
         case 7: {
-          const r = nt(n.outletName || n.outlet || "default");
+          const r = rt(n.outletName || n.outlet || "default");
           t.outlet[r] = t.outlet[r] || [], t.outlet[r].push(n);
           break;
         }
@@ -9009,7 +9006,7 @@ function iN(e = {}, t = {}) {
     ["Message Examples", e.mesExample || e.mes_example || mr(n, ["mes_example"])],
     ["User Persona", t.persona || t.description]
   ].map(([a, s]) => {
-    const o = nt(s);
+    const o = rt(s);
     return o ? `## ${a}
 ${o}` : "";
   }).filter(Boolean);
@@ -9020,32 +9017,27 @@ ${r.join(`
 </character_card>` : "";
 }
 function zd(e, t) {
-  const n = nt(t);
+  const n = rt(t);
   return n ? `## ${e}
 ${n}` : "";
 }
 function gW(e = {}) {
-  const t = Array.isArray(e.memoryFiles) ? e.memoryFiles : [], n = Array.isArray(e.structuredStates) ? e.structuredStates : [], r = nt(e.spatialState), a = Array.isArray(e.questHooks) ? e.questHooks.map((c) => nt(c)).filter(Boolean) : [], s = [];
-  a.length && s.push(a.join(`
+  const t = Array.isArray(e.memoryFiles) ? e.memoryFiles : [], n = rt(e.spatialState), r = Array.isArray(e.questHooks) ? e.questHooks.map((l) => rt(l)).filter(Boolean) : [], a = [];
+  r.length && a.push(r.join(`
 `));
-  const o = nt(t.find((c) => c.path === "memory/state.md")?.content || "");
-  o && s.push(`## 会话记忆
-${o}`);
-  const l = t.filter((c) => String(c.path || "").startsWith("memory/characters/")).map((c) => {
-    const u = nt(c.content);
-    return u ? `### ${nt(c.title || String(c.path || "").replace(/^memory\/characters\//, "").replace(/\.md$/i, "")) || "相关人物"}
-${u}` : "";
+  const s = rt(t.find((l) => l.path === "memory/state.md")?.content || "");
+  s && a.push(`## 会话记忆
+${s}`);
+  const o = t.filter((l) => String(l.path || "").startsWith("memory/characters/")).map((l) => {
+    const i = rt(l.content);
+    return i ? `### ${rt(l.title || String(l.path || "").replace(/^memory\/characters\//, "").replace(/\.md$/i, "")) || "相关人物"}
+${i}` : "";
   }).filter(Boolean);
-  l.length && s.push(`## 相关人物记忆
-${l.join(`
+  return o.length && a.push(`## 相关人物记忆
+${o.join(`
 
-`)}`);
-  const i = r ? [] : n.map((c) => nt(c.digest)).filter(Boolean);
-  return i.length && s.push(`## 状态摘要
-${i.join(`
-
-`)}`), r && s.push(`## 空间状态
-${r}`), s.join(`
+`)}`), n && a.push(`## 空间地图状态
+${n}`), a.join(`
 
 `);
 }
@@ -9071,9 +9063,9 @@ function vW(e = {}) {
 }
 function yW(e = []) {
   return e.map((t, n) => {
-    const r = nt(t.content);
+    const r = rt(t.content);
     if (!r) return null;
-    const a = nt(t.label) || `runtime depth ${n + 1}`;
+    const a = rt(t.label) || `runtime depth ${n + 1}`;
     return {
       uid: `runtime-depth:${n}`,
       activationKey: `runtime-depth:${n}:${a}`,
@@ -9086,7 +9078,7 @@ function yW(e = []) {
       role: Io(t.role, "system"),
       order: Number.isFinite(Number(t.order)) ? Number(t.order) : 1e9 + n,
       depth: Number.isFinite(Number(t.depth)) ? Math.max(0, Number(t.depth)) : 1,
-      activationReason: nt(t.layer) || "runtime",
+      activationReason: rt(t.layer) || "runtime",
       sourceWorldBook: "",
       title: a,
       comment: a
@@ -9095,14 +9087,14 @@ function yW(e = []) {
 }
 function _W(e = {}) {
   return (Array.isArray(e.sections) ? e.sections : []).map((t) => ({
-    id: nt(t.id),
-    label: nt(t.label),
+    id: rt(t.id),
+    label: rt(t.label),
     enabled: t.enabled !== !1,
     marker: t.marker === !0,
     role: Io(t.role, "system"),
-    content: nt(t.content),
+    content: rt(t.content),
     placement: G5.includes(t.placement) ? t.placement : "beforeHistory",
-    source: nt(t.source)
+    source: rt(t.source)
   })).filter((t) => t.enabled && (t.content || t.marker));
 }
 function jc(e = [], t = "") {
@@ -9117,7 +9109,7 @@ function Xc(e = [], t, n = "preset") {
   }));
 }
 function bW(e = {}) {
-  return nt(e.id).replace(/^prompt-manager:/, "");
+  return rt(e.id).replace(/^prompt-manager:/, "");
 }
 function wW(e) {
   const { presetSections: t, character: n, user: r, worldBuckets: a, conversationUnits: s, runtimeProtocolUnits: o } = e, l = n.data || {}, i = /* @__PURE__ */ new Set(), c = [], u = (f, p) => {
@@ -9231,38 +9223,38 @@ function EW(e = [], t = []) {
 function IW(e = {}) {
   const t = e.character || {}, n = e.user || {}, r = t.data || {};
   return {
-    personaDescription: nt(n.persona || n.description),
-    characterDescription: nt(t.description || mr(r, ["description"])),
-    characterPersonality: nt(t.personality || mr(r, ["personality"])),
-    characterDepthPrompt: nt(mr(t, ["characterDepthPrompt"]) || mr(t, ["character_depth_prompt"]) || mr(r, [
+    personaDescription: rt(n.persona || n.description),
+    characterDescription: rt(t.description || mr(r, ["description"])),
+    characterPersonality: rt(t.personality || mr(r, ["personality"])),
+    characterDepthPrompt: rt(mr(t, ["characterDepthPrompt"]) || mr(t, ["character_depth_prompt"]) || mr(r, [
       "extensions",
       "depth_prompt",
       "prompt"
     ]) || mr(r, ["character_depth_prompt"]) || mr(r, ["depth_prompt"])),
-    scenario: nt(t.scenario || mr(r, ["scenario"])),
-    creatorNotes: nt(t.creatorNotes || t.creator_notes || mr(r, ["creator_notes"]))
+    scenario: rt(t.scenario || mr(r, ["scenario"])),
+    creatorNotes: rt(t.creatorNotes || t.creator_notes || mr(r, ["creator_notes"]))
   };
 }
 function xW(e = {}) {
-  const t = e.character || {}, n = nt(t.avatar), r = n.split(/[\\/]/).pop() || n, a = Array.isArray(t.tags) ? t.tags : [];
+  const t = e.character || {}, n = rt(t.avatar), r = n.split(/[\\/]/).pop() || n, a = Array.isArray(t.tags) ? t.tags : [];
   return {
     names: [
       t.name,
       t.characterKey,
       n,
       r
-    ].map((s) => nt(s)).filter(Boolean),
-    tags: a.map((s) => nt(s)).filter(Boolean)
+    ].map((s) => rt(s)).filter(Boolean),
+    tags: a.map((s) => rt(s)).filter(Boolean)
   };
 }
 function CW(e = {}, t = {}) {
   const n = String(e.content || e.mes || e.message || "");
   if (!n) return "";
-  const r = (e.is_user === !0 ? "user" : Io(e.role, "assistant")) === "user" ? t.user?.name : t.character?.name, a = nt(e.name || r);
+  const r = (e.is_user === !0 ? "user" : Io(e.role, "assistant")) === "user" ? t.user?.name : t.character?.name, a = rt(e.name || r);
   return a ? `${a}: ${n}` : n;
 }
 function MW(e = {}, t = "", n = !1) {
-  const r = e.history || [], a = n && t ? `${nt(e.user?.name) || "User"}: ${t}` : t;
+  const r = e.history || [], a = n && t ? `${rt(e.user?.name) || "User"}: ${t}` : t;
   return [...r.map((s) => n ? CW(s, e) : s.content || s.mes || s.message || ""), a].map((s) => String(s || "")).filter(Boolean);
 }
 function PW(e = {}) {
@@ -9270,20 +9262,20 @@ function PW(e = {}) {
     ...r,
     sourceWorldBook: r.sourceWorldBook || r.worldName || r.world || ""
   })) : [], n = (Array.isArray(e.worldBooks) ? e.worldBooks : []).flatMap((r) => {
-    const a = nt(r.worldSourceType), s = Number(r.worldSourceIndex);
+    const a = rt(r.worldSourceType), s = Number(r.worldSourceIndex);
     return Array.isArray(r.entries) ? r.entries.map((o) => ({
       ...o,
       sourceWorldBook: o.sourceWorldBook || o.worldName || o.world || r.name,
-      worldSourceType: nt(o.worldSourceType) || a,
+      worldSourceType: rt(o.worldSourceType) || a,
       worldSourceIndex: Number.isFinite(Number(o.worldSourceIndex)) ? Number(o.worldSourceIndex) : Number.isFinite(s) ? s : void 0
     })) : [];
   });
   return NW([...t, ...n]);
 }
 function RW(e = {}) {
-  const t = nt(e.sourceWorldBook || e.worldName || e.world) || "direct", n = nt(e.uid ?? e.id);
+  const t = rt(e.sourceWorldBook || e.worldName || e.world) || "direct", n = rt(e.uid ?? e.id);
   if (n) return `${t}\0uid\0${n}`;
-  const r = nt(e.comment || e.title || e.name), a = nt(e.content);
+  const r = rt(e.comment || e.title || e.name), a = rt(e.content);
   return `${t}\0body\0${r}\0${Xi(e.key).join("")}\0${[...Xi(e.keysecondary), ...Xi(e.secondary_keys)].join("")}\0${a}`;
 }
 function NW(e = []) {
@@ -9294,7 +9286,7 @@ function NW(e = []) {
   }), n;
 }
 function cN(e = {}, t = {}, n = {}) {
-  const r = e.character || {}, a = e.user || {}, s = e.history || [], o = n.currentUserMessage || "", l = n.historyMode || "raw", i = n.memoryContext || {}, c = Array.isArray(n.runtimeDepthEntries) ? n.runtimeDepthEntries : [], u = Array.isArray(n.runtimeProtocolMessages) ? n.runtimeProtocolMessages : [], f = _W(t), p = n.worldSettings || {}, v = typeof n.worldScanText == "string", y = MW(e, o, p.includeNames === !0), _ = v ? String(n.worldScanText || "") : tN(y, wh(p.scanDepth ?? 2, 2)), I = [nt(p.injectScanText), W5(e, o)].filter(Boolean).join(`
+  const r = e.character || {}, a = e.user || {}, s = e.history || [], o = n.currentUserMessage || "", l = n.historyMode || "raw", i = n.memoryContext || {}, c = Array.isArray(n.runtimeDepthEntries) ? n.runtimeDepthEntries : [], u = Array.isArray(n.runtimeProtocolMessages) ? n.runtimeProtocolMessages : [], f = _W(t), p = n.worldSettings || {}, v = typeof n.worldScanText == "string", y = MW(e, o, p.includeNames === !0), _ = v ? String(n.worldScanText || "") : tN(y, wh(p.scanDepth ?? 2, 2)), I = [rt(p.injectScanText), W5(e, o)].filter(Boolean).join(`
 `), x = uW(e.nativeWorldInfo?.activatedEntries), k = fW(e.nativeWorldInfo), N = {
     ...p,
     scanText: _,
@@ -9428,7 +9420,7 @@ function dN(e = {}, t, n) {
 function $W(e, t = []) {
   const n = cA(t.map((r) => ({
     ...r,
-    content: nt(r.content)
+    content: rt(r.content)
   })));
   return {
     ...e,
@@ -9458,15 +9450,15 @@ async function LW(e = {}, t = {}, n = {}, r = {}) {
   if (r.transformWorldEntries) {
     a.activatedWorldEntries = (await r.transformWorldEntries(a.activatedWorldEntries)).map((l) => ({
       ...l,
-      content: nt(l.content),
-      contentChars: nt(l.content).length
+      content: rt(l.content),
+      contentChars: rt(l.content).length
     })).filter((l) => !!l.content);
     const o = new Map(a.activatedWorldEntries.map((l) => [l.activationKey, l]));
     a.localStateWorldEntries = a.localStateWorldEntries.map((l) => o.get(l.activationKey) || l).filter((l) => !!l.content);
   }
   r.transformConversationMessages && (a.promptConversationMessages = cA((await r.transformConversationMessages(uN(a, t))).map((o) => ({
     ...o,
-    content: nt(o.content)
+    content: rt(o.content)
   }))));
   const s = dN(t, a, r.regexApplications);
   return r.transformFinalMessages ? $W(s, await r.transformFinalMessages(s.messages)) : s;
@@ -9474,18 +9466,18 @@ async function LW(e = {}, t = {}, n = {}, r = {}) {
 function pA(e = {}, t = {}, n, r = void 0) {
   const a = e.character || {}, s = e.user || {}, o = Array.isArray(e.worldBooks) ? e.worldBooks : [], l = new Map(n.worldEntryCandidates.map((i) => [i.activationKey, i]));
   return {
-    chatPresetId: nt(t.id),
-    chatPresetName: nt(t.name),
-    presetId: nt(t.id),
-    presetName: nt(t.name),
-    characterKey: nt(a.characterKey),
-    characterName: nt(a.name),
-    userName: nt(s.name),
+    chatPresetId: rt(t.id),
+    chatPresetName: rt(t.name),
+    presetId: rt(t.id),
+    presetName: rt(t.name),
+    characterKey: rt(a.characterKey),
+    characterName: rt(a.name),
+    userName: rt(s.name),
     historyCount: Array.isArray(e.history) ? e.history.length : 0,
     worldBooks: o.map((i) => ({
-      name: nt(i.name),
+      name: rt(i.name),
       entries: Array.isArray(i.entries) ? i.entries.length : 0,
-      ...i.error ? { error: nt(i.error) } : {}
+      ...i.error ? { error: rt(i.error) } : {}
     })),
     messageCount: n.messages.length,
     messageChars: n.messages.reduce((i, c) => i + String(c.content || "").length, 0),
@@ -9497,27 +9489,27 @@ function pA(e = {}, t = {}, n, r = void 0) {
       return {
         uid: i.uid,
         sourceWorldBook: i.sourceWorldBook,
-        title: c?.title || nt(i.comment || i.title || i.name || i.uid),
+        title: c?.title || rt(i.comment || i.title || i.name || i.uid),
         activationReason: i.activationReason,
         insertionTarget: c?.insertionTarget || cy(i),
         contentChars: i.contentChars
       };
     }),
     ...e.nativeWorldInfo ? { nativeWorldInfo: {
-      trigger: nt(e.nativeWorldInfo.trigger),
+      trigger: rt(e.nativeWorldInfo.trigger),
       sourceNames: Array.isArray(e.nativeWorldInfo.sourceNames) ? e.nativeWorldInfo.sourceNames.map((i) => ({
-        name: nt(i.name),
+        name: rt(i.name),
         ...i.sourceType ? { sourceType: i.sourceType } : {},
         ...Number.isFinite(Number(i.sourceIndex)) ? { sourceIndex: Number(i.sourceIndex) } : {}
       })) : []
     } } : {},
     ...n.meta.structuredStates?.length ? { structuredStates: n.meta.structuredStates.map((i) => ({
-      docType: nt(i.docType),
-      docId: nt(i.docId),
+      docType: rt(i.docType),
+      docId: rt(i.docId),
       revision: Number(i.revision) || 0,
-      digestChars: nt(i.digest).length
+      digestChars: rt(i.digest).length
     })) } : {},
-    ...n.meta.spatialState ? { spatialStateChars: nt(n.meta.spatialState).length } : {},
+    ...n.meta.spatialState ? { spatialStateChars: rt(n.meta.spatialState).length } : {},
     worldBudget: n.meta.worldBudget,
     worldPositionCounts: n.meta.worldPositionCounts,
     scanTextChars: n.meta.scanTextChars,
@@ -51016,27 +51008,22 @@ function coe(e) {
   }] : [];
 }
 function uoe(e = {}) {
-  const t = Array.isArray(e.memoryFiles) ? e.memoryFiles : [], n = Array.isArray(e.structuredStates) ? e.structuredStates : [], r = String(e.spatialState || "").trim(), a = Array.isArray(e.questHooks) ? e.questHooks.map((u) => String(u || "").trim()).filter(Boolean) : [], s = [];
-  a.length && s.push(a.join(`
+  const t = Array.isArray(e.memoryFiles) ? e.memoryFiles : [], n = String(e.spatialState || "").trim(), r = Array.isArray(e.questHooks) ? e.questHooks.map((i) => String(i || "").trim()).filter(Boolean) : [], a = [];
+  r.length && a.push(r.join(`
 `));
-  const o = t.find((u) => String(u.path || "") === "memory/state.md"), l = String(o?.content || "").trim();
-  l && s.push(`## 会话记忆
-${l}`);
-  const i = t.filter((u) => String(u.path || "").startsWith("memory/characters/")).map((u) => {
-    const f = String(u.path || "").slice(18).replace(/\.md$/i, ""), p = String(u.title || f || "相关人物").trim(), v = String(u.content || "").trim();
-    return v ? `### ${p}
-${v}` : "";
+  const s = t.find((i) => String(i.path || "") === "memory/state.md"), o = String(s?.content || "").trim();
+  o && a.push(`## 会话记忆
+${o}`);
+  const l = t.filter((i) => String(i.path || "").startsWith("memory/characters/")).map((i) => {
+    const c = String(i.path || "").slice(18).replace(/\.md$/i, ""), u = String(i.title || c || "相关人物").trim(), f = String(i.content || "").trim();
+    return f ? `### ${u}
+${f}` : "";
   }).filter(Boolean);
-  i.length && s.push(`## 相关人物记忆
-${i.join(`
+  return l.length && a.push(`## 相关人物记忆
+${l.join(`
 
-`)}`);
-  const c = r ? [] : n.map((u) => String(u.digest || "").trim()).filter(Boolean);
-  return c.length && s.push(`## 状态摘要
-${c.join(`
-
-`)}`), r && s.push(`## 空间状态
-${r}`), s.join(`
+`)}`), n && a.push(`## 空间地图状态
+${n}`), a.join(`
 
 `);
 }
@@ -55719,7 +55706,7 @@ var $de = ["aria-hidden"], Dde = {
         actionCheckGroups: Yt
       };
     }
-    function rt(Dt) {
+    function nt(Dt) {
       if (Dt.role !== "assistant") {
         const De = S(Dt);
         return {
@@ -55978,7 +55965,7 @@ var $de = ["aria-hidden"], Dde = {
             key: `${De.sessionId}-${De.order}-thought-${cr}`,
             class: "tavern-thought-block"
           }, [g("div", ife, G(ca.label), 1), g("pre", null, G(ca.text), 1)]))), 128))], 64))), 128)) : ge("", !0)], 40, ofe)) : ge("", !0)], 64))), 128)),
-          T(Ne)(De) ? ge("", !0) : ($(!0), F(Ye, { key: 2 }, lt([rt(De)], (Yt) => ($(), F("div", {
+          T(Ne)(De) ? ge("", !0) : ($(!0), F(Ye, { key: 2 }, lt([nt(De)], (Yt) => ($(), F("div", {
             key: `${T(Ie)(De)}:${Yt.signature}`,
             class: "xb-tavern-markdown",
             "data-markdown-signature": Yt.signature,
@@ -56223,7 +56210,7 @@ var $de = ["aria-hidden"], Dde = {
         P(), fn();
       });
     }
-    function rt() {
+    function nt() {
       n("open-contract");
     }
     const Et = kT();
@@ -56279,7 +56266,7 @@ var $de = ["aria-hidden"], Dde = {
         class: "contract-trigger",
         title: "契约",
         "aria-label": "契约",
-        onClick: rt
+        onClick: nt
       }, " 契约 "), g("button", {
         type: "button",
         class: "chat-flip-trigger",
@@ -58081,7 +58068,7 @@ var Bge = {
     function We(q) {
       return i.value === "full" ? "add" : J.value.get(q.id) || (L.value.has(q.id) ? "modify" : "stable");
     }
-    function rt(q, ae) {
+    function nt(q, ae) {
       if (!q) return ae;
       if (!ae) return q;
       const ee = Math.min(q.minX, ae.minX), tt = Math.min(q.minY, ae.minY), dt = Math.max(q.maxX, ae.maxX), $t = Math.max(q.maxY, ae.maxY);
@@ -58095,7 +58082,7 @@ var Bge = {
       };
     }
     function Et() {
-      return (U.value?.elements || []).reduce((q, ae) => ae.text || String(ae.cat || "") === "label" ? q : rt(q, un(ae)), null);
+      return (U.value?.elements || []).reduce((q, ae) => ae.text || String(ae.cat || "") === "label" ? q : nt(q, un(ae)), null);
     }
     function rn(q) {
       return ar(q) && fe.value ? 12 : yn(q) ? 24 / 2 : 10;
@@ -58148,7 +58135,7 @@ var Bge = {
       }
       if (q.path || q.curve) return (q.path || q.curve || []).reduce((dt, [$t, Kt]) => {
         const [Pt, Zt] = yt([q.at[0] + $t, q.at[1] + Kt]);
-        return rt(dt, {
+        return nt(dt, {
           minX: Pt,
           minY: Zt,
           maxX: Pt,
@@ -59753,16 +59740,16 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
       }
     }), ce = Y(() => {
       const it = Array.isArray(ne.value) ? ne.value : [], We = String(fe.value || "").trim();
-      return We && it.find((rt) => rt.docId === We) || null;
+      return We && it.find((nt) => nt.docId === We) || null;
     }), Me = Y(() => {
       const it = ce.value?.data;
       if (!it || typeof it != "object" || Array.isArray(it)) return null;
-      const We = it, rt = Xu();
+      const We = it, nt = Xu();
       return {
         meta: We.meta && typeof We.meta == "object" && !Array.isArray(We.meta) ? {
-          ...rt.meta,
+          ...nt.meta,
           ...We.meta
-        } : rt.meta,
+        } : nt.meta,
         elements: Array.isArray(We.elements) ? We.elements.filter((Et) => !!Et && typeof Et == "object" && !Array.isArray(Et) && typeof Et.id == "string") : []
       };
     }), Fe = Y(() => Me.value?.elements || []), Ee = Y(() => String(Me.value?.meta?.name || ce.value?.title || ce.value?.docId || "地图")), Ge = Y(() => String(ce.value?.docId || "") === String(J.value || "main")), Le = Y(() => Ge.value ? $e.value : []), Ve = Y(() => !B.value && !!X.value.activeLocationKey && !me.value), Je = Ts("").length;
@@ -59770,18 +59757,18 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
       return String(it || "").normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, We);
     }
     function we(it) {
-      const We = Xe(it, 48), rt = We.toLowerCase();
-      return rt === "player" || rt === "user" || rt.startsWith("player ") || rt.startsWith("user ") || rt === "actor" || rt.startsWith("actor_") || rt.startsWith("actor-") || We === "玩家" || We.startsWith("玩家") || We === "用户" || We.startsWith("用户") || We === "你" || We === "您";
+      const We = Xe(it, 48), nt = We.toLowerCase();
+      return nt === "player" || nt === "user" || nt.startsWith("player ") || nt.startsWith("user ") || nt === "actor" || nt.startsWith("actor_") || nt.startsWith("actor-") || We === "玩家" || We.startsWith("玩家") || We === "用户" || We.startsWith("用户") || We === "你" || We === "您";
     }
     function te(it, We = 10) {
-      return [...new Set(it.map((rt) => Xe(rt)).filter(Boolean))].slice(0, We);
+      return [...new Set(it.map((nt) => Xe(nt)).filter(Boolean))].slice(0, We);
     }
     const je = Y(() => {
       const it = /* @__PURE__ */ new Map();
       return Fe.value.forEach((We) => {
         if (We.cat !== "label" || !wa(We.id)) return;
-        const rt = We.id.slice(Je), Et = Xe(We.text);
-        rt && Et && it.set(rt, Et);
+        const nt = We.id.slice(Je), Et = Xe(We.text);
+        nt && Et && it.set(nt, Et);
       }), it;
     });
     function Ue(it, We) {
@@ -59789,8 +59776,8 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
     }
     function Tt(it, We) {
       if (Xe(it.actorKey || it.id).toLowerCase() === "player") return String(l.value || "User").trim() || "User";
-      const rt = Xe(it.text);
-      if (rt && !we(rt)) return rt;
+      const nt = Xe(it.text);
+      if (nt && !we(nt)) return nt;
       const Et = Xe(We.get(it.id));
       if (Et && !we(Et)) return Et;
       const rn = Xe(it.actorKey);
@@ -59798,8 +59785,8 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
     }
     const yt = Y(() => te(Fe.value.filter((it) => it.cat === "actor").map((it) => Tt(it, je.value)), 8));
     function sn(it, We = 10) {
-      const rt = je.value;
-      return te(Fe.value.filter((Et) => it.includes(Et.cat)).map((Et) => Ue(Et, rt)), We);
+      const nt = je.value;
+      return te(Fe.value.filter((Et) => it.includes(Et.cat)).map((Et) => Ue(Et, nt)), We);
     }
     const ln = Y(() => {
       const it = je.value;
@@ -59843,7 +59830,7 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
         values: ke.value
       }
     ].filter((it) => it.values.length)), _e = Y(() => {
-      const it = Fe.value, We = (rt) => it.filter((Et) => Et.cat === rt).length;
+      const it = Fe.value, We = (nt) => it.filter((Et) => Et.cat === nt).length;
       return [
         {
           label: "元素",
@@ -59855,7 +59842,7 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
         },
         {
           label: "出入口",
-          value: String(it.filter((rt) => lS(rt.cat, rt.kind)).length)
+          value: String(it.filter((nt) => lS(nt.cat, nt.kind)).length)
         },
         {
           label: "标注",
@@ -59865,7 +59852,7 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
     }), xe = Y(() => U.value ? S(U.value) : "");
     kt([me, ne], () => {
       const it = Array.isArray(ne.value) ? ne.value : [], We = String(z.value || "").trim();
-      We && it.some((rt) => rt.docId === We) || B.value && (B.value = !1, z.value = "");
+      We && it.some((nt) => nt.docId === We) || B.value && (B.value = !1, z.value = "");
     }, { immediate: !0 });
     function Ke() {
       n("close");
@@ -59886,31 +59873,31 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
         title: "收起面板",
         "aria-label": "收起面板",
         onClick: Ke,
-        onPointercancel: We[0] || (We[0] = (...rt) => T(Gt) && T(Gt)(...rt)),
-        onPointerdown: We[1] || (We[1] = (...rt) => T(Qt) && T(Qt)(...rt)),
-        onPointermove: We[2] || (We[2] = (...rt) => T(fn) && T(fn)(...rt)),
-        onPointerup: We[3] || (We[3] = (...rt) => T(On) && T(On)(...rt))
+        onPointercancel: We[0] || (We[0] = (...nt) => T(Gt) && T(Gt)(...nt)),
+        onPointerdown: We[1] || (We[1] = (...nt) => T(Qt) && T(Qt)(...nt)),
+        onPointermove: We[2] || (We[2] = (...nt) => T(fn) && T(fn)(...nt)),
+        onPointerup: We[3] || (We[3] = (...nt) => T(On) && T(On)(...nt))
       }, null, 34),
       g("div", M_e, [
         g("button", {
           type: "button",
           class: He({ active: T(o) === "map" }),
-          onClick: We[4] || (We[4] = (rt) => o.value = "map")
+          onClick: We[4] || (We[4] = (nt) => o.value = "map")
         }, " 地图 ", 2),
         g("button", {
           type: "button",
           class: He({ active: T(o) === "status" }),
-          onClick: We[5] || (We[5] = (rt) => o.value = "status")
+          onClick: We[5] || (We[5] = (nt) => o.value = "status")
         }, " 状态 ", 2),
         g("button", {
           type: "button",
           class: He({ active: T(o) === "memory" }),
-          onClick: We[6] || (We[6] = (rt) => o.value = "memory")
+          onClick: We[6] || (We[6] = (nt) => o.value = "memory")
         }, " 记忆 ", 2),
         g("button", {
           type: "button",
           class: He({ active: T(o) === "event" }),
-          onClick: We[7] || (We[7] = (rt) => o.value = "event")
+          onClick: We[7] || (We[7] = (nt) => o.value = "event")
         }, " 事件 ", 2)
       ]),
       T(o) === "map" ? ($(), F("section", P_e, [g("div", { class: He(["tavern-map-viewport", `is-${be.value}`]) }, [g("div", R_e, [g("button", {
@@ -59918,17 +59905,17 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
         role: "tab",
         "aria-selected": be.value === "scene",
         class: He({ active: be.value === "scene" }),
-        onClick: We[8] || (We[8] = (rt) => be.value = "scene")
+        onClick: We[8] || (We[8] = (nt) => be.value = "scene")
       }, " 场景图 ", 10, N_e), g("button", {
         type: "button",
         role: "tab",
         "aria-selected": be.value === "world",
         class: He({ active: be.value === "world" }),
-        onClick: We[9] || (We[9] = (rt) => be.value = "world")
+        onClick: We[9] || (We[9] = (nt) => be.value = "world")
       }, " 世界图 ", 10, $_e)]), be.value === "scene" && ce.value ? ($(), Tn(dye, {
         key: 0,
         "selected-doc-id": fe.value,
-        "onUpdate:selectedDocId": We[10] || (We[10] = (rt) => fe.value = rt),
+        "onUpdate:selectedDocId": We[10] || (We[10] = (nt) => fe.value = nt),
         compact: "",
         documents: T(ne),
         "active-doc-id": T(J),
@@ -59990,11 +59977,11 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
         "material-symbols-status"
       ])) : ce.value ? ($(), F("div", L_e, [
         g("header", O_e, [g("strong", null, G(Ee.value), 1), g("em", null, G(Ge.value ? "当前场景" : "地图档案"), 1)]),
-        g("dl", F_e, [($(!0), F(Ye, null, lt(_e.value, (rt) => ($(), F("div", { key: rt.label }, [g("dt", null, G(rt.label), 1), g("dd", null, G(rt.value), 1)]))), 128))]),
-        Be.value.length ? ($(), F("div", B_e, [($(!0), F(Ye, null, lt(Be.value, (rt) => ($(), F("div", {
-          key: rt.key,
+        g("dl", F_e, [($(!0), F(Ye, null, lt(_e.value, (nt) => ($(), F("div", { key: nt.label }, [g("dt", null, G(nt.label), 1), g("dd", null, G(nt.value), 1)]))), 128))]),
+        Be.value.length ? ($(), F("div", B_e, [($(!0), F(Ye, null, lt(Be.value, (nt) => ($(), F("div", {
+          key: nt.key,
           class: "tavern-map-info-line"
-        }, [g("span", null, G(rt.label), 1), g("strong", null, G(rt.values.join("、")), 1)]))), 128))])) : ge("", !0)
+        }, [g("span", null, G(nt.label), 1), g("strong", null, G(nt.values.join("、")), 1)]))), 128))])) : ge("", !0)
       ])) : ($(), F("div", U_e, " 暂无地图信息。 "))], 2)])) : T(o) === "status" ? ($(), F("section", q_e, [Bn(I_e, {
         document: T(pe),
         "field-deltas": T(Z),
@@ -60027,13 +60014,13 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
           We[14] || (We[14] = g("i", { "aria-hidden": "true" }, null, -1))
         ], 10, H_e),
         g("aside", K_e, [T(E).length ? ($(), F("label", W_e, [Tr(g("input", {
-          "onUpdate:modelValue": We[11] || (We[11] = (rt) => /* @__PURE__ */ Yn(C) ? C.value = rt : null),
+          "onUpdate:modelValue": We[11] || (We[11] = (nt) => /* @__PURE__ */ Yn(C) ? C.value = nt : null),
           type: "search",
           placeholder: "检索档案"
-        }, null, 512), [[Gs, T(C)]])])) : ge("", !0), T(E).length ? ($(), F("div", z_e, [($(!0), F(Ye, null, lt(T(I), (rt) => ($(), F("div", {
-          key: rt.key,
+        }, null, 512), [[Gs, T(C)]])])) : ge("", !0), T(E).length ? ($(), F("div", z_e, [($(!0), F(Ye, null, lt(T(I), (nt) => ($(), F("div", {
+          key: nt.key,
           class: "memory-file-group"
-        }, [g("div", G_e, [($(!0), F(Ye, null, lt(rt.files, (Et) => ($(), F("button", {
+        }, [g("div", G_e, [($(!0), F(Ye, null, lt(nt.files, (Et) => ($(), F("button", {
           key: Et.path,
           type: "button",
           class: He(["memory-file", {
@@ -60041,15 +60028,15 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
             stale: Et.status === "stale"
           }]),
           onClick: (rn) => An(Et.path)
-        }, [g("span", J_e, G(T(S)(Et)), 1)], 10, V_e))), 128)), rt.hiddenCount ? ($(), F("button", {
+        }, [g("span", J_e, G(T(S)(Et)), 1)], 10, V_e))), 128)), nt.hiddenCount ? ($(), F("button", {
           key: 0,
           type: "button",
           class: "memory-file memory-file-more",
-          onClick: (Et) => T(p)(rt.key)
-        }, [g("span", j_e, "再显示 " + G(Math.min(rt.hiddenCount, rt.key === "turns" ? T(_) : T(y))) + " 个", 1)], 8, Y_e)) : ge("", !0)])]))), 128)), T(C) && !T(I).length ? ($(), F("p", X_e, " 没有匹配的记忆档案。 ")) : ge("", !0)])) : ($(), F("p", Q_e, " 还没有记忆档案。 "))]),
+          onClick: (Et) => T(p)(nt.key)
+        }, [g("span", j_e, "再显示 " + G(Math.min(nt.hiddenCount, nt.key === "turns" ? T(_) : T(y))) + " 个", 1)], 8, Y_e)) : ge("", !0)])]))), 128)), T(C) && !T(I).length ? ($(), F("p", X_e, " 没有匹配的记忆档案。 ")) : ge("", !0)])) : ($(), F("p", Q_e, " 还没有记忆档案。 "))]),
         Bn(Cye, {
           draft: T(N),
-          "onUpdate:draft": We[12] || (We[12] = (rt) => /* @__PURE__ */ Yn(N) ? N.value = rt : null),
+          "onUpdate:draft": We[12] || (We[12] = (nt) => /* @__PURE__ */ Yn(N) ? N.value = nt : null),
           "document-available": T(k),
           "read-only": T(A),
           dirty: T(x),
@@ -60844,7 +60831,7 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
     function We(ut) {
       An(), Ke(), Ae.value = ut, se.value = ut, ut === "characters" && (Z(), pe()), ut === "chatPreset" && Se(), ut === "assistantPreset" && Te(), ut === "worldbooks" && (K(), Ie()), ut === "regex" && $e(), ut === "base" && ne();
     }
-    function rt() {
+    function nt() {
       se.value = null;
     }
     function Et() {
@@ -61261,7 +61248,7 @@ var C_e = { class: "tavern-workspace-panel" }, M_e = { class: "tavern-workspace-
         class: "chat-quick-settings-close",
         title: "关闭",
         "aria-label": "关闭",
-        onClick: rt
+        onClick: nt
       }, " × ")]), g("div", { class: He(["chat-quick-settings-body", vn.value]) }, [se.value === "api" ? ($(), F("div", {
         key: 0,
         ref: Pn,
@@ -62933,7 +62920,7 @@ function X0e(e) {
     pullStateByProvider: {},
     modelOptionsByProvider: {}
   };
-  let rt = null;
+  let nt = null;
   const Et = (W = i.value) => JSON.stringify(W || {}), rn = (W = k.value) => JSON.stringify(W || {}), un = Y(() => Et(i.value) !== I.value), rr = Y(() => Gd(c.value)), Pn = Y(() => rn(k.value) !== P.value), Cr = Y(() => dT(e.agentConfig.value)), _r = Y(() => Cr.value.readiness.ok), ar = Y(() => Cr.value.readiness.message), yn = Y(() => {
     const W = Cr.value;
     return `预设「${W.currentPresetName || "默认"}」 · ${W.providerLabel} / ${W.model || "未选择模型"}`;
@@ -63875,7 +63862,7 @@ function X0e(e) {
   }
   function hs() {
     const W = r.value;
-    W && (rt || (rt = L0e({
+    W && (nt || (nt = L0e({
       state: We,
       render: hs,
       describeError: e.describeError,
@@ -63894,7 +63881,7 @@ function X0e(e) {
       delegatePresetHint: "记忆整理会复用这里的分身 API；当前聊天仍使用主 API。",
       isBusy: e.isRunning.value,
       canDeletePreset: Object.keys(We.config?.presets || {}).length > 1
-    }), rt.syncConfigToForm(W), rt.bindSettingsPanelEvents(W));
+    }), nt.syncConfigToForm(W), nt.bindSettingsPanelEvents(W));
   }
   function ps(W) {
     if (W.ok === !0) {
@@ -64166,7 +64153,7 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
         error: ""
       };
     }
-    const E = /* @__PURE__ */ ie(S()), C = /* @__PURE__ */ ie(0), P = /* @__PURE__ */ ie(""), O = /* @__PURE__ */ ie(""), D = /* @__PURE__ */ ie("等待读取角色与会话"), V = /* @__PURE__ */ ie("raw"), U = Joe(), { currentUserMessage: j, isCancellingRun: L, isRunning: J, runtimeActionCheckEvents: ue, runtimeError: Ae, runtimeModel: Ne, runtimePendingUserMessage: ne, runtimeProvider: Te, runtimeStatusElapsedSeconds: $e, runtimeStatusLabel: Se, runtimeStatusStartedAt: Ie, runtimeText: K, runtimeThoughts: Z, runtimeUserMessageVisible: pe } = U, oe = /* @__PURE__ */ ie(null), de = pie(), { chatMessages: be, currentAssistantFloor: z, latestSessionMessage: B, loadedSessionMessageEndOrder: X, loadedSessionMessageStartOrder: se, loadedSessionMessages: me, selectedSession: fe, selectedSessionId: ce, selectedSessionLatestAssistantOrder: Me, selectedSessionMessageTotal: Fe, sessionMessageCounts: Ee, sessions: Ge, visibleChatMessages: Le } = de, Ve = /* @__PURE__ */ ie([]), Je = /* @__PURE__ */ ie([]), Xe = /* @__PURE__ */ ie([]), we = /* @__PURE__ */ ie(null), te = /* @__PURE__ */ ie(""), je = /* @__PURE__ */ ie(null), Ue = /* @__PURE__ */ ie(null), Tt = /* @__PURE__ */ ie(""), yt = /* @__PURE__ */ ie(""), sn = /* @__PURE__ */ ie(""), ln = /* @__PURE__ */ ie("preview"), Q = /* @__PURE__ */ ie(""), he = /* @__PURE__ */ ie("map"), ke = /* @__PURE__ */ ie([]), Be = /* @__PURE__ */ ie("main"), _e = /* @__PURE__ */ ie(null), xe = /* @__PURE__ */ ie([]), Ke = /* @__PURE__ */ ie(null), _t = /* @__PURE__ */ ie([]), Gt = /* @__PURE__ */ ie(""), Qt = /* @__PURE__ */ ie(null), fn = /* @__PURE__ */ ie([]), On = /* @__PURE__ */ ie({}), vn = /* @__PURE__ */ ie(""), An = /* @__PURE__ */ ie(""), it = /* @__PURE__ */ ie(""), We = /* @__PURE__ */ ie(""), rt = /* @__PURE__ */ ie([]), Et = /* @__PURE__ */ ie(null), rn = /* @__PURE__ */ ie(!1), un = /* @__PURE__ */ ie(!1), rr = /* @__PURE__ */ ie(null), Pn = /* @__PURE__ */ ie(null), Cr = /* @__PURE__ */ ie(""), _r = /* @__PURE__ */ ie(Ym), ar = /* @__PURE__ */ ie(""), yn = /* @__PURE__ */ ie({}), hn = /* @__PURE__ */ ie({});
+    const E = /* @__PURE__ */ ie(S()), C = /* @__PURE__ */ ie(0), P = /* @__PURE__ */ ie(""), O = /* @__PURE__ */ ie(""), D = /* @__PURE__ */ ie("等待读取角色与会话"), V = /* @__PURE__ */ ie("raw"), U = Joe(), { currentUserMessage: j, isCancellingRun: L, isRunning: J, runtimeActionCheckEvents: ue, runtimeError: Ae, runtimeModel: Ne, runtimePendingUserMessage: ne, runtimeProvider: Te, runtimeStatusElapsedSeconds: $e, runtimeStatusLabel: Se, runtimeStatusStartedAt: Ie, runtimeText: K, runtimeThoughts: Z, runtimeUserMessageVisible: pe } = U, oe = /* @__PURE__ */ ie(null), de = pie(), { chatMessages: be, currentAssistantFloor: z, latestSessionMessage: B, loadedSessionMessageEndOrder: X, loadedSessionMessageStartOrder: se, loadedSessionMessages: me, selectedSession: fe, selectedSessionId: ce, selectedSessionLatestAssistantOrder: Me, selectedSessionMessageTotal: Fe, sessionMessageCounts: Ee, sessions: Ge, visibleChatMessages: Le } = de, Ve = /* @__PURE__ */ ie([]), Je = /* @__PURE__ */ ie([]), Xe = /* @__PURE__ */ ie([]), we = /* @__PURE__ */ ie(null), te = /* @__PURE__ */ ie(""), je = /* @__PURE__ */ ie(null), Ue = /* @__PURE__ */ ie(null), Tt = /* @__PURE__ */ ie(""), yt = /* @__PURE__ */ ie(""), sn = /* @__PURE__ */ ie(""), ln = /* @__PURE__ */ ie("preview"), Q = /* @__PURE__ */ ie(""), he = /* @__PURE__ */ ie("map"), ke = /* @__PURE__ */ ie([]), Be = /* @__PURE__ */ ie("main"), _e = /* @__PURE__ */ ie(null), xe = /* @__PURE__ */ ie([]), Ke = /* @__PURE__ */ ie(null), _t = /* @__PURE__ */ ie([]), Gt = /* @__PURE__ */ ie(""), Qt = /* @__PURE__ */ ie(null), fn = /* @__PURE__ */ ie([]), On = /* @__PURE__ */ ie({}), vn = /* @__PURE__ */ ie(""), An = /* @__PURE__ */ ie(""), it = /* @__PURE__ */ ie(""), We = /* @__PURE__ */ ie(""), nt = /* @__PURE__ */ ie([]), Et = /* @__PURE__ */ ie(null), rn = /* @__PURE__ */ ie(!1), un = /* @__PURE__ */ ie(!1), rr = /* @__PURE__ */ ie(null), Pn = /* @__PURE__ */ ie(null), Cr = /* @__PURE__ */ ie(""), _r = /* @__PURE__ */ ie(Ym), ar = /* @__PURE__ */ ie(""), yn = /* @__PURE__ */ ie({}), hn = /* @__PURE__ */ ie({});
     function Mr() {
       const [w] = String(window.location.hash || "").replace(/^#\/?/, "").split("/");
       return w === "chat" || w === "settings" || w === "about" ? w : "home";
@@ -64695,7 +64682,7 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
       w.outcome || "",
       w.insertAfterChars,
       w.success ? 1 : 0
-    ].join(":")).join("|")), EU = Y(() => oP(rt.value)), S_ = Y(() => EU.value.filter((w) => w.kind === "message")), IU = Y(() => {
+    ].join(":")).join("|")), EU = Y(() => oP(nt.value)), S_ = Y(() => EU.value.filter((w) => w.kind === "message")), IU = Y(() => {
       const w = rr.value;
       return !w || w.sessionId !== ce.value ? [] : w.draft ? [...w.messages, w.draft] : w.messages;
     }), UT = Y(() => oP(IU.value)), qT = Y(() => {
@@ -65731,7 +65718,7 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
       Ci(95, "refreshManagerRecords");
       const M = String(w || "").trim();
       if (!M) {
-        rt.value = [], Ve.value = [], Je.value = [], Xe.value = [], we.value = null, H_(), Ue.value = null, ke.value = [], Be.value = "main", _e.value = null, xe.value = [], Ke.value = null, _t.value = [], Gt.value = "", Qt.value = null, fn.value = [], On.value = {}, te.value = "";
+        nt.value = [], Ve.value = [], Je.value = [], Xe.value = [], we.value = null, H_(), Ue.value = null, ke.value = [], Be.value = "main", _e.value = null, xe.value = [], Ke.value = null, _t.value = [], Gt.value = "", Qt.value = null, fn.value = [], On.value = {}, te.value = "";
         return;
       }
       const [H, le, Re, Ze, st, Ut, Rt, qt] = await Promise.all([
@@ -65744,7 +65731,7 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
         tk(M),
         al(M, "memory/state.md")
       ]), At = Ze && Ze.status === "ready" && Array.isArray(Ze.files) ? Ze : await lp(M);
-      if (M === ce.value && (rt.value = H, Ve.value = le, Je.value = Re, Xe.value = Array.isArray(At.files) ? At.files.map((an) => ({
+      if (M === ce.value && (nt.value = H, Ve.value = le, Je.value = Re, Xe.value = Array.isArray(At.files) ? At.files.map((an) => ({
         path: String(an.path || ""),
         status: an.status === "stale" ? "stale" : "active",
         createdAt: Number(an.createdAt) || Number(an.updatedAt) || 0,
@@ -66058,7 +66045,7 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
     function gE(w) {
       if (rn.value) return !1;
       if (w.role === "user") return !0;
-      const M = [...rt.value].sort((le, Re) => le.order - Re.order), H = M.findIndex((le) => le.order === w.order);
+      const M = [...nt.value].sort((le, Re) => le.order - Re.order), H = M.findIndex((le) => le.order === w.order);
       return H < 0 ? !1 : M.slice(0, H + 1).some((le) => le.role === "user");
     }
     function vE(w) {
@@ -66216,7 +66203,7 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
         content: H,
         clearProtocolPayload: w.role === "assistant"
       });
-      le && ce.value === w.sessionId && (rt.value = await ys(w.sessionId)), Do(), Dl(le || w, "edit", !!le), le && M.rerun && await G_(le);
+      le && ce.value === w.sessionId && (nt.value = await ys(w.sessionId)), Do(), Dl(le || w, "edit", !!le), le && M.rerun && await G_(le);
     }
     async function nq(w) {
       const M = await UA(w.sessionId, w.order);
@@ -66253,7 +66240,7 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
       });
     }
     function sq(w) {
-      const M = [...rt.value].sort((Re, Ze) => Re.order - Ze.order), H = M.findIndex((Re) => Re.order === w.order);
+      const M = [...nt.value].sort((Re, Ze) => Re.order - Ze.order), H = M.findIndex((Re) => Re.order === w.order);
       if (H < 0) return [w.order];
       if (w.role !== "user") {
         let Re = H;
@@ -66287,14 +66274,14 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
         tone: "danger"
       })) return;
       const H = await sS(w.sessionId, M);
-      ce.value === w.sessionId && (rt.value = await ys(w.sessionId)), La.value.startsWith(`manager:${w.sessionId}:`) && Do(), Dl(w, "delete", H > 0);
+      ce.value === w.sessionId && (nt.value = await ys(w.sessionId)), La.value.startsWith(`manager:${w.sessionId}:`) && Do(), Dl(w, "delete", H > 0);
     }
     async function G_(w) {
       if (!gE(w)) {
         Dl(w, "rerun", !1);
         return;
       }
-      const M = [...rt.value].sort((st, Ut) => st.order - Ut.order), H = M.findIndex((st) => st.order === w.order), le = w.role === "user" ? w : [...M.slice(0, Math.max(0, H + 1))].reverse().find((st) => st.role === "user");
+      const M = [...nt.value].sort((st, Ut) => st.order - Ut.order), H = M.findIndex((st) => st.order === w.order), le = w.role === "user" ? w : [...M.slice(0, Math.max(0, H + 1))].reverse().find((st) => st.role === "user");
       if (!le || !ce.value) {
         Dl(w, "rerun", !1);
         return;
@@ -66689,9 +66676,9 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
           role: "user",
           content: le
         });
-        Rt = !0, TE(w), ce.value === w && (rt.value = [...rt.value, an].sort((en, Vc) => en.order - Vc.order)), zp(w);
+        Rt = !0, TE(w), ce.value === w && (nt.value = [...nt.value, an].sort((en, Vc) => en.order - Vc.order)), zp(w);
         const lo = [...new Set((H.replaceOrdersAfterAppend || []).map((en) => Number(en)).filter((en) => Number.isInteger(en) && en >= 0))];
-        lo.length && (await sS(w, lo), ce.value === w && (rt.value = await ys(w)));
+        lo.length && (await sS(w, lo), ce.value === w && (nt.value = await ys(w)));
         let Oo = 0, Ll = !1, Gc = Promise.resolve();
         const Gp = (en) => {
           en.type !== "assistant_tool_round" && en.type !== "tool_result" || (Gc = Gc.then(async () => {
@@ -66734,7 +66721,7 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
           model: zn.model,
           finishReason: zn.ok ? "stop" : Ze.signal.aborted ? "aborted" : "error",
           error: !zn.ok
-        }, { skip: Oo }), IE(w), ce.value === w && (rt.value = await ys(w)), ((zn.changedFiles || []).length || (zn.changedStates || []).length || (zn.changedTasks || []).length) && await q_(w, Ut), await io(w), We.value = "";
+        }, { skip: Oo }), IE(w), ce.value === w && (nt.value = await ys(w)), ((zn.changedFiles || []).length || (zn.changedStates || []).length || (zn.changedTasks || []).length) && await q_(w, Ut), await io(w), We.value = "";
       } catch (qt) {
         if (IE(w), TE(w), !Rt && ce.value === w && !it.value.trim() && (it.value = le, tn(() => qd(la.value))), !Rt) {
           We.value = Ze.signal.aborted ? "" : "失败";
@@ -66744,12 +66731,12 @@ var Q0e = ["data-chat-font-size"], Z0e = { class: "xb-os-stage" }, eAe = { class
           role: "assistant",
           content: "已停止。",
           finishReason: "aborted"
-        }), ce.value === w && (rt.value = await ys(w)), We.value = "") : (await kf(w, {
+        }), ce.value === w && (nt.value = await ys(w)), We.value = "") : (await kf(w, {
           role: "assistant",
           content: qt instanceof Error ? qt.message : String(qt || "assistant_failed"),
           error: !0,
           finishReason: "error"
-        }), ce.value === w && (rt.value = await ys(w)), We.value = "失败");
+        }), ce.value === w && (nt.value = await ys(w)), We.value = "失败");
       } finally {
         st.reset(), Fa.value === Ze && (Fa.value = null), un.value = !1, rn.value = !1;
       }

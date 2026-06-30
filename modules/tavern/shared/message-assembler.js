@@ -1160,7 +1160,6 @@ ${text}` : "";
 }
 function buildMemoryBlock(memoryContext = {}) {
   const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
-  const structuredStates = Array.isArray(memoryContext.structuredStates) ? memoryContext.structuredStates : [];
   const spatialState = normalizeText(memoryContext.spatialState);
   const questHooks = Array.isArray(memoryContext.questHooks) ? memoryContext.questHooks.map((hook) => normalizeText(hook)).filter(Boolean) : [];
   const sections = [];
@@ -1185,16 +1184,8 @@ ${content}`;
     sections.push(`## \u76F8\u5173\u4EBA\u7269\u8BB0\u5FC6
 ${characterLines.join("\n\n")}`);
   }
-  const stateLines = spatialState ? [] : structuredStates.map((state) => {
-    const digest = normalizeText(state.digest);
-    return digest;
-  }).filter(Boolean);
-  if (stateLines.length) {
-    sections.push(`## \u72B6\u6001\u6458\u8981
-${stateLines.join("\n\n")}`);
-  }
   if (spatialState) {
-    sections.push(`## \u7A7A\u95F4\u72B6\u6001
+    sections.push(`## \u7A7A\u95F4\u5730\u56FE\u72B6\u6001
 ${spatialState}`);
   }
   return sections.join("\n\n");

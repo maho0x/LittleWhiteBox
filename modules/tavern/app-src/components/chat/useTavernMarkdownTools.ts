@@ -232,7 +232,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         const raw = renderOptions.roleplay
             ? preprocessTavernRoleplayMarkdown(text, renderOptions)
             : String(text || '');
-        const markdownOptions = renderOptions.roleplay ? { htmlFenceMode: 'code', protectRawHtmlBoundaries: false } : {};
+        const markdownOptions = renderOptions.roleplay ? { htmlFenceMode: 'code' } : {};
         const canCache = !/(^|\n)(`{3,}|~{3,})[ \t]*(html|htm|xhtml|xml|svg|vue|svelte)?\b/i.test(raw)
             && !renderOptions.roleplay;
         const cacheKey = markdownSignature(raw);

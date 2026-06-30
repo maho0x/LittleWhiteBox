@@ -50,6 +50,47 @@ test('roleplay markdown keeps fenced HTML renderable after macro substitution', 
     assert.match(rendered, /```html\n<main><h1>林舟 \/ 许知夏<\/h1><section>内容<\/section><\/main>\n```/);
 });
 
+test('roleplay markdown keeps guidance details from swallowing following RP content', () => {
+    const tools = useTavernMarkdownTools({
+        chatScrollRef: makeRef<HTMLElement | null>(null),
+        managerScrollRef: makeRef<HTMLElement | null>(null),
+        htmlRenderEnabled: makeRef(true),
+        htmlThemeDark: makeRef(true),
+        alertDialog: async () => {},
+        confirmDialog: async () => true,
+        requestHost: async () => ({}),
+    });
+    const html = tools.renderChatMarkdown([
+        '<details style="margin: 8px 0;">',
+        '    <summary style="display: flex;">',
+        '        <div class="xb-char-avatar"></div>',
+        '        <span>深层思考中...</span>',
+        '    </summary>',
+        '    <div style="padding: 10px 12px;">',
+        '## Phase 首要确认',
+        '- 承诺：完全按照思考步骤进行思考。',
+        '- 绝不歧视。中文是最优美的语言。',
+        '    </div>',
+        '</details>',
+        '',
+        '<fictional_scenarios>',
+        '沈知意正低头看手机上的时间。',
+        '</fictional_scenarios>',
+        '',
+        '```',
+        '状态栏',
+        '时间：周六 14:15',
+        '```',
+    ].join('\n'), { roleplay: true });
+
+    assert.match(html, /<details[\s\S]*<h2 id="phase">Phase 首要确认<\/h2>[\s\S]*<\/details>/);
+    assert.match(html, /<\/details>\s*<fictional_scenarios>\s*<p>沈知意正低头看手机上的时间。<\/p>\s*<\/fictional_scenarios>/);
+    assert.match(html, /<pre><code>状态栏[\s\S]*周六 14:15[\s\S]*<\/code><\/pre>/);
+    assert.doesNotMatch(html, /<details[\s\S]*<fictional_scenarios>[\s\S]*<\/details>/);
+    assert.doesNotMatch(html, /<p>\s*<details/);
+    assert.doesNotMatch(html, /<\/details>\s*<\/li>/);
+});
+
 test('tavern html generate relay returns parent responses to the requesting iframe', () => {
     const host = globalThis as Record<string, unknown>;
     const previousWindow = host.window;

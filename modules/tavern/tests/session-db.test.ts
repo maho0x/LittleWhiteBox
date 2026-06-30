@@ -1780,7 +1780,7 @@ test('Map activate does not move atlas and spatial digest uses atlas active map'
         currentUserMessage: '看看四周。',
         memoryContext,
     });
-    assert.match(build.meta.rawMessagesJson, /空间状态/);
+    assert.match(build.meta.rawMessagesJson, /空间地图状态/);
     assert.match(build.meta.rawMessagesJson, /当前场景：办公室/);
     assert.match(build.meta.rawMessagesJson, /可互动：办公桌/);
     assert.doesNotMatch(build.meta.rawMessagesJson, /氛围：|材质：/);
