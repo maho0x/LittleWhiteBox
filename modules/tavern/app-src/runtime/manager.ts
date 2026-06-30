@@ -38,10 +38,11 @@ import {
     type TavernManagerRunRecord,
     type TavernMessageRecord,
 } from '../../shared/session-db';
-import { executeTavernStateTool, TAVERN_STATE_TOOL_NAMES, type TavernStateToolResult } from '../../shared/structured-state';
+import { executeTavernStateTool, getTavernAtlasStateForSession, TAVERN_STATE_TOOL_NAMES, type TavernStateToolResult } from '../../shared/structured-state';
 import {
     describeStatusStateRollbackImpactForMessageRange,
     executeTavernStatusTool,
+    getTavernStatusStateForSession,
     isTavernStatusToolName,
     rollbackStatusStateForManagerRun,
     rollbackStatusStateForMessageRange,
@@ -54,7 +55,6 @@ import {
     executeTavernTaskTool,
     listTavernManagerTaskSnapshots,
     rollbackManagerRunTaskWrites,
-    TAVERN_TASK_MIN_GENERATION_FLOOR,
     TAVERN_TASK_TOOL_NAMES,
     type TavernTaskToolResult,
 } from '../../shared/tasks';
@@ -289,7 +289,13 @@ function parseManagerToolArguments(toolCall: { name?: string; arguments?: unknow
 
 function buildManagerSystemPrompt(
     assistantPreset: TavernAssistantPreset | undefined,
-    options: { includeMemory?: boolean; includeCartography?: boolean; includeStatus?: boolean; includeQuestOrchestration?: boolean } = {},
+    options: {
+        includeMemory?: boolean;
+        includeCartography?: boolean;
+        includeStatus?: boolean;
+        includeQuestOrchestration?: boolean;
+        workMode?: 'accepted-turn' | 'manual-chat';
+    } = {},
 ): string {
     return buildTavernManagerSystemPrompt(assistantPreset, options).trim();
 }
@@ -301,24 +307,37 @@ function resolveSessionContractRuntime(contract?: Partial<TavernSessionContract>
 function buildResidentMemoryBlock(memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>): string {
     const stateFile = memoryFiles.find((file) => file.path === 'memory/state.md');
     const blocks = [
-        stateFile ? ['[memory/state.md]', stateFile.content].join('\n') : '',
+        stateFile ? ['[Global memory state.md]', stateFile.content].join('\n') : '[Global memory state.md]\nNo state.md file.',
     ].filter(Boolean);
-    return ['[Resident Memory Files]', ...blocks].join('\n\n');
+    return blocks.join('\n\n');
 }
 
-function normalizeManagerPlayerName(context?: XbTavernContext): string {
-    return normalizeText(context?.user?.name, 80).replace(/[\r\n`]/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function buildManagerPlayerIdentityBlock(playerName = ''): string {
-    const name = normalizeText(playerName, 80);
+function buildCharacterMemoryFilenameListBlock(memoryFiles: Array<{ path: string; status: string }>): string {
+    const filenames = memoryFiles
+        .filter((file) => String(file.status || 'active') !== 'stale')
+        .map((file) => String(file.path || '').replace(/\\/g, '/').trim())
+        .filter((path) => /^memory\/characters\/[^/]+\.md$/.test(path))
+        .map((path) => path.replace(/^memory\/characters\//, ''))
+        .sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
     return [
-        '[玩家身份]',
-        name ? `当前玩家用户名：${name}` : '当前玩家用户名：未提供',
-        name
-            ? `用户档案不由后台 manager 维护；不要创建或维护 \`memory/characters/${name}.md\`，也不要把消息作者写成角色档案。`
-            : '用户档案不由后台 manager 维护；不要把消息作者写成角色档案。',
+        '[Character memory filename list]',
+        filenames.length ? filenames.map((filename) => `- ${filename}`).join('\n') : 'none',
     ].join('\n');
+}
+
+function buildAtlasWorldBlock(atlasDocument: unknown): string {
+    return [
+        '[Map atlas world]',
+        safeJson(atlasDocument || null),
+    ].join('\n');
+}
+
+function buildStatusPanelBlock(statusDocument: unknown, exists = false): string {
+    return [
+        '[Status panel full document]',
+        exists ? safeJson(statusDocument || null) : 'No status panel exists yet.',
+        !exists ? safeJson(statusDocument || null) : '',
+    ].filter(Boolean).join('\n');
 }
 
 function buildAutoManagerUserPrompt(input: {
@@ -326,63 +345,27 @@ function buildAutoManagerUserPrompt(input: {
     userMessage: TavernMessageRecord;
     assistantMessage: TavernMessageRecord;
     memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>;
+    atlasWorldBlock?: string;
+    statusPanelBlock?: string;
     taskPoolBlock?: string;
     runtime: TavernSessionContractRuntime;
-    playerName?: string;
 }): string {
     const allowMemory = input.runtime.managerPromptOptions.includeMemory;
     const allowMap = input.runtime.managerPromptOptions.includeCartography;
     const allowStatus = input.runtime.managerPromptOptions.includeStatus;
     const allowQuest = input.runtime.managerPromptOptions.includeQuestOrchestration;
-    const playerName = normalizeText(input.playerName, 80);
-    const requirements: string[] = [];
-    let step = 1;
-    if (allowMemory) {
-        requirements.push(`${step}. Read \`memory/state.md\` and relevant \`memory/characters/<角色名>.md\` files as needed, then update memory only if this accepted assistant reply changed durable memory.`);
-        step += 1;
-        requirements.push(`${step}. Do not create or maintain user/player character files such as \`memory/characters/User.md\`, \`Player.md\`, \`用户.md\`, or \`玩家.md\`${playerName ? `, and do not create or maintain \`memory/characters/${playerName}.md\` for the current player username 「${playerName}」` : ''}. The user profile is not maintained by the backstage manager; keep player-side durable state in \`memory/state.md\` only when it matters to RP continuity. Treat user messages as source evidence, not as a user persona sheet; ignore status-bar/UI/meta text unless the assistant reply establishes it inside RP.`);
-        step += 1;
-    }
-    if (allowMap) {
-        requirements.push(`${step}. Spatial maintenance uses map files: read \`world\` with MapAtlasRead, then edit an explicit scene name with MapSceneEdit. Move the player in \`world\` only when the story reaches a new named or trackable place; small movement inside the same place belongs in that scene map actor coordinates.`);
-        step += 1;
-    }
-    if (allowStatus) {
-        requirements.push(`${step}. 状态栏：先用 StatusRead 查看当前状态面板。若尚未初始化，就按“状态栏”助手预设用 StatusInit 建满骨架；若已存在，只用 StatusPatch 更新本轮确实改变的已有 block 内字段。不要新增 subject/tab/block/form，不要把状态栏内容写进记忆文件。`);
-        step += 1;
-    }
-    if (allowMemory && allowMap) {
-        requirements.push(`${step}. Maintain \`memory/state.md\` for global memory and \`memory/characters/<角色名>.md\` for character memory. The map does not replace written memory.`);
-        step += 1;
-    } else if (allowMemory) {
-        requirements.push(`${step}. Maintain \`memory/state.md\` for global memory and \`memory/characters/<角色名>.md\` for character memory.`);
-        step += 1;
-    } else if (allowMap) {
-        requirements.push(`${step}. This contract authorizes only the map system. Do not write memory Markdown.`);
-        step += 1;
-    } else if (!allowStatus && !allowQuest) {
-        requirements.push(`${step}. This contract authorizes neither background memory nor map maintenance. Do not write memory or map records; clearly say that you skipped it.`);
-        step += 1;
-    }
-    if (allowQuest) {
-        requirements.push(`${step}. 事件：先看当前方向池；信息不足时再用 EventInspect。如果上一条回复真的推动或了结了某个活跃方向，advance 或 complete 它。如果活跃方向只剩 0-1 个且已过第 ${TAVERN_TASK_MIN_GENERATION_FLOOR} 楼，并且你想到一个有野心、对味的新方向，就 upsert 一个新的。想不到好的就别造；过期方向系统自动清，不用手动删。什么算好方向按事件引擎规则，字段按工具说明。`);
-        step += 1;
-    }
-    requirements.push(`${step}. Close with a short result: say what you wrote, skipped, or left pending.`);
 
     const blocks = [
         ...(allowMemory ? [buildResidentMemoryBlock(input.memoryFiles), ''] : []),
+        ...(allowMap ? [String(input.atlasWorldBlock || '[Map atlas world]\nnull').trim(), ''] : []),
+        ...(allowStatus ? [String(input.statusPanelBlock || '[Status panel full document]\nnull').trim(), ''] : []),
         ...(allowQuest ? [String(input.taskPoolBlock || '[Current Event Pool]\nActive directions: unknown.').trim(), ''] : []),
-        ...(allowMemory ? [buildManagerPlayerIdentityBlock(playerName), ''] : []),
-        '[本轮 RP 原文]',
-        '[用户消息]',
+        ...(allowMemory ? [buildCharacterMemoryFilenameListBlock(input.memoryFiles), ''] : []),
+        '[Current turn user message]',
         cleanSourceTextForManager(input.userMessage.content),
         '',
-        '[角色回复]',
+        '[Current turn assistant reply]',
         cleanSourceTextForManager(input.assistantMessage.content),
-        '',
-        '[本轮要求]',
-        ...requirements,
     ];
     return blocks.join('\n');
 }
@@ -394,7 +377,7 @@ function buildChatManagerUserPrompt(input: {
     return [
         buildResidentMemoryBlock(input.memoryFiles),
         '',
-        '[当前问题]',
+        '[Current manager-chat question]',
         input.question,
     ].join('\n');
 }
@@ -1108,14 +1091,22 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
     const memoryFiles = contractRuntime.includeMemoryFiles
         ? await listTavernMemoryFiles(input.sessionId, { includeStale: true })
         : [];
+    const atlasState = contractRuntime.includeStructuredStates
+        ? await getTavernAtlasStateForSession(input.sessionId)
+        : null;
+    const statusState = contractRuntime.includeStatusStates
+        ? await getTavernStatusStateForSession(input.sessionId)
+        : null;
     const taskPoolBlock = contractRuntime.includeQuestOrchestration
         ? await buildTavernTaskPoolPromptBlock(input.sessionId)
         : '';
-    const contextSnapshot = input.contextSnapshot || sourceMessages.assistantMessage.contextSnapshot || sourceMessages.userMessage.contextSnapshot;
     return [
         {
             role: 'system',
-            content: buildManagerSystemPrompt(input.assistantPreset, contractRuntime.managerPromptOptions),
+            content: buildManagerSystemPrompt(input.assistantPreset, {
+                ...contractRuntime.managerPromptOptions,
+                workMode: 'accepted-turn',
+            }),
         },
         {
             role: 'user',
@@ -1124,9 +1115,10 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
                 userMessage: sourceMessages.userMessage,
                 assistantMessage: sourceMessages.assistantMessage,
                 memoryFiles,
+                atlasWorldBlock: atlasState ? buildAtlasWorldBlock(atlasState.document?.data || null) : '',
+                statusPanelBlock: statusState ? buildStatusPanelBlock(statusState.status, !!statusState.document) : '',
                 taskPoolBlock,
                 runtime: contractRuntime,
-                playerName: normalizeManagerPlayerName(contextSnapshot),
             }),
         },
     ];
@@ -1141,7 +1133,7 @@ async function buildChatManagerMessages(input: {
     await ensureTavernMemoryDefaults(input.sessionId);
     const memoryFiles = await listTavernMemoryFiles(input.sessionId, { includeStale: true });
     const history = Array.isArray(input.history) ? input.history : await listTavernManagerMessages(input.sessionId);
-    const messages: XbTavernMessage[] = [{ role: 'system', content: buildManagerSystemPrompt(input.assistantPreset) }];
+    const messages: XbTavernMessage[] = [{ role: 'system', content: buildManagerSystemPrompt(input.assistantPreset, { workMode: 'manual-chat' }) }];
     history.forEach((message) => {
         const canReplayToolCalls = message.role === 'assistant'
             && message.error !== true

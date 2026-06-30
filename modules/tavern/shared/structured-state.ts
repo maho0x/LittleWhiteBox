@@ -2863,7 +2863,23 @@ function buildMapElementSchema() {
     };
 }
 
-function buildPatchSetSchema() {
+function buildMapMetaSetSchema() {
+    return {
+        type: 'object',
+        description: 'For map `meta`, merge only map document fields. Renderer style fields such as fill/style/opacity/zIndex/rotation/blur and visual transform scale are intentionally not part of this schema.',
+        properties: {
+            name: { type: 'string', description: 'Map title. Empty string clears the title.' },
+            viewBox: { type: 'array', items: { type: 'number' }, minItems: 4, maxItems: 4, description: 'Map camera frame `[x,y,width,height]`; it does not move elements.' },
+            theme: { type: 'string', enum: [...MAP_THEMES], description: 'Map renderer theme.' },
+            status: { type: 'string', enum: [...MAP_STATUSES], description: 'Map document status.' },
+            mood: { type: 'string', enum: [...TAVERN_MAP_MOODS], description: 'Map mood; use only when scene facts support it.' },
+            hint: { type: 'string', description: 'Map maintenance hint for uninitialized scene maps.' },
+        },
+        additionalProperties: false,
+    };
+}
+
+function buildMapElementSetSchema() {
     const pointPair = {
         type: 'array',
         items: { type: 'number' },
@@ -2876,14 +2892,8 @@ function buildPatchSetSchema() {
     };
     return {
         type: 'object',
-        description: 'For map `meta`/`modify` and atlas `upsert-location`, merge only these whitelisted semantic fields. Renderer style fields such as fill/style/opacity/zIndex/rotation/blur and visual transform scale are intentionally not part of this schema.',
+        description: 'For map `modify`, merge only map element semantic and geometry fields. Renderer style fields such as fill/style/opacity/zIndex/rotation/blur and visual transform scale are intentionally not part of this schema.',
         properties: {
-            name: { type: 'string', description: 'Map title or atlas location display name. Empty string clears a map title.' },
-            viewBox: { type: 'array', items: { type: 'number' }, minItems: 4, maxItems: 4, description: 'Map camera frame `[x,y,width,height]`; it does not move elements.' },
-            theme: { type: 'string', enum: [...MAP_THEMES], description: 'Map renderer theme.' },
-            status: { type: 'string', enum: [...MAP_STATUSES, ...ATLAS_LOCATION_STATUSES], description: 'Map status or atlas location status, depending on docType/op.' },
-            mood: { type: 'string', enum: [...TAVERN_MAP_MOODS], description: 'Map mood; use only when scene facts support it.' },
-            hint: { type: 'string', description: 'Map maintenance hint for uninitialized scene maps.' },
             at: { ...pointPair, description: 'Map element anchor coordinate `[x,y]`.' },
             cat: { type: 'string', enum: [...MAP_ELEMENT_CATEGORIES], description: 'Map element semantic category.' },
             kind: { type: 'string', enum: [...TAVERN_MAP_ELEMENT_KINDS], description: 'Closed map element semantic kind for logic; do not use visual icon names here.' },
@@ -2898,7 +2908,19 @@ function buildPatchSetSchema() {
             text: { type: 'string', description: 'Map label text. Empty string clears source/derived label text.' },
             actorKey: { type: 'string', description: 'Map actor identity key for cat:"actor".' },
             closed: { type: 'boolean', description: 'Whether a path or curve should be closed.' },
+        },
+        additionalProperties: false,
+    };
+}
+
+function buildAtlasLocationSetSchema() {
+    return {
+        type: 'object',
+        description: 'For atlas `upsert-location`, merge only world-location fields. Atlas locations do not accept scene-map element geometry such as shape/icon/rect/circle/path.',
+        properties: {
+            name: { type: 'string', description: 'Atlas location display name.' },
             scale: { type: 'string', enum: [...ATLAS_LOCATION_SCALES], description: 'Atlas location scale.' },
+            status: { type: 'string', enum: [...ATLAS_LOCATION_STATUSES], description: 'Atlas location status.' },
             parent: { type: 'string', description: 'Atlas parent location key. Prefer unset:["parent"] to clear it.' },
             mapDocId: { type: 'string', description: 'Atlas linked scene-map docId. Prefer unset:["mapDocId"] to clear it.' },
             aliases: { type: 'array', items: { type: 'string' }, description: 'Atlas location aliases.' },
@@ -2910,7 +2932,9 @@ function buildPatchSetSchema() {
 
 export function getTavernStateToolDefinitions(): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
     const mapElementSchema = buildMapElementSchema();
-    const patchSetSchema = buildPatchSetSchema();
+    const mapMetaSetSchema = buildMapMetaSetSchema();
+    const mapElementSetSchema = buildMapElementSetSchema();
+    const atlasLocationSetSchema = buildAtlasLocationSetSchema();
     return [
         {
             type: 'function',
@@ -3022,7 +3046,7 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'Edit one scene map file with tolerant map intent. Use this as the normal map write tool.',
                     'Always provide an explicit `scene` name. The runtime creates the scene file if needed, links it from the world atlas, normalizes intent into canonical map ops, and saves only clean canonical results.',
                     'Elements use one `shape` plus `geo`; label is independent and does not count as a shape. Renderer styling such as opacity, color, zIndex, blur, pattern, and custom fill is not accepted.',
-                    'Use only the minimum geo for the chosen shape: rect={center,size}, circle={at,radius}, icon={at,icon}, path={points}, curve={curve}, label={at}+label. Do not fill unused geo keys.',
+                    'Use only the minimum geo for the chosen shape: rect={center,size}, circle={at,radius}, icon={at,icon?}, path={points}, curve={curve}, label={at}+label. Do not fill unused geo keys.',
                     '`cat` and optional `kind` are closed semantics for map logic; `icon` is only a visual Material Symbols official name. If unsure about the official icon name, omit icon and provide kind/cat.',
                     'If one element is bad, that element is skipped and the other valid elements can still save. Read the returned applied/skipped/warnings report before retrying only failed elements.',
                 ].join('\n'),
@@ -3090,8 +3114,8 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                     'For `tavern.map`, canonical ops are `meta`, `add`, `modify`, and `remove`. One MapPatch call is one atomic transaction and becomes exactly one revision when it saves.',
                     'Use `meta` to update document fields such as name, viewBox, theme, status, mood, or hint. Mood enum is neutral/warm/cold/dark/mystic/danger/calm; write it only when the scene facts support it.',
                     'Each element has `id` and closed `cat`, optional closed `kind`, plus exactly one geometry shape: `rect`, `circle`, `path`, `curve`, `text`, or explicit `shape:"icon"`. `kind` drives map logic such as exits; `icon` is only a visual Material Symbols official name and never changes geometry by itself. Most elements use `at:[x,y]`; `path` and `curve` may omit `at` and use the first point as the anchor.',
-                    'Omit unused shape keys entirely. Never send empty `path:[]`, `curve:[]`, `points:[]`, or `line:[]`; for a rectangular room use only `rect`, for the player marker use only `circle`.',
-                    'Minimal first scene-map example: `{"docType":"tavern.map","docId":"main","activate":true,"ops":[{"op":"meta","set":{"name":"测试房间","viewBox":[0,0,320,220],"status":"active"}},{"op":"add","element":{"id":"room-surface","cat":"terrain","at":[30,30],"rect":[240,140],"material":"wood"}},{"op":"add","element":{"id":"room-wall","cat":"wall","at":[30,30],"rect":[240,140],"text":"房间"}},{"op":"add","element":{"id":"player","cat":"actor","actorKey":"player","at":[150,110],"circle":8,"text":"玩家"}}]}`.',
+                    'Omit unused shape keys entirely. Never send empty `path:[]`, `curve:[]`, `points:[]`, or `line:[]`; for a rectangular room use only `rect`. Player markers may be `circle` or shape:"icon"; normal MapSceneEdit examples use icon with kind/cat fallback when icon is omitted.',
+                    'Minimal first scene-map example: `{"docType":"tavern.map","docId":"main","activate":true,"ops":[{"op":"meta","set":{"name":"测试房间","viewBox":[0,0,320,220],"status":"active"}},{"op":"add","element":{"id":"room-surface","cat":"terrain","at":[30,30],"rect":[240,140],"material":"wood"}},{"op":"add","element":{"id":"room-wall","cat":"wall","at":[30,30],"rect":[240,140],"text":"房间"}},{"op":"add","element":{"id":"player","cat":"actor","kind":"player","actorKey":"player","shape":"icon","at":[150,110],"text":"玩家"}}]}`.',
                     'Use semantic material/certainty instead of renderer styling. Material enum is unknown/wood/stone/tile/carpet/bed-sheet/fabric/tatami/sand/marble/blood/water/grass/dirt/snow/metal/rune/warm-light/cold-light/shadow. Use bed-sheet/fabric only for bedding, upholstery, curtains, cushions, or other furniture/soft goods, not the main terrain surface. Certainty enum is confirmed/inferred/unknown; omit confirmed fields.',
                     'Use cat:"terrain" for the main continuous scene surface or filled base area: indoor floor, outdoor ground, deck, platform, clearing, yard, roadbed, shoreline area, or any large closed support surface. Then draw walls, edges, shell outlines, doors, furniture, hazards, labels, and actors on top. Do not use floor, ground, surface, deck, platform, base, area, region, subtype, opacity, zIndex, rotation, visual scale, blur, or custom fill colors in new map patches.',
                     'For `cat:"actor"`, optional `actorKey` is the full-session identity key. If omitted, the element id is used. The runtime keeps only the latest actor with the same final key across all map documents.',
@@ -3119,24 +3143,107 @@ export function getTavernStateToolDefinitions(): Array<{ type: 'function'; funct
                             type: 'array',
                             description: 'Patch ops as one atomic transaction. Required unless `activate:true` is only switching an existing scene map. For maps use `meta/add/modify/remove`. For atlas use `upsert-location/remove-location/upsert-link/remove-link/move-actor`.',
                             items: {
-                                type: 'object',
-                                properties: {
-                                    op: { type: 'string', enum: ['meta', 'add', 'modify', 'remove', 'upsert-location', 'remove-location', 'upsert-link', 'remove-link', 'move-actor'], description: 'Operation type. Map ops and atlas ops are selected by docType.' },
-                                    id: { type: 'string', description: 'Map element id for `modify`/`remove`, or atlas link id for `upsert-link`/`remove-link`. Atlas links may omit it and use the default id rule.' },
-                                    key: { type: 'string', description: 'Atlas location key for upsert-location/remove-location.' },
-                                    locationKey: { type: 'string', description: 'Atlas target location key for move-actor.' },
-                                    actorKey: { type: 'string', description: 'Atlas actor key for move-actor. Use actorKey:"player" for the player.' },
-                                    from: { type: 'string', description: 'Atlas link source location key.' },
-                                    to: { type: 'string', description: 'Atlas link target location key.' },
-                                    kind: { type: 'string', enum: [...ATLAS_LINK_KINDS], description: 'Atlas link kind.' },
-                                    label: { type: 'string', description: 'Optional atlas link label.' },
-                                    bidirectional: { type: 'boolean', description: 'Atlas link direction flag. Defaults true.' },
-                                    unset: { type: 'array', items: { type: 'string', enum: ['parent', 'mapDocId', 'aliases', 'brief'] }, description: 'Atlas upsert-location optional fields to remove.' },
-                                    set: patchSetSchema,
-                                    element: { ...mapElementSchema, description: 'Full element object for `add`. Use exactly one shape key and omit unused shape keys; never send empty `path:[]`, `curve:[]`, `points:[]`, or `line:[]`.' },
-                                },
-                                required: ['op'],
-                                additionalProperties: false,
+                                anyOf: [
+                                    {
+                                        type: 'object',
+                                        description: 'Map document metadata update.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['meta'], description: 'Map document metadata operation.' },
+                                            set: mapMetaSetSchema,
+                                        },
+                                        required: ['op'],
+                                        additionalProperties: false,
+                                    },
+                                    {
+                                        type: 'object',
+                                        description: 'Add one full scene-map element.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['add'], description: 'Map element add operation.' },
+                                            element: { ...mapElementSchema, description: 'Full element object for `add`. Use exactly one shape key and omit unused shape keys; never send empty `path:[]`, `curve:[]`, `points:[]`, or `line:[]`.' },
+                                        },
+                                        required: ['op', 'element'],
+                                        additionalProperties: false,
+                                    },
+                                    {
+                                        type: 'object',
+                                        description: 'Modify one existing scene-map element.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['modify'], description: 'Map element modify operation.' },
+                                            id: { type: 'string', description: 'Map element id for `modify`.' },
+                                            set: mapElementSetSchema,
+                                        },
+                                        required: ['op', 'id', 'set'],
+                                        additionalProperties: false,
+                                    },
+                                    {
+                                        type: 'object',
+                                        description: 'Remove one existing scene-map element.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['remove'], description: 'Map element remove operation.' },
+                                            id: { type: 'string', description: 'Map element id for `remove`.' },
+                                        },
+                                        required: ['op', 'id'],
+                                        additionalProperties: false,
+                                    },
+                                    {
+                                        type: 'object',
+                                        description: 'Create or update one world-atlas location.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['upsert-location'], description: 'Atlas location upsert operation.' },
+                                            key: { type: 'string', description: 'Atlas location key.' },
+                                            set: atlasLocationSetSchema,
+                                            unset: { type: 'array', items: { type: 'string', enum: ['parent', 'mapDocId', 'aliases', 'brief'] }, description: 'Atlas upsert-location optional fields to remove.' },
+                                        },
+                                        required: ['op', 'key'],
+                                        additionalProperties: false,
+                                    },
+                                    {
+                                        type: 'object',
+                                        description: 'Remove one world-atlas location.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['remove-location'], description: 'Atlas location remove operation.' },
+                                            key: { type: 'string', description: 'Atlas location key.' },
+                                        },
+                                        required: ['op', 'key'],
+                                        additionalProperties: false,
+                                    },
+                                    {
+                                        type: 'object',
+                                        description: 'Create or update one world-atlas link.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['upsert-link'], description: 'Atlas link upsert operation.' },
+                                            id: { type: 'string', description: 'Optional atlas link id. Atlas links may omit it and use the default id rule.' },
+                                            from: { type: 'string', description: 'Atlas link source location key.' },
+                                            to: { type: 'string', description: 'Atlas link target location key.' },
+                                            kind: { type: 'string', enum: [...ATLAS_LINK_KINDS], description: 'Atlas link kind.' },
+                                            label: { type: 'string', description: 'Optional atlas link label.' },
+                                            bidirectional: { type: 'boolean', description: 'Atlas link direction flag. Defaults true.' },
+                                        },
+                                        required: ['op', 'from', 'to', 'kind'],
+                                        additionalProperties: false,
+                                    },
+                                    {
+                                        type: 'object',
+                                        description: 'Remove one world-atlas link.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['remove-link'], description: 'Atlas link remove operation.' },
+                                            id: { type: 'string', description: 'Atlas link id for `remove-link`.' },
+                                        },
+                                        required: ['op', 'id'],
+                                        additionalProperties: false,
+                                    },
+                                    {
+                                        type: 'object',
+                                        description: 'Move one actor between atlas locations.',
+                                        properties: {
+                                            op: { type: 'string', enum: ['move-actor'], description: 'Atlas actor move operation.' },
+                                            actorKey: { type: 'string', description: 'Atlas actor key. Use actorKey:"player" for the player.' },
+                                            locationKey: { type: 'string', description: 'Atlas target location key.' },
+                                        },
+                                        required: ['op', 'actorKey', 'locationKey'],
+                                        additionalProperties: false,
+                                    },
+                                ],
                             },
                         },
                     },

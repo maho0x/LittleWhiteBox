@@ -1441,12 +1441,32 @@ test('MapInspect tool schema documents summary-first and mode semantics', () => 
 test('MapPatch tool schema documents canonical ops and camera semantics', () => {
     const patchTool = getTavernStateToolDefinitions()
         .find((tool) => tool.function.name === 'MapPatch');
-    const parameters = patchTool?.function.parameters as {
-        properties?: Record<string, { description?: string; items?: { properties?: Record<string, { description?: string; properties?: Record<string, { description?: string; enum?: string[] }> }> } }>;
+    type SchemaNode = {
+        description?: string;
+        enum?: string[];
+        properties?: Record<string, SchemaNode>;
+        items?: SchemaNode;
+        anyOf?: SchemaNode[];
+        required?: string[];
     };
-    const opsProperties = parameters.properties?.ops?.items?.properties || {};
-    const elementProperties = opsProperties.element?.properties || {};
-    const setProperties = opsProperties.set?.properties || {};
+    const parameters = patchTool?.function.parameters as {
+        properties?: Record<string, SchemaNode>;
+        required?: string[];
+    };
+    const opSchemas = parameters.properties?.ops?.items?.anyOf || [];
+    const findOpSchema = (op: string) => {
+        const schema = opSchemas.find((candidate) => candidate.properties?.op?.enum?.includes(op));
+        assert.ok(schema, `missing MapPatch op schema for ${op}`);
+        return schema;
+    };
+    const metaOpProperties = findOpSchema('meta').properties || {};
+    const addOpProperties = findOpSchema('add').properties || {};
+    const modifyOpProperties = findOpSchema('modify').properties || {};
+    const atlasLocationOpProperties = findOpSchema('upsert-location').properties || {};
+    const elementProperties = addOpProperties.element?.properties || {};
+    const metaSetProperties = metaOpProperties.set?.properties || {};
+    const elementSetProperties = modifyOpProperties.set?.properties || {};
+    const atlasLocationSetProperties = atlasLocationOpProperties.set?.properties || {};
 
     assert.match(patchTool?.function.description || '', /For `tavern\.map`, canonical ops are `meta`, `add`, `modify`, and `remove`/);
     assert.match(patchTool?.function.description || '', /For `tavern\.atlas\/main`/);
@@ -1466,12 +1486,14 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
     assert.match(patchTool?.function.description || '', /`kind` drives map logic such as exits/i);
     assert.match(parameters.properties?.docId?.description || '', /atlas always uses `main`/i);
     assert.match(parameters.properties?.activate?.description || '', /With `ops:\[\]`, this only switches the active map/i);
-    assert.equal(Array.isArray((parameters as { required?: string[] }).required) && (parameters as { required?: string[] }).required.includes('ops'), false);
+    assert.equal(Array.isArray(parameters.required) && parameters.required.includes('ops'), false);
     assert.match(parameters.properties?.ops?.description || '', /Required unless `activate:true`/i);
-    assert.match(opsProperties.op?.description || '', /Map ops and atlas ops are selected by docType/i);
-    assert.match(opsProperties.set?.description || '', /For map `meta`\/`modify`/i);
-    assert.match(opsProperties.element?.description || '', /Full element object for `add`/i);
-    assert.match(opsProperties.element?.description || '', /never send empty `path:\[\]`/i);
+    assert.equal(opSchemas.length, 9);
+    assert.match(metaOpProperties.set?.description || '', /For map `meta`/i);
+    assert.match(modifyOpProperties.set?.description || '', /For map `modify`/i);
+    assert.match(atlasLocationOpProperties.set?.description || '', /For atlas `upsert-location`/i);
+    assert.match(addOpProperties.element?.description || '', /Full element object for `add`/i);
+    assert.match(addOpProperties.element?.description || '', /never send empty `path:\[\]`/i);
     assert.match(elementProperties.kind?.description || '', /closed system semantic/i);
     assert.deepEqual(elementProperties.shape?.enum, ['icon']);
     assert.match(elementProperties.shape?.description || '', /Explicit icon geometry/i);
@@ -1503,14 +1525,21 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
     assert.deepEqual(elementProperties.certainty?.enum, ['confirmed', 'inferred', 'unknown']);
     assert.equal(elementProperties.fill, undefined);
     assert.equal(elementProperties.style, undefined);
-    assert.equal(setProperties.fill, undefined);
-    assert.equal(setProperties.style, undefined);
-    assert.equal(setProperties.opacity, undefined);
-    assert.equal(setProperties.zIndex, undefined);
-    assert.deepEqual(setProperties.shape?.enum, ['icon']);
-    assert.match(setProperties.icon?.description || '', /does not change geometry/i);
-    assert.deepEqual(setProperties.scale?.enum, ['city', 'district', 'building', 'floor', 'room', 'outdoor']);
-    assert.deepEqual(setProperties.material?.enum, [
+    assert.equal(metaSetProperties.at, undefined);
+    assert.equal(metaSetProperties.shape, undefined);
+    assert.equal(metaSetProperties.icon, undefined);
+    assert.deepEqual(metaSetProperties.status?.enum, ['uninitialized', 'active']);
+    assert.deepEqual(metaSetProperties.mood?.enum, ['neutral', 'warm', 'cold', 'dark', 'mystic', 'danger', 'calm']);
+    assert.equal(elementSetProperties.fill, undefined);
+    assert.equal(elementSetProperties.style, undefined);
+    assert.equal(elementSetProperties.opacity, undefined);
+    assert.equal(elementSetProperties.zIndex, undefined);
+    assert.equal(elementSetProperties.name, undefined);
+    assert.equal(elementSetProperties.viewBox, undefined);
+    assert.equal(elementSetProperties.status, undefined);
+    assert.deepEqual(elementSetProperties.shape?.enum, ['icon']);
+    assert.match(elementSetProperties.icon?.description || '', /does not change geometry/i);
+    assert.deepEqual(elementSetProperties.material?.enum, [
         'unknown',
         'wood',
         'stone',
@@ -1532,7 +1561,19 @@ test('MapPatch tool schema documents canonical ops and camera semantics', () => 
         'cold-light',
         'shadow',
     ]);
-    assert.deepEqual(setProperties.certainty?.enum, ['confirmed', 'inferred', 'unknown']);
+    assert.deepEqual(elementSetProperties.certainty?.enum, ['confirmed', 'inferred', 'unknown']);
+    assert.deepEqual(atlasLocationSetProperties.scale?.enum, ['city', 'district', 'building', 'floor', 'room', 'outdoor']);
+    assert.deepEqual(atlasLocationSetProperties.status?.enum, ['mentioned', 'visited']);
+    assert.equal(atlasLocationSetProperties.shape, undefined);
+    assert.equal(atlasLocationSetProperties.icon, undefined);
+    assert.equal(atlasLocationSetProperties.rect, undefined);
+    assert.equal(atlasLocationSetProperties.circle, undefined);
+    assert.equal(atlasLocationSetProperties.path, undefined);
+    assert.equal(atlasLocationSetProperties.curve, undefined);
+    assert.equal(atlasLocationSetProperties.at, undefined);
+    assert.equal(atlasLocationSetProperties.cat, undefined);
+    assert.equal(atlasLocationSetProperties.material, undefined);
+    assert.equal(atlasLocationSetProperties.certainty, undefined);
 });
 
 test('Map tools support tavern atlas without entering map element semantics', async () => {
@@ -2556,8 +2597,16 @@ test('MapPatch infers path anchors without at and keeps at optional in the publi
     assert.deepEqual(road?.path, [[0, 0], [240, 0]]);
 
     const mapPatch = getTavernStateToolDefinitions().find((tool) => tool.function.name === 'MapPatch');
-    const required = (((mapPatch?.function.parameters as { properties?: { ops?: { items?: { properties?: { element?: { required?: string[] } } } } } })
-        ?.properties?.ops?.items?.properties?.element?.required) || []);
+    type SchemaNode = {
+        enum?: string[];
+        properties?: Record<string, SchemaNode>;
+        items?: SchemaNode;
+        anyOf?: SchemaNode[];
+        required?: string[];
+    };
+    const parameters = mapPatch?.function.parameters as { properties?: Record<string, SchemaNode> };
+    const addSchema = parameters.properties?.ops?.items?.anyOf?.find((candidate) => candidate.properties?.op?.enum?.includes('add'));
+    const required = addSchema?.properties?.element?.required || [];
     assert.equal(required.includes('at'), false);
 });
 
@@ -4629,11 +4678,11 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
     });
     assert.match(mapPrompt, /MapAtlasRead/);
     assert.match(mapPrompt, /MapSceneEdit/);
-    assert.match(mapPrompt, /Scene-map construction order/i);
+    assert.match(mapPrompt, /Construction order/i);
     assert.match(mapPrompt, /Closed or contained scenes usually need both a filled main surface/i);
-    assert.match(mapPrompt, /Use `cat:\\"terrain\\"` for the main continuous scene surface or filled base area/i);
-    assert.match(mapPrompt, /Open scenes are the exception/i);
-    assert.match(mapPrompt, /This contract authorizes only the map system\. Do not write memory Markdown\./i);
+    assert.match(mapPrompt, /`cat:\\"terrain\\"` for the main continuous surface or filled base area/i);
+    assert.match(mapPrompt, /Open scenes .* may use a main surface/i);
+    assert.match(mapPrompt, /Each domain owns its own records: map is spatial records, status panel is UI state/i);
     assert.doesNotMatch(mapPrompt, /Edit and Write/);
     assert.doesNotMatch(mapPrompt, /memory\/session\.md/);
     assert.doesNotMatch(mapPrompt, /建议流水路径：/);
@@ -4673,7 +4722,7 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
     assert.match(questPrompt, /last advanced floor: 5/);
     assert.match(questPrompt, /Active count: 1\/3/);
     assert.doesNotMatch(questPrompt, /user hook|fingerprint|莉娜绕开旧码头名字/);
-    assert.doesNotMatch(questPrompt, /\[Resident Memory Files\]/);
+    assert.doesNotMatch(questPrompt, /\[Global memory state\.md\]/);
 });
 
 test('tavern auto manager denies unauthorized Write without side effects', async () => {
@@ -5427,7 +5476,8 @@ test('accepted-turn tavern manager prompts for global and character memory witho
     const session = await createTavernSession({ title: 'State and character memory' });
     const currentUser = await appendTavernMessage(session.id, { role: 'user', content: '第三轮。' });
     const currentAssistant = await appendTavernMessage(session.id, { role: 'assistant', content: '第三轮回复。' });
-    let managerPrompt = '';
+    let managerSystemPrompt = '';
+    let managerUserPrompt = '';
 
     const result = await runXbTavernManagerAfterTurn({
         sessionId: session.id,
@@ -5436,18 +5486,21 @@ test('accepted-turn tavern manager prompts for global and character memory witho
         assistantMessage: currentAssistant,
         turn: 3,
         executeManagerOnce: async (options) => {
-            managerPrompt = String(options.messages?.[1]?.content || '');
+            managerSystemPrompt = String(options.messages?.[0]?.content || '');
+            managerUserPrompt = String(options.messages?.[1]?.content || '');
             return { text: '已检查小记覆盖。' };
         },
     });
 
     assert.equal(result.ok, true);
-    assert.match(managerPrompt, /memory\/state\.md/);
-    assert.match(managerPrompt, /memory\/characters\/<角色名>\.md/);
-    assert.match(managerPrompt, /only if this accepted assistant reply changed durable memory/i);
-    assert.doesNotMatch(managerPrompt, /楼层小记覆盖/);
-    assert.doesNotMatch(managerPrompt, /建议流水路径/);
-    assert.doesNotMatch(managerPrompt, /memory\/turns/);
+    assert.match(managerSystemPrompt, /memory\/state\.md/);
+    assert.match(managerSystemPrompt, /memory\/characters\/<name>\.md/);
+    assert.match(managerSystemPrompt, /accepted reply actually establishes a new long-term fact/i);
+    assert.match(managerUserPrompt, /\[Global memory state\.md\]/);
+    assert.match(managerUserPrompt, /\[Character memory filename list\]/);
+    assert.doesNotMatch(managerSystemPrompt + managerUserPrompt, /楼层小记覆盖/);
+    assert.doesNotMatch(managerSystemPrompt + managerUserPrompt, /建议流水路径/);
+    assert.doesNotMatch(managerSystemPrompt + managerUserPrompt, /memory\/turns/);
 });
 
 test('tavern manager accepts arbitrary state markdown without schema parsing', async () => {
@@ -6326,7 +6379,7 @@ test('tavern manager chat carries persisted manager history and can read RP raw 
     assert.equal(result.ok, true);
     const firstMessages = JSON.parse(firstRoundMessages) as Array<{ role?: string; content?: string }>;
     assert.equal(firstMessages[0]?.role, 'system');
-    assert.match(firstMessages[0]?.content || '', /小白酒馆后台管理员/);
+    assert.match(firstMessages[0]?.content || '', /# Backstage Manager — LittleWhiteTavern/);
     assert.match(firstRoundMessages, /先前问：这段关系现在到哪了/);
     assert.match(firstRoundMessages, /先前答：还在试探阶段/);
     assert.match(firstRoundMessages, /继续看原文，帮我判断/);

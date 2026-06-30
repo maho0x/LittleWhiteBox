@@ -1951,45 +1951,45 @@ test('xb tavern run turn starts accepted-turn manager work on the next user send
     assert.equal(sawRunningStatusBeforeRpCompleted, true);
     assert.equal(managerCalls, 2);
     assert.equal(managerProvider, 'sillytavern-openai-compatible');
-    assert.match(managerPrompt, /小白酒馆后台管理员/);
-    assert.match(managerPrompt, /running inside the user's SillyTavern instance/i);
+    assert.match(managerPrompt, /# Backstage Manager — LittleWhiteTavern/);
     assert.match(managerPrompt, /main chat handles immersive roleplay/i);
-    assert.match(managerPrompt, /## Scope & Truth/);
-    assert.match(managerPrompt, /## Work Loop/);
-    assert.match(managerPrompt, /## Tool Use Guide/);
-    assert.match(managerPrompt, /## Map Records/);
+    assert.match(managerPrompt, /## Who You Are/);
+    assert.match(managerPrompt, /## What You Already Have/);
+    assert.match(managerPrompt, /## Your Tools/);
+    assert.match(managerPrompt, /## General Rules/);
+    assert.match(managerPrompt, /## Map/);
     assert.match(managerPrompt, /memory\/state\.md/);
-    assert.match(managerPrompt, /that reply actually establishes a fact or state/i);
+    assert.match(managerPrompt, /accepted reply actually establishes a new long-term fact/i);
     assert.doesNotMatch(managerPrompt, /建议流水路径/);
     assert.doesNotMatch(managerPrompt, /suggested turn note/i);
     assert.match(managerPrompt, /Spatial records are files/i);
-    assert.match(managerPrompt, /read `world` with MapAtlasRead/i);
-    assert.match(managerPrompt, /edit one explicit scene file with MapSceneEdit/i);
-    assert.match(managerPrompt, /Never rely on `main`, current map, active map, docType\/docId, activate, or ops/i);
-    assert.match(managerPrompt, /player location lives in `world\.actors\.player\.locationKey`/i);
-    assert.match(managerPrompt, /MapSceneEdit creates a missing scene file automatically/i);
-    assert.match(managerPrompt, /Element syntax is small/i);
+    assert.match(managerPrompt, /MapAtlasRead to read `world`/i);
+    assert.match(managerPrompt, /MapSceneEdit to edit by explicit scene name/i);
+    assert.match(managerPrompt, /Do not rely on `main`, current map, active map, docType\/docId, activate, or ops/i);
+    assert.match(managerPrompt, /Player position lives at `world\.actors\.player\.locationKey`/i);
+    assert.match(managerPrompt, /MapSceneEdit.*auto-creates if missing/i);
+    assert.match(managerPrompt, /Element syntax:/i);
     assert.match(managerPrompt, /Do not fill unused geo keys/i);
-    assert.match(managerPrompt, /Use `playerHere:true` only when/i);
+    assert.match(managerPrompt, /set `playerHere:true` only when/i);
     assert.match(managerPrompt, /First-map rule/i);
     assert.match(managerPrompt, /retry only the skipped element/i);
-    assert.match(managerPrompt, /Only update atlas when a place is confirmed/i);
-    assert.match(managerPrompt, /keep editing the same explicit scene name/i);
-    assert.match(managerPrompt, /separate explicit scene name/i);
+    assert.match(managerPrompt, /Update the atlas only when a place is confirmed/i);
+    assert.match(managerPrompt, /Keep editing the same scene name/i);
+    assert.match(managerPrompt, /separate scene name/i);
     assert.match(managerPrompt, /Actors use .*actorKey/i);
     assert.match(managerPrompt, /Indoor, vehicle, structure, cave, platform, rooftop/i);
-    assert.match(managerPrompt, /Scene-map construction order/i);
+    assert.match(managerPrompt, /Construction order/i);
     assert.match(managerPrompt, /Closed or contained scenes usually need both a filled main surface/i);
-    assert.match(managerPrompt, /Use `cat:\\?"terrain\\?"` for the main continuous scene surface or filled base area/i);
-    assert.match(managerPrompt, /Open scenes are the exception/i);
-    assert.match(managerPrompt, /Let the scene pressure shape composition/i);
+    assert.match(managerPrompt, /`cat:\\?"terrain\\?"` for the main continuous surface or filled base area/i);
+    assert.match(managerPrompt, /Open scenes .* may use a main surface/i);
+    assert.match(managerPrompt, /Let scene pressure shape composition/i);
     assert.match(managerPrompt, /Translate place names into local geometry/i);
-    assert.match(managerPrompt, /`viewBox` is the camera/i);
+    assert.match(managerPrompt, /viewBox is the camera/i);
     assert.doesNotMatch(managerPrompt, /meta \+ add|initialize it with one MapPatch/i);
-    assert.match(managerPrompt, /Place text labels 15-25 units beside what they describe/i);
-    assert.match(managerPrompt, /Reply with a short, clear, user-facing operation summary/i);
+    assert.match(managerPrompt, /Place text labels 15–25 units beside what they describe/i);
+    assert.match(managerPrompt, /Reply with a short, user-facing summary/i);
     assert.doesNotMatch(managerPrompt, /电纸书|ebook file-operation/i);
-    assert.match(managerPrompt, /Evidence routing: Grep with .*memory\/.*asks whether a fact is already stored/is);
+    assert.match(managerPrompt, /Grep with `path:\\?"memory\/\\?"` to check whether a fact is already stored/is);
     assert.doesNotMatch(managerPrompt, /可派生格式/);
     assert.doesNotMatch(managerPrompt, /messages userOrder\/assistantOrder/);
     assert.doesNotMatch(managerPrompt, /ChatHistory recent 读取最新消息/);
@@ -2010,12 +2010,14 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
         includeMemory: true,
         includeCartography: false,
     });
-    assert.match(memoryOnly, /Edit\/Write save memory only/);
-    assert.match(memoryOnly, /Maintain the current session's global long-term memory in `memory\/state\.md`/);
-    assert.match(memoryOnly, /Maintain current-session character long-term memory in `memory\/characters\/<角色名>\.md`/);
-    assert.match(memoryOnly, /user-editable preset only defines the file's internal format, content scope, and selection rules/);
+    assert.match(memoryOnly, /## Memory/);
+    assert.match(memoryOnly, /Global facts → `memory\/state\.md`/);
+    assert.match(memoryOnly, /Character files → `memory\/characters\/<name>\.md`/);
+    assert.match(memoryOnly, /the tags only govern internal format/);
+    assert.match(memoryOnly, /<全局记忆设定>/);
+    assert.match(memoryOnly, /<人物记忆设定>/);
     assert.doesNotMatch(memoryOnly, /## Structured State/);
-    assert.doesNotMatch(memoryOnly, /## Map Records/);
+    assert.doesNotMatch(memoryOnly, /## Map/);
     assert.doesNotMatch(memoryOnly, /StateRead/);
     assert.doesNotMatch(memoryOnly, /inspect or change the map/i);
     assert.doesNotMatch(memoryOnly, /spatial relation view/i);
@@ -2025,7 +2027,7 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
         includeMemory: false,
         includeCartography: true,
     });
-    assert.match(mapOnly, /## Map Records/);
+    assert.match(mapOnly, /## Map/);
     assert.match(mapOnly, /MapAtlasRead/);
     assert.match(mapOnly, /MapSceneEdit/);
     assert.doesNotMatch(mapOnly, /MemoryWrite/);
@@ -2037,15 +2039,15 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
         includeCartography: false,
         includeQuestOrchestration: true,
     });
-    assert.match(questOnly, /事件引擎/);
-    assert.match(questOnly, /有野心、对味、有第一步/);
-    assert.match(questOnly, /好，我去做/);
-    assert.match(questOnly, /当前故事和用户口味/);
-    assert.match(questOnly, /想不到足够好的方向就保持空白/);
+    assert.match(questOnly, /## Events/);
+    assert.match(questOnly, /playable future directions/);
+    assert.match(questOnly, /Ambitious, tonally fitting, with a clear first step/);
+    assert.match(questOnly, /yes, let me go do that/);
+    assert.match(questOnly, /If no sufficiently good direction comes to mind, leave the pool empty/);
     assert.doesNotMatch(questOnly, /"op":"upsert-event"|hookForModel|doneWhen.*objective completion condition/);
     assert.doesNotMatch(questOnly, /MemoryWrite/);
     assert.doesNotMatch(questOnly, /## Structured State/);
-    assert.doesNotMatch(questOnly, /## Map Records/);
+    assert.doesNotMatch(questOnly, /## Map/);
 });
 
 test('xb tavern pending accepted-turn manager failure does not block the next RP send', async () => {

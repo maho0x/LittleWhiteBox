@@ -835,7 +835,7 @@ export function getTavernStatusToolDefinitions(): Array<{ type: 'function'; func
                     'Patch values/items inside the existing status panel skeleton.',
                     'Allowed ops are set, delta, push, and remove. You may only change fields inside an existing block.',
                     'Never add subject, tab, block, or change a block form here. If the structure must change, the user must reinitialize from the status preset.',
-                    'Every saved patch stores before/after reversible data for message rollback.',
+                    'Saved patches keep before/after data for audit and manager-run cleanup. User-floor rollback restores accepted snapshots.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
