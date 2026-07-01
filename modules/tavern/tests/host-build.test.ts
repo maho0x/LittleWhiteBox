@@ -395,6 +395,7 @@ test('tavern worldbook host bridge exposes named entry edit endpoints and native
     assert.match(hostSource, /'secondary_keys' in entry && \('secondary_keys' in draft \|\| 'secondaryKeys' in draft\)/);
     assert.match(hostSource, /const keysecondary = normalizeStringList\(draft\.keysecondary\);[\s\S]*entry\.secondary_keys = keysecondary\.length \? keysecondary : normalizeStringList\(draft\.secondary_keys \?\? draft\.secondaryKeys\)/);
     assert.match(hostSource, /await saveWorldInfo\(name, data, true\)/);
+    assert.match(hostSource, /void updateWorldInfoList\(\)\.catch/);
     assert.doesNotMatch(hostSource, /not_current_character|只能给当前酒馆角色/);
     assert.match(hostSource, /function prepareCharacterEditorForWorldbookBinding/);
     assert.match(hostSource, /getOneCharacter/);

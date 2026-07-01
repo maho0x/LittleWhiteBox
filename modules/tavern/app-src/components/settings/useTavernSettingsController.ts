@@ -322,6 +322,27 @@ function normalizeWorldbookEntryDraft(value: unknown): TavernWorldbookEntryDraft
     } as WorldbookEntryDraftRow;
 }
 
+function worldbookPreviewEntryFromDraft(draft: TavernWorldbookEntryDraft, fallback?: TavernWorldbookPreviewEntryRow): TavernWorldbookPreviewEntryRow {
+    const comment = String(draft.comment || '').trim();
+    return {
+        uid: String(draft.uid || fallback?.uid || '').trim(),
+        name: comment || fallback?.name || `条目 ${String(draft.uid || fallback?.uid || '').trim() || '?'}`,
+        keys: normalizeStringList(draft.key),
+        secondaryKeys: normalizeStringList(draft.keysecondary).length
+            ? normalizeStringList(draft.keysecondary)
+            : normalizeStringList(draft.secondary_keys),
+        contentPreview: String(draft.content || ''),
+        enabled: draft.enabled !== false && draft.disable !== true,
+        constant: draft.constant === true,
+        vectorized: draft.constant === true ? false : draft.vectorized === true,
+        order: Number.isFinite(Number(draft.order)) ? Number(draft.order) : 100,
+        position: Number.isFinite(Number(draft.position)) ? Number(draft.position) : 0,
+        role: Number.isFinite(Number(draft.role)) ? Number(draft.role) : 0,
+        depth: normalizeNullableNumber(draft.depth),
+        probability: draft.useProbability === false ? null : normalizeNullableNumber(draft.probability),
+    };
+}
+
 function normalizeGlobalWorldbookPayload(value: unknown): { options: string[]; selected: string[] } {
     const record = promptRecord(value);
     const options = Array.isArray(record.options)
@@ -493,6 +514,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     let worldbookEntryLoadRequestKey = '';
     let worldbookEntrySaveRequestSerial = 0;
     let worldbookSyncRequestSerial = 0;
+    let worldbookPreviewRequestSerial = 0;
     let globalWorldbookRequestSerial = 0;
     let globalWorldbookSavingRequestSerial = 0;
     let regexRefreshRequestSerial = 0;
@@ -964,6 +986,30 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             });
         }
     }
+    function patchWorldbookPreviewEntryFromDraft(draftInput: unknown) {
+        const normalized = normalizeWorldbookEntryDraft(draftInput);
+        const preview = worldbookPreview.value;
+        const targetName = String(selectedWorldbookName.value || normalized.worldbookName || '').trim();
+        if (!preview || preview.name !== targetName || !normalized.uid) {return;}
+        const entryIndex = preview.entries.findIndex((entry) => entry.uid === normalized.uid);
+        if (entryIndex < 0) {return;}
+        const previousEntry = preview.entries[entryIndex];
+        const nextEntry = worldbookPreviewEntryFromDraft(normalized, previousEntry);
+        const entries = [...preview.entries];
+        entries[entryIndex] = nextEntry;
+        entries.sort((left, right) => Number(right.order) - Number(left.order));
+        worldbookPreview.value = {
+            ...preview,
+            enabledCount: Math.max(0, preview.enabledCount + (nextEntry.enabled ? 1 : 0) - (previousEntry.enabled ? 1 : 0)),
+            constantCount: Math.max(0, preview.constantCount + (nextEntry.constant ? 1 : 0) - (previousEntry.constant ? 1 : 0)),
+            disabledCount: Math.max(0, preview.disabledCount + (!nextEntry.enabled ? 1 : 0) - (!previousEntry.enabled ? 1 : 0)),
+            keywordCount: Math.max(0, preview.keywordCount
+                + nextEntry.keys.length + nextEntry.secondaryKeys.length
+                - previousEntry.keys.length - previousEntry.secondaryKeys.length),
+            totalChars: Math.max(0, preview.totalChars + nextEntry.contentPreview.length - previousEntry.contentPreview.length),
+            entries,
+        };
+    }
     async function refreshPresets() {
         if (assistantPresetDirty.value && !await confirmDiscardDraft('助手预设', '刷新')) {
             assistantPresetStatus.value = '';
@@ -1174,7 +1220,11 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         }
         void saveGlobalWorldbooksToHost([...current]);
     }
-    async function loadSelectedWorldbookPreview(name = selectedWorldbookName.value) {
+    async function loadSelectedWorldbookPreview(
+        name = selectedWorldbookName.value,
+        loadOptions: { preserveExistingOnError?: boolean } = {},
+    ) {
+        const requestSerial = ++worldbookPreviewRequestSerial;
         const targetName = String(name || '').trim();
         if (!targetName) {
             worldbookPreview.value = null;
@@ -1190,12 +1240,16 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
                     limit: worldbookPreviewVisibleLimit.value,
                 },
             });
+            if (requestSerial !== worldbookPreviewRequestSerial) {return;}
             if (String(selectedWorldbookName.value || '').trim() !== requestName) {return;}
             worldbookPreview.value = normalizeWorldbookPreview(result.result || result);
             worldbookPreviewStatus.value = '';
         } catch (error) {
+            if (requestSerial !== worldbookPreviewRequestSerial) {return;}
             if (String(selectedWorldbookName.value || '').trim() !== requestName) {return;}
-            worldbookPreview.value = null;
+            if (!loadOptions.preserveExistingOnError) {
+                worldbookPreview.value = null;
+            }
             worldbookPreviewStatus.value = error instanceof Error ? error.message : String(error || '预览读取失败');
         }
     }
@@ -1277,12 +1331,14 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             });
             if (requestSerial !== worldbookEntrySaveRequestSerial) {return;}
             if (String(worldbookEntryEditingKey.value || '').trim() !== editingKeyAtRequest) {return;}
-            applyWorldbookEntryDraft(result.result || result, {
+            const savedDraft = normalizeWorldbookEntryDraft(result.result || result);
+            applyWorldbookEntryDraft(savedDraft, {
                 replaceDraft: snapshotNativeDraft(worldbookEntryDraft.value) === draftJsonAtRequest,
             });
+            patchWorldbookPreviewEntryFromDraft(savedDraft);
             worldbookEntryStatus.value = '';
             completeWorldbookEntrySaveFeedback({ ok: true });
-            await loadSelectedWorldbookPreview(targetName);
+            void loadSelectedWorldbookPreview(targetName, { preserveExistingOnError: true });
             refreshCurrentHostContext();
         } catch (error) {
             if (requestSerial !== worldbookEntrySaveRequestSerial) {return;}

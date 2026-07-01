@@ -13,7 +13,7 @@ export interface TavernAssistantPreset {
 type AssistantPresetInput = Partial<TavernAssistantPreset>;
 
 export const DEFAULT_TAVERN_ASSISTANT_PRESET_ID = 'littlewhitebox-assistant-default';
-export const DEFAULT_TAVERN_ASSISTANT_PRESET_VERSION = '2026-06-assistant-prompt-event-arc-v5';
+export const DEFAULT_TAVERN_ASSISTANT_PRESET_VERSION = '2026-07-status-panel-default-v1';
 
 interface TavernManagerPromptOptions extends Partial<TavernContractManagerPromptOptions> {
     includeMemory?: boolean;
@@ -495,37 +495,40 @@ export function buildDefaultCharacterMemoryPrompt(): string {
 
 export function buildDefaultStatusPanelPrompt(): string {
     return joinLines([
-        '# 状态栏设定',
+        '状态栏设定',
         '',
-        '写法：每行可写“名称：类型”，类型可省略。类型有四种：数值 / 标签 / 物品 / 文本。',
-        '原则：助手只维护这里列出的栏目；没有写的内容，不要替我自动补。',
+        '数值可标范围，0-100。标签动态增删。物品可带数量和来历。',
         '',
-        '## 一、维护什么',
+        '—— 第一页【概览】——',
         '',
-        '### 角色基础（文本）',
-        '- 姓名、身份、当前地点',
+        '角色基础（文本）',
+        '  姓名、身份、当前地点',
         '',
-        '### 属性（数值，0-100）',
-        '- 力量、敏捷、感知、意志、魅力、学识',
+        '当前状态（标签）',
+        '  临时状态，如：受伤、疲惫、恐惧、中毒、饥饿、隐匿等',
         '',
-        '### 状态（标签，动态增删）',
-        '- 临时状态：受伤、疲惫、恐惧、中毒等',
+        '着装（物品，按部位）',
+        '  头部、上身、下身、足部、配饰',
         '',
-        '### 着装（物品，按部位）',
-        '- 头部、上身、下身、足部、配饰',
+        '—— 第二页【能力】——',
         '',
-        '### 背包（物品，可带数量和来历）',
-        '- 持有的物品、线索、钥匙、消耗品等；可记录数量、用途和来历',
+        '身体（数值，0-100）',
+        '  力量、体质、敏捷、巧手',
         '',
-        '### 关系（数值，名称=NPC名，值=好感度0-100）',
-        '- 重要NPC对“我”的好感度，每个NPC一条：NPC名：好感值；新NPC出现时，继续写在关系这一栏里',
+        '感知（数值，0-100）',
+        '  察觉、聆听、搜索、直觉',
         '',
-        '## 二、怎么分页',
+        '心智（数值，0-100）',
+        '  意志、学识、话术、威慑',
         '',
-        '分三页：',
-        '- 第一页【概览】：基础信息 + 当前状态 + 着装',
-        '- 第二页【属性】：六维属性 + 关系',
-        '- 第三页【行囊】：背包',
+        '关系（数值，名称=NPC名，值=好感度 0-100）',
+        '  重要NPC对"我"的好感度，每个NPC一条',
+        '  新NPC出现时加在这里',
+        '',
+        '—— 第三页【行囊】——',
+        '',
+        '背包（物品，可带数量和来历）',
+        '  持有的物品、线索、钥匙、消耗品等',
     ]);
 }
 

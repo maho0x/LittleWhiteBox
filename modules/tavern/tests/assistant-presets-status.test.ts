@@ -10,10 +10,13 @@ import {
 
 test('default assistant preset carries an editable status panel section', () => {
     const preset = createDefaultTavernAssistantPreset();
-    assert.match(preset.statusPrompt, /# 状态栏设定/);
-    assert.match(preset.statusPrompt, /助手只维护这里列出的栏目/);
+    assert.match(preset.statusPrompt, /^状态栏设定/);
+    assert.match(preset.statusPrompt, /数值可标范围，0-100。标签动态增删。物品可带数量和来历。/);
+    assert.match(preset.statusPrompt, /—— 第一页【概览】——/);
+    assert.match(preset.statusPrompt, /身体（数值，0-100）/);
+    assert.match(preset.statusPrompt, /重要NPC对"我"的好感度，每个NPC一条/);
     assert.match(preset.statusPrompt, /持有的物品、线索、钥匙、消耗品等/);
-    assert.match(buildDefaultStatusPanelPrompt(), /新NPC出现时，继续写在关系这一栏里/);
+    assert.match(buildDefaultStatusPanelPrompt(), /新NPC出现时加在这里/);
     assert.doesNotMatch(preset.statusPrompt, /Material Symbols/);
     assert.doesNotMatch(preset.statusPrompt, /\bicon\b/);
     assert.doesNotMatch(preset.statusPrompt, /\bblock\b/);
@@ -23,7 +26,7 @@ test('default assistant preset carries an editable status panel section', () => 
         name: 'Custom',
         statusPrompt: '',
     });
-    assert.match(normalized.statusPrompt, /# 状态栏设定/);
+    assert.match(normalized.statusPrompt, /^状态栏设定/);
 });
 
 test('manager system prompt includes status rules only when status is authorized', () => {

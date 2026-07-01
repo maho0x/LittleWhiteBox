@@ -1333,7 +1333,9 @@ export async function saveTavernWorldbookEntry(input: unknown = {}): Promise<Tav
         patchWorldbookEntry(slot.entry, draft);
         syncWorldbookOriginalDataEntry(asRecord(data), uid, slot.entry);
         await saveWorldInfo(name, data, true);
-        await updateWorldInfoList();
+        void updateWorldInfoList().catch((error) => {
+            console.warn('[LittleWhiteBox/tavern] Failed to refresh worldbook list after entry save', name, error);
+        });
         return buildWorldbookEntryDraft(name, slot);
     });
 }

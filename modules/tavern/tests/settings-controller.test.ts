@@ -73,6 +73,35 @@ function worldbookEntryPayload(comment: string, content: string, entryHash: stri
     };
 }
 
+function worldbookPreviewPayload(comment: string, content: string, keys: string[] = [], uid = '1'): Record<string, unknown> {
+    return {
+        result: {
+            name: 'Book',
+            entryCount: 1,
+            enabledCount: 1,
+            constantCount: 0,
+            disabledCount: 0,
+            keywordCount: keys.length,
+            totalChars: content.length,
+            entries: [{
+                uid,
+                name: comment,
+                keys,
+                secondaryKeys: [],
+                contentPreview: content,
+                enabled: true,
+                constant: false,
+                vectorized: false,
+                order: 100,
+                position: 0,
+                role: 0,
+                depth: null,
+                probability: null,
+            }],
+        },
+    };
+}
+
 function chatPresetBundle(name: string, prompt: Record<string, unknown> = {}, activeCharacterId = 'char-1'): Record<string, unknown> {
     const promptRecord = {
         identifier: 'main',
@@ -992,6 +1021,277 @@ test('worldbook entry save keeps edits made while the save is pending', async ()
     assert.equal(controller.settingsContext.worldbookEntryDraft.value?.comment, 'SERVER CANONICAL NEXT');
     assert.equal(controller.settingsContext.worldbookEntryDraft.value?.entryHash, 'h3');
     assert.equal(controller.settingsContext.worldbookEntryDirty.value, false);
+});
+
+test('worldbook entry save patches preview immediately without waiting for preview reload', async () => {
+    const activeView = ref('settings');
+    const activeSettingsWorkspace = ref<TavernSettingsWorkspaceKey>('worldbooks');
+    const agentConfig = ref<Record<string, unknown>>({});
+    const tavernDisplaySettings = ref(normalizeTavernDisplaySettings({}));
+    let previewRequestCount = 0;
+    let resolvePreviewReload: (value: Record<string, unknown>) => void = () => {};
+
+    const controller = useTavernSettingsController({
+        activeView,
+        activeSettingsWorkspace,
+        agentConfig,
+        tavernDisplaySettings,
+        effectiveContext: computed(() => ({})),
+        currentNativeCharacterId: computed(() => ''),
+        regexNativeCharacterId: computed(() => ''),
+        homeThemeDark: ref(false),
+        isRunning: ref(false),
+        confirmDialog: async () => true,
+        describeError: (error) => error instanceof Error ? error.message : String(error || ''),
+        postToHost: () => {},
+        requestHost: (type) => {
+            if (type === 'xb-tavern:get-worldbook-entry') {
+                return Promise.resolve(worldbookEntryPayload('Original', 'Original content', 'h1', ['original']));
+            }
+            if (type === 'xb-tavern:save-worldbook-entry') {
+                return Promise.resolve(worldbookEntryPayload('Saved', 'Saved content', 'h2', ['saved']));
+            }
+            if (type === 'xb-tavern:get-worldbook-preview') {
+                previewRequestCount += 1;
+                if (previewRequestCount === 1) {
+                    return Promise.resolve({
+                        result: {
+                            name: 'Book',
+                            entryCount: 1,
+                            enabledCount: 1,
+                            constantCount: 0,
+                            disabledCount: 0,
+                            keywordCount: 1,
+                            totalChars: 'Original content'.length,
+                            entries: [{
+                                uid: '1',
+                                name: 'Original',
+                                keys: ['original'],
+                                secondaryKeys: [],
+                                contentPreview: 'Original content',
+                                enabled: true,
+                                constant: false,
+                                vectorized: false,
+                                order: 100,
+                                position: 0,
+                                role: 0,
+                                depth: null,
+                                probability: null,
+                            }],
+                        },
+                    });
+                }
+                return new Promise<Record<string, unknown>>((resolve) => {
+                    resolvePreviewReload = resolve;
+                });
+            }
+            return Promise.resolve({});
+        },
+        shortText: (value = '') => String(value || ''),
+    });
+
+    controller.settingsContext.selectedWorldbookName.value = 'Book';
+    await flushAsyncState();
+    assert.equal(controller.settingsContext.worldbookPreview.value?.entries[0]?.name, 'Original');
+
+    await controller.settingsContext.startWorldbookEntryEdit({
+        uid: '1',
+        name: 'Original',
+        keys: ['original'],
+        secondaryKeys: [],
+        contentPreview: 'Original content',
+        enabled: true,
+        constant: false,
+        order: 100,
+    });
+    controller.settingsContext.updateWorldbookEntryDraftPatch({
+        comment: 'Saved',
+        content: 'Saved content',
+        key: ['saved'],
+    });
+
+    await controller.settingsContext.saveWorldbookEntryDraft();
+
+    assert.equal(previewRequestCount, 2);
+    assert.equal(controller.settingsContext.worldbookEntrySaveFeedback.value.status, 'success');
+    assert.equal(controller.settingsContext.worldbookPreviewStatus.value, '正在读取预览');
+    assert.equal(controller.settingsContext.worldbookPreview.value?.entries[0]?.name, 'Saved');
+    assert.deepEqual(controller.settingsContext.worldbookPreview.value?.entries[0]?.keys, ['saved']);
+    assert.equal(controller.settingsContext.worldbookPreview.value?.entries[0]?.contentPreview, 'Saved content');
+    assert.equal(controller.settingsContext.worldbookPreview.value?.keywordCount, 1);
+    assert.equal(controller.settingsContext.worldbookPreview.value?.totalChars, 'Saved content'.length);
+
+    resolvePreviewReload({
+        result: {
+            name: 'Book',
+            entryCount: 1,
+            entries: [],
+        },
+    });
+    await flushAsyncState();
+});
+
+test('worldbook preview reload ignores stale responses after newer saves', async () => {
+    const activeView = ref('settings');
+    const activeSettingsWorkspace = ref<TavernSettingsWorkspaceKey>('worldbooks');
+    const agentConfig = ref<Record<string, unknown>>({});
+    const tavernDisplaySettings = ref(normalizeTavernDisplaySettings({}));
+    let previewRequestCount = 0;
+    let saveRequestCount = 0;
+    let resolveStalePreview: (value: Record<string, unknown>) => void = () => {};
+    let resolveLatestPreview: (value: Record<string, unknown>) => void = () => {};
+
+    const controller = useTavernSettingsController({
+        activeView,
+        activeSettingsWorkspace,
+        agentConfig,
+        tavernDisplaySettings,
+        effectiveContext: computed(() => ({})),
+        currentNativeCharacterId: computed(() => ''),
+        regexNativeCharacterId: computed(() => ''),
+        homeThemeDark: ref(false),
+        isRunning: ref(false),
+        confirmDialog: async () => true,
+        describeError: (error) => error instanceof Error ? error.message : String(error || ''),
+        postToHost: () => {},
+        requestHost: (type) => {
+            if (type === 'xb-tavern:get-worldbook-entry') {
+                return Promise.resolve(worldbookEntryPayload('Original', 'Original content', 'h1', ['original']));
+            }
+            if (type === 'xb-tavern:save-worldbook-entry') {
+                saveRequestCount += 1;
+                return Promise.resolve(saveRequestCount === 1
+                    ? worldbookEntryPayload('Saved A', 'Saved content A', 'h2', ['saved-a'])
+                    : worldbookEntryPayload('Saved B', 'Saved content B', 'h3', ['saved-b']));
+            }
+            if (type === 'xb-tavern:get-worldbook-preview') {
+                previewRequestCount += 1;
+                if (previewRequestCount === 1) {
+                    return Promise.resolve(worldbookPreviewPayload('Original', 'Original content', ['original']));
+                }
+                if (previewRequestCount === 2) {
+                    return new Promise<Record<string, unknown>>((resolve) => {
+                        resolveStalePreview = resolve;
+                    });
+                }
+                return new Promise<Record<string, unknown>>((resolve) => {
+                    resolveLatestPreview = resolve;
+                });
+            }
+            return Promise.resolve({});
+        },
+        shortText: (value = '') => String(value || ''),
+    });
+
+    controller.settingsContext.selectedWorldbookName.value = 'Book';
+    await flushAsyncState();
+    await controller.settingsContext.startWorldbookEntryEdit({
+        uid: '1',
+        name: 'Original',
+        keys: ['original'],
+        secondaryKeys: [],
+        contentPreview: 'Original content',
+        enabled: true,
+        constant: false,
+        order: 100,
+    });
+
+    controller.settingsContext.updateWorldbookEntryDraftPatch({
+        comment: 'Saved A',
+        content: 'Saved content A',
+        key: ['saved-a'],
+    });
+    await controller.settingsContext.saveWorldbookEntryDraft();
+    assert.equal(controller.settingsContext.worldbookPreview.value?.entries[0]?.name, 'Saved A');
+
+    controller.settingsContext.updateWorldbookEntryDraftPatch({
+        comment: 'Saved B',
+        content: 'Saved content B',
+        key: ['saved-b'],
+    });
+    await controller.settingsContext.saveWorldbookEntryDraft();
+    assert.equal(controller.settingsContext.worldbookPreview.value?.entries[0]?.name, 'Saved B');
+
+    resolveStalePreview(worldbookPreviewPayload('STALE A', 'stale content', ['stale']));
+    await flushAsyncState();
+    assert.equal(controller.settingsContext.worldbookPreview.value?.entries[0]?.name, 'Saved B');
+    assert.deepEqual(controller.settingsContext.worldbookPreview.value?.entries[0]?.keys, ['saved-b']);
+
+    resolveLatestPreview(worldbookPreviewPayload('Fresh B', 'fresh content', ['fresh']));
+    await flushAsyncState();
+    assert.equal(controller.settingsContext.worldbookPreview.value?.entries[0]?.name, 'Fresh B');
+    assert.deepEqual(controller.settingsContext.worldbookPreview.value?.entries[0]?.keys, ['fresh']);
+    assert.equal(controller.settingsContext.worldbookPreviewStatus.value, '');
+});
+
+test('worldbook background preview failure preserves locally patched preview', async () => {
+    const activeView = ref('settings');
+    const activeSettingsWorkspace = ref<TavernSettingsWorkspaceKey>('worldbooks');
+    const agentConfig = ref<Record<string, unknown>>({});
+    const tavernDisplaySettings = ref(normalizeTavernDisplaySettings({}));
+    let previewRequestCount = 0;
+    let rejectPreviewReload: (error: Error) => void = () => {};
+
+    const controller = useTavernSettingsController({
+        activeView,
+        activeSettingsWorkspace,
+        agentConfig,
+        tavernDisplaySettings,
+        effectiveContext: computed(() => ({})),
+        currentNativeCharacterId: computed(() => ''),
+        regexNativeCharacterId: computed(() => ''),
+        homeThemeDark: ref(false),
+        isRunning: ref(false),
+        confirmDialog: async () => true,
+        describeError: (error) => error instanceof Error ? error.message : String(error || ''),
+        postToHost: () => {},
+        requestHost: (type) => {
+            if (type === 'xb-tavern:get-worldbook-entry') {
+                return Promise.resolve(worldbookEntryPayload('Original', 'Original content', 'h1', ['original']));
+            }
+            if (type === 'xb-tavern:save-worldbook-entry') {
+                return Promise.resolve(worldbookEntryPayload('Saved', 'Saved content', 'h2', ['saved']));
+            }
+            if (type === 'xb-tavern:get-worldbook-preview') {
+                previewRequestCount += 1;
+                if (previewRequestCount === 1) {
+                    return Promise.resolve(worldbookPreviewPayload('Original', 'Original content', ['original']));
+                }
+                return new Promise<Record<string, unknown>>((_resolve, reject) => {
+                    rejectPreviewReload = reject;
+                });
+            }
+            return Promise.resolve({});
+        },
+        shortText: (value = '') => String(value || ''),
+    });
+
+    controller.settingsContext.selectedWorldbookName.value = 'Book';
+    await flushAsyncState();
+    await controller.settingsContext.startWorldbookEntryEdit({
+        uid: '1',
+        name: 'Original',
+        keys: ['original'],
+        secondaryKeys: [],
+        contentPreview: 'Original content',
+        enabled: true,
+        constant: false,
+        order: 100,
+    });
+    controller.settingsContext.updateWorldbookEntryDraftPatch({
+        comment: 'Saved',
+        content: 'Saved content',
+        key: ['saved'],
+    });
+
+    await controller.settingsContext.saveWorldbookEntryDraft();
+    rejectPreviewReload(new Error('preview failed'));
+    await flushAsyncState();
+
+    assert.equal(controller.settingsContext.worldbookEntrySaveFeedback.value.status, 'success');
+    assert.equal(controller.settingsContext.worldbookPreview.value?.entries[0]?.name, 'Saved');
+    assert.deepEqual(controller.settingsContext.worldbookPreview.value?.entries[0]?.keys, ['saved']);
+    assert.equal(controller.settingsContext.worldbookPreviewStatus.value, 'preview failed');
 });
 
 test('pending worldbook save cannot merge its hash into another edited entry', async () => {
