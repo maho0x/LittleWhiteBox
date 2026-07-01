@@ -38255,15 +38255,17 @@ function cF(e = "xb-ebook-root") {
             align-items: center;
             gap: 8px;
         }
-        .xb-ebook-settings-body .xb-assistant-preset-field {
+        .xb-ebook-settings-body .xb-assistant-preset-field,
+        .xb-ebook-settings-body .xb-assistant-config select.xb-assistant-preset-field {
+            box-sizing: border-box;
             grid-column: 1;
             min-width: 0;
             width: 100%;
             min-height: 40px;
             height: 40px;
-            line-height: 18px;
-            padding-top: 0;
-            padding-bottom: 0;
+            padding: 0 12px;
+            font-size: 14px;
+            line-height: 40px;
         }
         .xb-ebook-settings-body .xb-assistant-preset-tools {
             display: grid;

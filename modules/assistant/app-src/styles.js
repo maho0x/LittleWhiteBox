@@ -194,12 +194,17 @@ export function injectAssistantStyles(rootId) {
             align-items: center;
             gap: 8px;
         }
-        .xb-assistant-preset-field {
+        .xb-assistant-preset-field,
+        .xb-assistant-config select.xb-assistant-preset-field {
+            box-sizing: border-box;
             grid-column: 1;
             min-width: 0;
             width: 100%;
             min-height: 40px;
             height: 40px;
+            padding: 0 14px;
+            font-size: 14px;
+            line-height: 40px;
         }
         .xb-assistant-preset-tools {
             display: grid;

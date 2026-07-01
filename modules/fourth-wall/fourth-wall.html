@@ -865,12 +865,17 @@ body {
     gap: 8px;
 }
 
-.fw-agent-settings-body .xb-assistant-preset-field {
+.fw-agent-settings-body .xb-assistant-preset-field,
+.fw-agent-settings-body .xb-assistant-config select.xb-assistant-preset-field {
+    box-sizing: border-box;
     grid-column: 1;
     min-width: 0;
     width: 100%;
     height: 36px;
     min-height: 36px;
+    padding: 0 10px;
+    font-size: 0.88rem;
+    line-height: 36px;
 }
 
 .fw-agent-settings-body .xb-assistant-preset-tools {
