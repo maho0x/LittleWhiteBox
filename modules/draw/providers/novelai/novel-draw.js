@@ -1372,12 +1372,14 @@ function normalizeGeneratedCharacterProfile(profile = {}, fallbackName = '') {
     const name = String(profile.name || fallbackName || '').trim();
     if (!name) throw new NovelDrawError('生成结果缺少角色名称', ErrorType.PARSE);
     const type = String(profile.type || 'girl').trim() || 'girl';
-    const appearance = String(profile.appearance || profile.tags || '').trim();
-    if (!appearance) throw new NovelDrawError('生成结果缺少外貌标签', ErrorType.PARSE);
     const aliases = Array.isArray(profile.aliases)
         ? profile.aliases.map(item => String(item || '').trim()).filter(Boolean)
         : String(profile.aliases || '').split(/[,，、]/).map(item => item.trim()).filter(Boolean);
     const outfits = normalizeCharacterOutfits(profile.outfits || profile.costumes || []);
+    let appearance = String(profile.appearance || profile.tags || '').trim();
+    if (!appearance) {
+        appearance = buildFallbackCharacterAppearanceTags({ name, type, outfits });
+    }
     return {
         id: '',
         name,
@@ -1388,6 +1390,25 @@ function normalizeGeneratedCharacterProfile(profile = {}, fallbackName = '') {
         danbooruTag: String(profile.danbooruTag || '').trim(),
         outfits,
     };
+}
+
+function buildFallbackCharacterAppearanceTags({ type = 'girl', outfits = [] } = {}) {
+    const normalizedType = String(type || 'girl').trim().toLowerCase();
+    const subjectTag = normalizedType.includes('boy') || normalizedType.includes('man') || normalizedType.includes('male')
+        ? '1boy'
+        : '1girl';
+    const typeTag = ['girl', 'woman', 'boy', 'man'].includes(normalizedType) ? normalizedType : '';
+    const outfitTags = normalizeCharacterOutfits(outfits)[0]?.tags || '';
+    return joinTags(
+        subjectTag,
+        'solo',
+        typeTag,
+        'anime style',
+        'beautiful face',
+        'detailed eyes',
+        'medium hair',
+        outfitTags,
+    );
 }
 
 function buildWorldbookCharacterPrompt({ book, characterName }) {
@@ -1407,13 +1428,16 @@ function buildWorldbookCharacterPrompt({ book, characterName }) {
             role: 'system',
             content: [
                 '你是 NovelAI 绘图角色人设整理器。',
-                '任务：只根据用户提供的世界书条目，为指定角色提取/整理可直接用于 NovelAI 绘图的角色标签。',
+                '任务：根据用户提供的世界书条目，为指定角色提取/整理可直接用于 NovelAI 绘图的角色标签。',
+                '优先使用世界书中与目标角色同名、别名、索引表、人物表相关的内容。',
+                '如果世界书中没有目标角色，或目标角色外貌资料不足，你必须参考该世界书的世界观、角色群体风格、姓名气质，合理原创补全一个符合该世界的角色外貌与服装。',
                 '要求：输出严格 JSON，不要 Markdown，不要解释。',
                 '字段：name, aliases, type, appearance, negativeTags, danbooruTag, outfits。',
-                'appearance 必须是英文 NovelAI/Danbooru 风格 tag，逗号分隔，只写稳定外貌：发型、发色、眼睛、体型、标志物、常见服装元素；不要写动作、表情、镜头、背景。',
+                'appearance 必须非空，必须是英文 NovelAI/Danbooru 风格 tag，逗号分隔，只写稳定外貌：发型、发色、眼睛、体型、标志物、常见服装元素；不要写动作、表情、镜头、背景。',
                 'negativeTags 写该角色不应出现或容易画错的特征，英文 tag，逗号分隔；没有则空字符串。',
-                'outfits 是数组，每项包含 name 和 tags；只收录世界书明确给出的常见服装，没有则空数组。',
+                'outfits 是数组，每项包含 name 和 tags；可从世界书明确服装中提取，也可在资料不足时按世界观合理补全 1-3 套常用服装。',
                 'type 用 girl/woman/boy/man/other 或明确英文类型。',
+                '禁止返回空 appearance；即使目标角色未在世界书出现，也必须给出可画的原创稳定外貌标签。',
             ].join('\n'),
         },
         {
@@ -1521,6 +1545,7 @@ async function generateCharacterProfileFromWorldbook({ bookName, characterName, 
         useStream: false,
         timeout: settings.timeout || 120000,
         useSysprompt: false,
+        emitPromptReadyEvent: false,
     });
     const profile = normalizeGeneratedCharacterProfile(extractJsonObjectFromLlmText(text), targetName);
     return saveGeneratedCharacterProfile(profile, targetName, '已从世界书生成角色：' + profile.name);
@@ -1579,6 +1604,7 @@ async function generateCharacterProfileFromCustomText({ characterName, descripti
         useStream: false,
         timeout: settings.timeout || 120000,
         useSysprompt: false,
+        emitPromptReadyEvent: false,
     });
     const profile = normalizeGeneratedCharacterProfile(extractJsonObjectFromLlmText(text), targetName);
     return saveGeneratedCharacterProfile(profile, targetName, '已从自定义人设生成角色：' + profile.name);

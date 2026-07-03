@@ -474,11 +474,14 @@ export async function callDrawScenePlannerLlm({
     timeout = 120000,
     signal = null,
     useSysprompt = true,
+    emitPromptReadyEvent = true,
 } = {}) {
     const expanded = await expandMessages(messages);
     const providerReady = convertTrailingAssistantForClaude(expanded, llmApi)
         .filter(message => String(message.content || '').trim());
-    await emitPromptReady(providerReady);
+    if (emitPromptReadyEvent !== false) {
+        await emitPromptReady(providerReady);
+    }
     const prepared = providerReady
         .filter(message => String(message.content || '').trim());
 
