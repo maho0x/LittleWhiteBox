@@ -1085,9 +1085,9 @@ select.input { cursor: pointer; }
                         </div>
 
                         <div class="card">
-                            <div class="card-title">📚 从世界书生成人设</div>
+                            <div class="card-title">📚 从酒馆世界书生成人设</div>
                             <div class="form-group">
-                                <label class="form-label">指定世界书</label>
+                                <label class="form-label">指定酒馆世界书</label>
                                 <select id="nd_char_wb_book" class="input"></select>
                             </div>
                             <div class="form-group">
@@ -1097,7 +1097,7 @@ select.input { cursor: pointer; }
                             <div class="btn-group">
                                 <button id="nd_char_wb_generate" class="btn btn-primary btn-sm"><i class="fa-solid fa-wand-magic-sparkles"></i> 生成/更新人设</button>
                             </div>
-                            <p class="form-hint" style="margin-top:8px;">使用「世界书」页已上传的指定世界书，生成后会写入当前角色标签库。</p>
+                            <p class="form-hint" style="margin-top:8px;">直接读取酒馆现有世界书，无需上传；生成后会写入当前角色标签库。</p>
                             <div id="nd_char_wb_status" class="status-text"></div>
                         </div>
 
@@ -1437,6 +1437,7 @@ let state = {
     promptPresets: [],
     selectedPromptPresetId: null,
     messageFilterRules: [],
+    tavernWorldbooks: [],
 };
 
 let gallerySummary = {};
@@ -1714,9 +1715,9 @@ function renderCharacterWorldbookOptions() {
     const select = $('nd_char_wb_book');
     const button = $('nd_char_wb_generate');
     if (!select) return;
-    const books = state.worldbooks?.uploadedBooks || [];
+    const books = state.tavernWorldbooks || [];
     if (!books.length) {
-        select.innerHTML = '<option value="">请先到「世界书」页上传世界书</option>';
+        select.innerHTML = '<option value="">未读取到酒馆世界书</option>';
         select.disabled = true;
         if (button) button.disabled = true;
         return;
@@ -1725,8 +1726,8 @@ function renderCharacterWorldbookOptions() {
     select.disabled = false;
     if (button) button.disabled = false;
     select.innerHTML = books.map(book => {
-        const activeCount = (book.entries || []).filter(entry => !entry.disable).length;
-        return '<option value="' + escapeHtml(book.name) + '">' + escapeHtml(book.name) + ' (' + activeCount + '/' + (book.entries || []).length + ')</option>';
+        const suffix = book.globalActive ? ' · 全局启用' : '';
+        return '<option value="' + escapeHtml(book.name) + '">' + escapeHtml(book.name) + suffix + '</option>';
     }).join('');
     if (previous && books.some(book => book.name === previous)) select.value = previous;
 }
@@ -2694,6 +2695,11 @@ window.addEventListener('message', event => {
             renderCharacterSlots(data.charName, data.slots);
             break;
 
+        case 'CHARACTER_WORLDBOOK_SOURCES':
+            state.tavernWorldbooks = Array.isArray(data.books) ? data.books : [];
+            renderCharacterWorldbookOptions();
+            break;
+
         case 'CHARACTER_WORLDBOOK_RESULT':
             if (Array.isArray(data.characterTags)) state.characterTags = data.characterTags;
             if (data.character?.id) editingCharId = data.character.id;
@@ -2753,7 +2759,7 @@ window.addEventListener('message', event => {
                 if (data.state === 'success' || data.state === 'error') {
                     const btn = $('nd_char_wb_generate');
                     if (btn) {
-                        btn.disabled = !(state.worldbooks?.uploadedBooks || []).length;
+                        btn.disabled = !(state.tavernWorldbooks || []).length;
                         btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 生成/更新人设';
                     }
                 }
@@ -3055,11 +3061,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const characterName = $('nd_char_wb_name').value.trim();
         if (!bookName) { alert('请先选择世界书'); return; }
         if (!characterName) { alert('请输入角色名'); return; }
-        const book = (state.worldbooks?.uploadedBooks || []).find(item => item.name === bookName) || null;
         const btn = $('nd_char_wb_generate');
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 生成中...';
-        postToParent({ type: 'GENERATE_CHARACTER_FROM_WORLDBOOK', bookName, characterName, book });
+        postToParent({ type: 'GENERATE_CHARACTER_FROM_WORLDBOOK', bookName, characterName });
     });
 
     // auto-learn (toggle + subordinate checkbox)

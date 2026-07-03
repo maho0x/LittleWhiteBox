@@ -257,7 +257,7 @@ function applyCurrentStProviderSettings(payload, source) {
     }
 }
 
-function buildProviderPayload(llmApi, messages, stream) {
+function buildProviderPayload(llmApi, messages, stream, options = {}) {
     const api = normalizeDrawLlmApi(llmApi);
     let source;
     let model;
@@ -296,7 +296,7 @@ function buildProviderPayload(llmApi, messages, stream) {
         messages,
         model,
         stream: !!stream,
-        use_sysprompt: true,
+        use_sysprompt: options.useSysprompt !== false,
         custom_prompt_post_processing: undefined,
         ...buildSamplingFields(source),
     };
@@ -473,6 +473,7 @@ export async function callDrawScenePlannerLlm({
     useStream = false,
     timeout = 120000,
     signal = null,
+    useSysprompt = true,
 } = {}) {
     const expanded = await expandMessages(messages);
     const providerReady = convertTrailingAssistantForClaude(expanded, llmApi)
@@ -481,7 +482,7 @@ export async function callDrawScenePlannerLlm({
     const prepared = providerReady
         .filter(message => String(message.content || '').trim());
 
-    const payload = buildProviderPayload(llmApi, prepared, useStream);
+    const payload = buildProviderPayload(llmApi, prepared, useStream, { useSysprompt });
     lastDrawLlmRequestSnapshot = {
         timestamp: Date.now(),
         note: '前端发送给 SillyTavern /api/backends/chat-completions/generate 的请求快照；后端再转给 Claude/Gemini/OpenAI 后的最终上游格式前端无法直接看到。',

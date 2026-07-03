@@ -45,6 +45,7 @@ import {
     destroyCloudPresets
 } from './cloud-presets.js';
 import { postToIframe, isTrustedMessage } from "../../../../core/iframe-messaging.js";
+import { getTavernWorldbookPreview, listTavernWorldbookSources } from '../../../tavern/host/worldbooks.js';
 import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,
@@ -1334,9 +1335,35 @@ function extractJsonObjectFromLlmText(text) {
     try { return JSON.parse(candidate); } catch {}
 
     const start = candidate.indexOf('{');
-    const end = candidate.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-        try { return JSON.parse(candidate.slice(start, end + 1)); } catch {}
+    if (start >= 0) {
+        let depth = 0;
+        let inString = false;
+        let escape = false;
+        for (let i = start; i < candidate.length; i++) {
+            const ch = candidate[i];
+            if (inString) {
+                if (escape) {
+                    escape = false;
+                } else if (ch === '\\') {
+                    escape = true;
+                } else if (ch === '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (ch === '"') {
+                inString = true;
+                continue;
+            }
+            if (ch === '{') depth++;
+            if (ch === '}') {
+                depth--;
+                if (depth === 0) {
+                    try { return JSON.parse(candidate.slice(start, i + 1)); } catch {}
+                    break;
+                }
+            }
+        }
     }
     throw new NovelDrawError('LLM 返回的角色资料不是有效 JSON', ErrorType.PARSE);
 }
@@ -1413,6 +1440,40 @@ function buildWorldbookCharacterPrompt({ book, characterName }) {
     ];
 }
 
+function normalizeTavernWorldbookPreviewAsBook(preview = {}) {
+    const entries = Array.isArray(preview.entries) ? preview.entries : [];
+    return {
+        name: String(preview.name || '').trim(),
+        entries: entries.map((entry, index) => ({
+            uid: entry.uid ?? index,
+            comment: entry.name || '',
+            key: Array.isArray(entry.keys) ? entry.keys : [],
+            keysecondary: Array.isArray(entry.secondaryKeys) ? entry.secondaryKeys : [],
+            constant: entry.constant === true,
+            disable: entry.enabled === false,
+            content: String(entry.contentPreview || '').trim(),
+            order: Number.isFinite(Number(entry.order)) ? Number(entry.order) : 100,
+        })).filter(entry => entry.content),
+    };
+}
+
+async function loadTavernWorldbookBook(name) {
+    const preview = await getTavernWorldbookPreview({ name, limit: 10000 });
+    const book = normalizeTavernWorldbookPreviewAsBook(preview);
+    if (!book.name || !book.entries.length) throw new NovelDrawError('选中的酒馆世界书没有可用条目', ErrorType.PARSE);
+    return book;
+}
+
+async function loadTavernWorldbookSourcesForFrame() {
+    const result = await listTavernWorldbookSources({});
+    return (Array.isArray(result?.books) ? result.books : [])
+        .map(book => ({
+            name: String(book?.name || '').trim(),
+            globalActive: book?.globalActive === true,
+        }))
+        .filter(book => book.name);
+}
+
 async function saveGeneratedCharacterProfile(profile, targetName, okText) {
     let savedCharacter = null;
     const ok = await updateSettingsPersistent((draft) => {
@@ -1438,10 +1499,19 @@ async function saveGeneratedCharacterProfile(profile, targetName, okText) {
 async function generateCharacterProfileFromWorldbook({ bookName, characterName, bookData = null }) {
     const settings = getSettings();
     const books = settings.worldbooks?.uploadedBooks || [];
-    const book = (bookData && bookData.name === bookName && Array.isArray(bookData.entries))
-        ? bookData
-        : books.find(item => item?.name === bookName);
-    if (!book) throw new NovelDrawError('请选择已上传的世界书', ErrorType.PARSE);
+    let book = null;
+    if (bookName) {
+        try {
+            book = await loadTavernWorldbookBook(bookName);
+        } catch (error) {
+            console.warn('[NovelDraw] 读取酒馆世界书失败，尝试上传世界书兜底:', error);
+        }
+    }
+    if (!book && bookData && bookData.name === bookName && Array.isArray(bookData.entries)) {
+        book = bookData;
+    }
+    if (!book) book = books.find(item => item?.name === bookName);
+    if (!book) throw new NovelDrawError('请选择可用的酒馆世界书', ErrorType.PARSE);
     const targetName = String(characterName || '').trim();
     if (!targetName) throw new NovelDrawError('请输入角色名', ErrorType.PARSE);
     const messages = buildWorldbookCharacterPrompt({ book, characterName: targetName });
@@ -1450,6 +1520,7 @@ async function generateCharacterProfileFromWorldbook({ bookName, characterName, 
         llmApi: settings.llmApi,
         useStream: false,
         timeout: settings.timeout || 120000,
+        useSysprompt: false,
     });
     const profile = normalizeGeneratedCharacterProfile(extractJsonObjectFromLlmText(text), targetName);
     return saveGeneratedCharacterProfile(profile, targetName, '已从世界书生成角色：' + profile.name);
@@ -1507,6 +1578,7 @@ async function generateCharacterProfileFromCustomText({ characterName, descripti
         llmApi: settings.llmApi,
         useStream: false,
         timeout: settings.timeout || 120000,
+        useSysprompt: false,
     });
     const profile = normalizeGeneratedCharacterProfile(extractJsonObjectFromLlmText(text), targetName);
     return saveGeneratedCharacterProfile(profile, targetName, '已从自定义人设生成角色：' + profile.name);
@@ -3668,6 +3740,19 @@ async function sendInitData() {
             cacheStats: stats,
             gallerySummary,
         }, 'LittleWhiteBox-NovelDraw');
+    }
+
+    try {
+        const books = await loadTavernWorldbookSourcesForFrame();
+        const latestIframe = document.getElementById('xiaobaix-novel-draw-iframe');
+        if (latestIframe?.contentWindow === iframe.contentWindow) {
+            postToIframe(latestIframe, {
+                type: 'CHARACTER_WORLDBOOK_SOURCES',
+                books,
+            }, 'LittleWhiteBox-NovelDraw');
+        }
+    } catch (e) {
+        console.warn('[NovelDraw] 读取酒馆世界书列表失败:', e);
     }
 }
 
