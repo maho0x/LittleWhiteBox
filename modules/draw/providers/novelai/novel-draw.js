@@ -28,7 +28,7 @@ import {
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
 } from '../../shared/draw-settings.js';
-import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot, normalizeDrawLlmApi } from '../../shared/draw-llm.js';
+import { callDrawScenePlannerLlm, fetchDrawLlmModels, getLastDrawLlmRequestSnapshot, normalizeDrawLlmApi } from '../../shared/draw-llm.js';
 import {
     loadTagGuide,
     loadPromptTemplates,
@@ -1324,6 +1324,249 @@ function autoLearnFromTasks(tasks, settings) {
 
     settings.characterTags = knownTags;
     return result;
+}
+
+function extractJsonObjectFromLlmText(text) {
+    const raw = String(text || '').trim();
+    if (!raw) throw new NovelDrawError('LLM 未返回角色资料', ErrorType.LLM_EMPTY);
+    const fenced = raw.match(/\`\`\`(?:json)?\s*([\s\S]*?)\`\`\`/i);
+    const candidate = fenced ? fenced[1].trim() : raw;
+    try { return JSON.parse(candidate); } catch {}
+
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+        try { return JSON.parse(candidate.slice(start, end + 1)); } catch {}
+    }
+    throw new NovelDrawError('LLM 返回的角色资料不是有效 JSON', ErrorType.PARSE);
+}
+
+function normalizeGeneratedCharacterProfile(profile = {}, fallbackName = '') {
+    const name = String(profile.name || fallbackName || '').trim();
+    if (!name) throw new NovelDrawError('生成结果缺少角色名称', ErrorType.PARSE);
+    const type = String(profile.type || 'girl').trim() || 'girl';
+    const appearance = String(profile.appearance || profile.tags || '').trim();
+    if (!appearance) throw new NovelDrawError('生成结果缺少外貌标签', ErrorType.PARSE);
+    const aliases = Array.isArray(profile.aliases)
+        ? profile.aliases.map(item => String(item || '').trim()).filter(Boolean)
+        : String(profile.aliases || '').split(/[,，、]/).map(item => item.trim()).filter(Boolean);
+    const outfits = normalizeCharacterOutfits(profile.outfits || profile.costumes || []);
+    return {
+        id: '',
+        name,
+        aliases,
+        type,
+        appearance,
+        negativeTags: String(profile.negativeTags || profile.negative || '').trim(),
+        danbooruTag: String(profile.danbooruTag || '').trim(),
+        outfits,
+    };
+}
+
+function buildWorldbookCharacterPrompt({ book, characterName }) {
+    const entries = (book?.entries || [])
+        .filter(entry => entry && !entry.disable && String(entry.content || '').trim())
+        .sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+    if (!entries.length) throw new NovelDrawError('选中的世界书没有可用条目', ErrorType.PARSE);
+    const content = entries.map((entry, index) => {
+        const keys = [...(entry.key || []), ...(entry.keysecondary || [])].filter(Boolean).join(', ');
+        const header = ['#' + (index + 1), entry.comment ? 'comment=' + entry.comment : '', keys ? 'keys=' + keys : '', entry.constant ? 'constant=true' : '']
+            .filter(Boolean).join(' | ');
+        return '### ' + header + '\n' + String(entry.content || '').trim();
+    }).join('\n\n');
+
+    return [
+        {
+            role: 'system',
+            content: [
+                '你是 NovelAI 绘图角色人设整理器。',
+                '任务：只根据用户提供的世界书条目，为指定角色提取/整理可直接用于 NovelAI 绘图的角色标签。',
+                '要求：输出严格 JSON，不要 Markdown，不要解释。',
+                '字段：name, aliases, type, appearance, negativeTags, danbooruTag, outfits。',
+                'appearance 必须是英文 NovelAI/Danbooru 风格 tag，逗号分隔，只写稳定外貌：发型、发色、眼睛、体型、标志物、常见服装元素；不要写动作、表情、镜头、背景。',
+                'negativeTags 写该角色不应出现或容易画错的特征，英文 tag，逗号分隔；没有则空字符串。',
+                'outfits 是数组，每项包含 name 和 tags；只收录世界书明确给出的常见服装，没有则空数组。',
+                'type 用 girl/woman/boy/man/other 或明确英文类型。',
+            ].join('\n'),
+        },
+        {
+            role: 'user',
+            content: [
+                '世界书：' + (book?.name || ''),
+                '目标角色：' + characterName,
+                '',
+                '请输出 JSON：',
+                '{',
+                '  "name": "角色名",',
+                '  "aliases": ["别名"],',
+                '  "type": "girl",',
+                '  "appearance": "long hair, blue eyes, ...",',
+                '  "negativeTags": "...",',
+                '  "danbooruTag": "",',
+                '  "outfits": [{ "name": "常服", "tags": "white shirt, pleated skirt" }]',
+                '}',
+                '',
+                '世界书条目：',
+                content,
+            ].join('\n'),
+        },
+    ];
+}
+
+async function saveGeneratedCharacterProfile(profile, targetName, okText) {
+    let savedCharacter = null;
+    const ok = await updateSettingsPersistent((draft) => {
+        const list = Array.isArray(draft.characterTags) ? draft.characterTags : [];
+        const wantedNames = [profile.name, targetName, ...profile.aliases].map(item => String(item || '').trim().toLowerCase()).filter(Boolean);
+        const existing = list.find(char => {
+            const names = [char.name, ...(char.aliases || [])].map(item => String(item || '').trim().toLowerCase()).filter(Boolean);
+            return names.some(name => wantedNames.includes(name));
+        });
+        if (existing) {
+            savedCharacter = { ...existing, ...profile, id: existing.id || generateSlotId() };
+            Object.assign(existing, savedCharacter);
+        } else {
+            savedCharacter = { ...profile, id: generateSlotId() };
+            list.push(savedCharacter);
+        }
+        draft.characterTags = list;
+    }, okText || '角色资料已保存', { notify: false });
+    if (!ok) throw new NovelDrawError('角色资料保存失败', ErrorType.UNKNOWN);
+    return savedCharacter;
+}
+
+async function generateCharacterProfileFromWorldbook({ bookName, characterName, bookData = null }) {
+    const settings = getSettings();
+    const books = settings.worldbooks?.uploadedBooks || [];
+    const book = (bookData && bookData.name === bookName && Array.isArray(bookData.entries))
+        ? bookData
+        : books.find(item => item?.name === bookName);
+    if (!book) throw new NovelDrawError('请选择已上传的世界书', ErrorType.PARSE);
+    const targetName = String(characterName || '').trim();
+    if (!targetName) throw new NovelDrawError('请输入角色名', ErrorType.PARSE);
+    const messages = buildWorldbookCharacterPrompt({ book, characterName: targetName });
+    const text = await callDrawScenePlannerLlm({
+        messages,
+        llmApi: settings.llmApi,
+        useStream: false,
+        timeout: settings.timeout || 120000,
+    });
+    const profile = normalizeGeneratedCharacterProfile(extractJsonObjectFromLlmText(text), targetName);
+    return saveGeneratedCharacterProfile(profile, targetName, '已从世界书生成角色：' + profile.name);
+}
+
+function buildCustomCharacterPrompt({ characterName, description }) {
+    return [
+        {
+            role: 'system',
+            content: [
+                '你是 NovelAI 绘图角色人设设计器。',
+                '任务：根据用户输入的一段自定义角色设定，生成可直接用于 NovelAI 绘图的角色标签。',
+                '你可以在不违背原设定的前提下合理想象补全缺失信息，例如发型、发色、瞳色、体型、标志物、常见服装和负向约束。',
+                '如果用户明确写了某项设定，必须优先遵守；不要把不确定的剧情、动作、表情、背景写进 appearance。',
+                '要求：输出严格 JSON，不要 Markdown，不要解释。',
+                '字段：name, aliases, type, appearance, negativeTags, danbooruTag, outfits。',
+                'appearance 必须是英文 NovelAI/Danbooru 风格 tag，逗号分隔，只写稳定外貌和常见静态元素。',
+                'negativeTags 写该角色不应出现或容易画错的特征，英文 tag，逗号分隔；没有则空字符串。',
+                'outfits 是数组，每项包含 name 和 tags；可基于人设合理补全 1-3 套常用服装。',
+                'type 用 girl/woman/boy/man/other 或明确英文类型。',
+            ].join('\n'),
+        },
+        {
+            role: 'user',
+            content: [
+                '目标角色名：' + characterName,
+                '',
+                '自定义人设文本：',
+                description,
+                '',
+                '请输出 JSON：',
+                '{',
+                '  "name": "角色名",',
+                '  "aliases": ["别名"],',
+                '  "type": "girl",',
+                '  "appearance": "long hair, blue eyes, ...",',
+                '  "negativeTags": "...",',
+                '  "danbooruTag": "",',
+                '  "outfits": [{ "name": "常服", "tags": "white shirt, pleated skirt" }]',
+                '}',
+            ].join('\n'),
+        },
+    ];
+}
+
+async function generateCharacterProfileFromCustomText({ characterName, description }) {
+    const settings = getSettings();
+    const targetName = String(characterName || '').trim();
+    const textInput = String(description || '').trim();
+    if (!targetName) throw new NovelDrawError('请输入角色名', ErrorType.PARSE);
+    if (!textInput) throw new NovelDrawError('请输入自定义人设文本', ErrorType.PARSE);
+    const messages = buildCustomCharacterPrompt({ characterName: targetName, description: textInput });
+    const text = await callDrawScenePlannerLlm({
+        messages,
+        llmApi: settings.llmApi,
+        useStream: false,
+        timeout: settings.timeout || 120000,
+    });
+    const profile = normalizeGeneratedCharacterProfile(extractJsonObjectFromLlmText(text), targetName);
+    return saveGeneratedCharacterProfile(profile, targetName, '已从自定义人设生成角色：' + profile.name);
+}
+
+async function generateCharacterPreviewImage(characterData = {}) {
+    const settings = getSettings();
+    const preset = getActiveParamsPreset();
+    const character = {
+        name: String(characterData.name || '').trim(),
+        type: String(characterData.type || 'girl').trim() || 'girl',
+        appearance: String(characterData.appearance || '').trim(),
+        negativeTags: String(characterData.negativeTags || '').trim(),
+        danbooruTag: String(characterData.danbooruTag || '').trim(),
+        outfits: normalizeCharacterOutfits(characterData.outfits || []),
+    };
+    if (!character.name) throw new NovelDrawError('角色名为空，无法生成预览', ErrorType.PARSE);
+    if (!character.appearance && !character.danbooruTag) {
+        throw new NovelDrawError('请先配置角色外貌或 Danbooru 标签', ErrorType.PARSE);
+    }
+
+    const outfit = character.outfits[0];
+    const basePrompt = joinTags(buildKnownCharacterBasePrompt(character), outfit?.tags || '');
+    const scene = joinTags(
+        preset?.positivePrefix || '',
+        'solo, character reference, simple background, full body',
+    );
+    const negativePrompt = joinTags(preset?.negativePrefix || '', character.negativeTags || '');
+    const imgId = generateImgId();
+    const slotId = 'char-preview-' + imgId;
+    const base64 = await generateNovelImage({
+        scene,
+        characterPrompts: [{
+            name: character.name,
+            prompt: basePrompt,
+            uc: character.negativeTags || '',
+            center: { x: 0.5, y: 0.5 },
+        }],
+        negativePrompt,
+        params: preset?.params || {},
+    });
+    const preview = await storeHostedPreview({
+        imgId,
+        slotId,
+        messageId: 'character-preview:' + character.name,
+        base64,
+        tags: character.name,
+        positive: joinTags(scene, basePrompt),
+        characterPrompts: [{
+            name: character.name,
+            prompt: basePrompt,
+            uc: character.negativeTags || '',
+            center: { x: 0.5, y: 0.5 },
+        }],
+        negativePrompt,
+        anchor: character.name,
+        characterName: character.name,
+        chatId: 'character-preview',
+    });
+    return preview;
 }
 
 // ── 5x5 网格坐标 → NAI 浮点映射 ──────────────────────────────────
@@ -3810,6 +4053,70 @@ async function handleFrameMessage(event) {
             await updateSettingsPersistent((settings) => {
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
             }, '角色标签已保存');
+            break;
+        }
+
+        case 'GENERATE_CHARACTER_FROM_WORLDBOOK': {
+            try {
+                postStatus('loading', '正在从世界书生成人设...', 'character-worldbook');
+                const character = await generateCharacterProfileFromWorldbook({
+                    bookName: data.bookName,
+                    characterName: data.characterName,
+                    bookData: data.book,
+                });
+                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (iframe) postToIframe(iframe, {
+                    type: 'CHARACTER_WORLDBOOK_RESULT',
+                    character,
+                    characterTags: getSettings().characterTags || [],
+                }, 'LittleWhiteBox-NovelDraw');
+                postStatus('success', '已生成并保存：' + (character?.name || data.characterName || ''), 'character-worldbook');
+                sendInitData();
+            } catch (e) {
+                console.error('[NovelDraw] 从世界书生成人设失败:', e);
+                postStatus('error', e?.message || '从世界书生成人设失败', 'character-worldbook');
+            }
+            break;
+        }
+
+        case 'GENERATE_CHARACTER_FROM_TEXT': {
+            try {
+                postStatus('loading', '正在从自定义人设生成角色...', 'character-custom');
+                const character = await generateCharacterProfileFromCustomText({
+                    characterName: data.characterName,
+                    description: data.description,
+                });
+                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (iframe) postToIframe(iframe, {
+                    type: 'CHARACTER_WORLDBOOK_RESULT',
+                    character,
+                    characterTags: getSettings().characterTags || [],
+                }, 'LittleWhiteBox-NovelDraw');
+                postStatus('success', '已生成并保存：' + (character?.name || data.characterName || ''), 'character-custom');
+                sendInitData();
+            } catch (e) {
+                console.error('[NovelDraw] 从自定义人设生成角色失败:', e);
+                postStatus('error', e?.message || '从自定义人设生成角色失败', 'character-custom');
+            }
+            break;
+        }
+
+        case 'GENERATE_CHARACTER_PREVIEW': {
+            try {
+                postStatus('loading', '正在生成角色预览...', 'character-preview');
+                const preview = await generateCharacterPreviewImage(data.character || {});
+                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (iframe) postToIframe(iframe, {
+                    type: 'CHARACTER_PREVIEW_RESULT',
+                    characterName: preview.characterName,
+                    preview,
+                }, 'LittleWhiteBox-NovelDraw');
+                postStatus('success', '角色预览已生成', 'character-preview');
+                sendInitData();
+            } catch (e) {
+                console.error('[NovelDraw] 角色预览生成失败:', e);
+                postStatus('error', e?.message || '角色预览生成失败', 'character-preview');
+            }
             break;
         }
 

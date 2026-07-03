@@ -224,6 +224,10 @@ select.input { cursor: pointer; }
     border-bottom: 1px solid rgba(255,255,255,.06); min-height: 34px; transition: background 0.15s;
 }
 .char-card:hover { background: rgba(255,255,255,.04); }
+.char-preview-thumb {
+    width: 34px; height: 34px; object-fit: cover; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,.12); flex-shrink: 0; background: var(--bg-input);
+}
 .char-emoji { font-size: 14px; flex-shrink: 0; }
 .char-name { font-weight: 600; font-size: 13px; white-space: nowrap; }
 .char-type-badge {
@@ -1064,6 +1068,40 @@ select.input { cursor: pointer; }
                         </div>
 
                         <div class="card">
+                            <div class="card-title">✨ 从自定义人设生成</div>
+                            <div class="form-group">
+                                <label class="form-label">角色名</label>
+                                <input id="nd_char_custom_name" type="text" class="input" placeholder="输入角色名">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">自定义人设文本</label>
+                                <textarea id="nd_char_custom_text" class="input" rows="5" placeholder="输入一段角色设定；可以很简略，AI 会在不违背设定的前提下合理补全外貌、服装和负向标签。"></textarea>
+                            </div>
+                            <div class="btn-group">
+                                <button id="nd_char_custom_generate" class="btn btn-primary btn-sm"><i class="fa-solid fa-wand-magic-sparkles"></i> 生成/更新角色</button>
+                            </div>
+                            <p class="form-hint" style="margin-top:8px;">适合直接粘贴人设、剧情设定或简短描述；生成后会写入当前角色标签库。</p>
+                            <div id="nd_char_custom_status" class="status-text"></div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title">📚 从世界书生成人设</div>
+                            <div class="form-group">
+                                <label class="form-label">指定世界书</label>
+                                <select id="nd_char_wb_book" class="input"></select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">角色名</label>
+                                <input id="nd_char_wb_name" type="text" class="input" placeholder="输入要生成的人设角色名">
+                            </div>
+                            <div class="btn-group">
+                                <button id="nd_char_wb_generate" class="btn btn-primary btn-sm"><i class="fa-solid fa-wand-magic-sparkles"></i> 生成/更新人设</button>
+                            </div>
+                            <p class="form-hint" style="margin-top:8px;">使用「世界书」页已上传的指定世界书，生成后会写入当前角色标签库。</p>
+                            <div id="nd_char_wb_status" class="status-text"></div>
+                        </div>
+
+                        <div class="card">
                             <div class="card-title">🧠 智能辅助</div>
                             <div class="auto-learn-section" style="margin-bottom:12px;">
                                 <div class="auto-learn-toggle-row">
@@ -1101,7 +1139,8 @@ select.input { cursor: pointer; }
                             <div class="char-list-card-header">
                                 <div>
                                     <div class="card-title">👥 角色列表</div>
-                                    <p class="form-hint" style="margin-top:6px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
+                                    <p class="form-hint" style="margin-top:6px;">预设角色外貌，LLM 只需补充动作和互动标签；点击 🎨 可快速生成预览图</p>
+                                    <div id="nd_char_preview_status" class="status-text"></div>
                                 </div>
                                 <div class="char-list-count" id="nd_char_result_count">0 / 0</div>
                             </div>
@@ -1402,6 +1441,7 @@ let state = {
 
 let gallerySummary = {};
 let loadedCharPreviews = {};
+let characterPreviewResults = {};
 let editingCharId = null;
 const saveBtnStates = new WeakMap();
 let charFilters = { query: '', type: 'all', status: 'all' };
@@ -1670,6 +1710,27 @@ function resetCharacterFilters(render = true) {
     if (render) renderCharList();
 }
 
+function renderCharacterWorldbookOptions() {
+    const select = $('nd_char_wb_book');
+    const button = $('nd_char_wb_generate');
+    if (!select) return;
+    const books = state.worldbooks?.uploadedBooks || [];
+    if (!books.length) {
+        select.innerHTML = '<option value="">请先到「世界书」页上传世界书</option>';
+        select.disabled = true;
+        if (button) button.disabled = true;
+        return;
+    }
+    const previous = select.value;
+    select.disabled = false;
+    if (button) button.disabled = false;
+    select.innerHTML = books.map(book => {
+        const activeCount = (book.entries || []).filter(entry => !entry.disable).length;
+        return '<option value="' + escapeHtml(book.name) + '">' + escapeHtml(book.name) + ' (' + activeCount + '/' + (book.entries || []).length + ')</option>';
+    }).join('');
+    if (previous && books.some(book => book.name === previous)) select.value = previous;
+}
+
 function normalizeCharacterOutfitsForUI(outfits = []) {
     return (Array.isArray(outfits) ? outfits : [])
         .map(outfit => ({
@@ -1830,14 +1891,20 @@ function renderCharList() {
         if (c.negativeTags) statusParts.push('❌neg');
         if (c.danbooruTag) statusParts.push('🏷️db');
         if (outfits.length) statusParts.push(`👗${outfits.length}套`);
+        const previewUrl = characterPreviewResults[c.name]?.url || '';
+        const previewHtml = previewUrl
+            ? '<img class="char-preview-thumb" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(c.name) + ' preview" loading="lazy" decoding="async">'
+            : '';
 
         return `
         <div class="char-card" data-id="${c.id}">
+            ${previewHtml}
             <span class="char-emoji">${getCharEmoji(c.name)}</span>
             <span class="char-name">${escapeHtml(c.name)}</span>
             <span class="char-type-badge">${escapeHtml(typeShort)}</span>
             <span class="char-status">${statusParts.join(' ')}</span>
             <div class="char-actions">
+                <button data-action="preview" data-id="${c.id}" title="生成预览图"${(!appearance && !c.danbooruTag) ? ' disabled style="opacity:0.3"' : ''}>🎨</button>
                 <button data-action="fix-danbooru" data-id="${c.id}" title="Danbooru 修正"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>🔧</button>
                 <button data-action="search" data-id="${c.id}" title="Danbooru 标签搜索"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>🔍</button>
                 <button data-action="edit" data-id="${c.id}" title="编辑">✏️</button>
@@ -1857,7 +1924,17 @@ function renderCharList() {
 }
 
 function handleCharAction(action, id, card, trigger) {
-    if (action === 'fix-danbooru' || action === 'search') {
+    if (action === 'preview') {
+        const char = state.characterTags.find(c => c.id === id);
+        if (!char) return;
+        if (!char.appearance && !char.danbooruTag) { alert('请先配置角色外貌或 Danbooru 标签'); return; }
+        if (trigger) {
+            trigger.disabled = true;
+            trigger.textContent = '⏳';
+        }
+        updateStatus($('nd_char_preview_status'), 'loading', '正在生成 ' + char.name + ' 的预览...');
+        postToParent({ type: 'GENERATE_CHARACTER_PREVIEW', character: char });
+    } else if (action === 'fix-danbooru' || action === 'search') {
         if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
         editingCharId = id;
         renderCharList();
@@ -2311,6 +2388,7 @@ async function handleWorldbookFiles(files) {
     if (added > 0) {
         state.worldbooks = { ...state.worldbooks, uploadedBooks: uploaded };
         renderUploadedBooks(uploaded);
+        renderCharacterWorldbookOptions();
         updateStatus($('nd_wb_status'), 'success', `已读取 ${added} 个世界书，请点击保存配置`);
     }
 
@@ -2355,6 +2433,7 @@ function renderUploadedBooks(books) {
             uploaded.splice(idx, 1);
             state.worldbooks = { ...state.worldbooks, uploadedBooks: uploaded };
             renderUploadedBooks(uploaded);
+            renderCharacterWorldbookOptions();
             $('nd_wb_entries').innerHTML = '<p class="form-hint">请先上传世界书</p>';
             updateStatus($('nd_wb_status'), '', '已移除，请点击保存配置');
         });
@@ -2441,6 +2520,7 @@ function applyStateToUI() {
 
         applyLlmApi();
         renderCharList();
+        renderCharacterWorldbookOptions();
         renderGalleryView();
         // auto-learn
         $('nd_auto_learn').checked = !!state.autoLearnCharacters;
@@ -2613,6 +2693,33 @@ window.addEventListener('message', event => {
             loadedCharPreviews[data.charName] = data.slots;
             renderCharacterSlots(data.charName, data.slots);
             break;
+
+        case 'CHARACTER_WORLDBOOK_RESULT':
+            if (Array.isArray(data.characterTags)) state.characterTags = data.characterTags;
+            if (data.character?.id) editingCharId = data.character.id;
+            resetCharacterFilters(false);
+            renderCharList();
+            break;
+
+        case 'CHARACTER_PREVIEW_RESULT': {
+            const preview = data.preview || {};
+            const charName = data.characterName || preview.characterName || '';
+            if (charName && preview.savedUrl) {
+                characterPreviewResults[charName] = {
+                    url: getGalleryImageUrl(preview),
+                    timestamp: preview.timestamp || Date.now(),
+                };
+                if (!loadedCharPreviews[charName]) loadedCharPreviews[charName] = {};
+                loadedCharPreviews[charName][preview.slotId || preview.imgId] = [preview];
+                gallerySummary[charName] = gallerySummary[charName] || { count: 0, totalSize: 0, latestTimestamp: 0, slots: {} };
+                gallerySummary[charName].count = Math.max(Number(gallerySummary[charName].count || 0), 1);
+                gallerySummary[charName].latestTimestamp = Math.max(Number(gallerySummary[charName].latestTimestamp || 0), Number(preview.timestamp || Date.now()));
+                gallerySummary[charName].slots = { ...(gallerySummary[charName].slots || {}), [preview.slotId || preview.imgId]: true };
+            }
+            renderCharList();
+            renderGalleryView();
+            break;
+        }
             
         case 'TEST_RESULT':
             $('nd_preview_img').src = data.url;
@@ -2641,6 +2748,27 @@ window.addEventListener('message', event => {
                 updateStatus($('nd_filter_status'), data.state, data.text);
             } else if (data.target === 'gallery') {
                 updateStatus($('nd_gallery_status'), data.state, data.text);
+            } else if (data.target === 'character-worldbook') {
+                updateStatus($('nd_char_wb_status'), data.state, data.text);
+                if (data.state === 'success' || data.state === 'error') {
+                    const btn = $('nd_char_wb_generate');
+                    if (btn) {
+                        btn.disabled = !(state.worldbooks?.uploadedBooks || []).length;
+                        btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 生成/更新人设';
+                    }
+                }
+            } else if (data.target === 'character-custom') {
+                updateStatus($('nd_char_custom_status'), data.state, data.text);
+                if (data.state === 'success' || data.state === 'error') {
+                    const btn = $('nd_char_custom_generate');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 生成/更新角色';
+                    }
+                }
+            } else if (data.target === 'character-preview') {
+                updateStatus($('nd_char_preview_status'), data.state, data.text);
+                if (data.state === 'success' || data.state === 'error') renderCharList();
             } else {
                 updateStatus($('nd_status'), data.state, data.text);
             }
@@ -2909,6 +3037,29 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = btn.closest('.char-card');
         const id = btn.dataset.id || card?.dataset.id;
         if (id) handleCharAction(btn.dataset.action, id, card, btn);
+    });
+
+    $('nd_char_custom_generate').addEventListener('click', () => {
+        const characterName = $('nd_char_custom_name').value.trim();
+        const description = $('nd_char_custom_text').value.trim();
+        if (!characterName) { alert('请输入角色名'); return; }
+        if (!description) { alert('请输入自定义人设文本'); return; }
+        const btn = $('nd_char_custom_generate');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 生成中...';
+        postToParent({ type: 'GENERATE_CHARACTER_FROM_TEXT', characterName, description });
+    });
+
+    $('nd_char_wb_generate').addEventListener('click', () => {
+        const bookName = $('nd_char_wb_book').value || '';
+        const characterName = $('nd_char_wb_name').value.trim();
+        if (!bookName) { alert('请先选择世界书'); return; }
+        if (!characterName) { alert('请输入角色名'); return; }
+        const book = (state.worldbooks?.uploadedBooks || []).find(item => item.name === bookName) || null;
+        const btn = $('nd_char_wb_generate');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 生成中...';
+        postToParent({ type: 'GENERATE_CHARACTER_FROM_WORLDBOOK', bookName, characterName, book });
     });
 
     // auto-learn (toggle + subordinate checkbox)
