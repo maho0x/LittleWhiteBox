@@ -66,8 +66,9 @@ import {
 const MODULE_KEY = 'novelDraw';
 const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
-const NOVELAI_IMAGE_API = 'https://image.novelai.net/ai/generate-image';
-const CONFIG_VERSION = 5;
+const DEFAULT_NOVELAI_API_BASE_URL = 'https://image.novelai.net';
+const NOVELAI_IMAGE_API_PATH = '/ai/generate-image';
+const CONFIG_VERSION = 6;
 const MAX_SEED = 0xFFFFFFFF;
 const API_TEST_TIMEOUT = 15000;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
@@ -156,6 +157,7 @@ const DEFAULT_SETTINGS = {
     updatedAt: 0,
     mode: 'manual',
     apiKey: '',
+    apiBaseUrl: '',
     selectedParamsPresetId: null,
     paramsPresets: [],
     requestDelay: { min: 15000, max: 30000 },
@@ -770,6 +772,7 @@ function handleFetchError(e) {
 function normalizeSettings(saved) {
     const merged = { ...DEFAULT_SETTINGS, ...(saved || {}) };
     merged.advancedMode = true;
+    merged.apiBaseUrl = String(merged.apiBaseUrl || '').trim();
     merged.llmApi = normalizeDrawLlmApi({ ...DEFAULT_SETTINGS.llmApi, ...(saved?.llmApi || {}) });
     merged.customPrompts = { ...DEFAULT_SETTINGS.customPrompts, ...(saved?.customPrompts || {}) };
     merged.worldbooks = { ...DEFAULT_SETTINGS.worldbooks, ...(saved?.worldbooks || {}) };
@@ -1353,12 +1356,36 @@ function danbooruToNai(tag) {
 // NovelAI API
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function testApiConnection(apiKey) {
+function normalizeNovelApiBaseUrl(apiBaseUrl) {
+    return String(apiBaseUrl || '').trim();
+}
+
+function resolveNovelAIImageApiUrl(apiBaseUrl = '') {
+    const raw = normalizeNovelApiBaseUrl(apiBaseUrl);
+    const base = raw || DEFAULT_NOVELAI_API_BASE_URL;
+    let url;
+    try {
+        url = new URL(base);
+    } catch {
+        throw new NovelDrawError('API Base URL 无效', ErrorType.NETWORK);
+    }
+
+    const path = url.pathname.replace(/\/+$/, '');
+    if (!path.endsWith(NOVELAI_IMAGE_API_PATH)) {
+        url.pathname = `${path}${NOVELAI_IMAGE_API_PATH}`;
+    } else {
+        url.pathname = path;
+    }
+    return url.toString();
+}
+
+async function testApiConnection(apiKey, apiBaseUrl = '') {
     if (!apiKey) throw new NovelDrawError('请填写 API Key', ErrorType.AUTH);
+    const apiUrl = resolveNovelAIImageApiUrl(apiBaseUrl);
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), API_TEST_TIMEOUT);
     try {
-        const res = await fetch(NOVELAI_IMAGE_API, {
+        const res = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ input: 'test', model: 'nai-diffusion-3', action: 'generate', parameters: { width: 64, height: 64, steps: 1 } }),
@@ -1506,8 +1533,9 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
 
         try {
             if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+            const apiUrl = resolveNovelAIImageApiUrl(settings.apiBaseUrl);
 
-            const res = await fetch(NOVELAI_IMAGE_API, {
+            const res = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.apiKey}` },
                 signal: controller.signal,
@@ -3255,6 +3283,7 @@ async function sendInitData() {
             enabled: moduleInitialized,
             mode: settings.mode,
             apiKey: settings.apiKey,
+            apiBaseUrl: settings.apiBaseUrl,
             timeout: settings.timeout,
             requestDelay: settings.requestDelay,
             cacheDays: getSharedDrawSettings().cacheDays,
@@ -3371,6 +3400,7 @@ async function handleFrameMessage(event) {
         case 'SAVE_API_KEY': {
             await updateSettingsPersistent((settings) => {
                 settings.apiKey = typeof data.apiKey === 'string' ? data.apiKey : settings.apiKey;
+                if (typeof data.apiBaseUrl === 'string') settings.apiBaseUrl = normalizeNovelApiBaseUrl(data.apiBaseUrl);
             }, '已保存', { target: 'api' });
             break;
         }
@@ -3379,6 +3409,9 @@ async function handleFrameMessage(event) {
             await updateSettingsPersistent((settings) => {
                 if (typeof data.apiKey === 'string') {
                     settings.apiKey = data.apiKey.trim();
+                }
+                if (typeof data.apiBaseUrl === 'string') {
+                    settings.apiBaseUrl = normalizeNovelApiBaseUrl(data.apiBaseUrl);
                 }
                 if (typeof data.timeout === 'number' && data.timeout > 0) {
                     settings.timeout = data.timeout;
@@ -3411,7 +3444,7 @@ async function handleFrameMessage(event) {
         case 'TEST_API': {
             try {
                 postStatus('loading', '测试中...', 'api');
-                await testApiConnection(data.apiKey);
+                await testApiConnection(data.apiKey, data.apiBaseUrl);
                 postStatus('success', '连接成功', 'api');
             } catch (e) {
                 postStatus('error', e?.message, 'api');
