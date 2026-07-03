@@ -5,7 +5,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from "../../../../../../../extensions.js";
-import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { NovelDrawStorage } from "../../../../core/server-storage.js";
@@ -68,6 +67,8 @@ const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
 const DEFAULT_NOVELAI_API_BASE_URL = 'https://image.novelai.net';
 const NOVELAI_IMAGE_API_PATH = '/ai/generate-image';
+const LSKY_UPLOAD_API = 'https://up.ry.mk/api/upload';
+const LSKY_UPLOAD_TIMEOUT = 60000;
 const CONFIG_VERSION = 6;
 const MAX_SEED = 0xFFFFFFFF;
 const API_TEST_TIMEOUT = 15000;
@@ -1564,6 +1565,98 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
     });
 }
 
+function base64ImageToBlob(base64) {
+    const raw = String(base64 || '').trim();
+    if (!raw) throw new NovelDrawError('图片数据为空，无法上传图床', ErrorType.UNKNOWN);
+    const match = raw.match(/^data:([^;]+);base64,(.*)$/i);
+    const mime = match?.[1] || 'image/png';
+    const data = match ? match[2] : raw;
+    const binary = atob(data);
+    const chunks = [];
+    const chunkSize = 8192;
+    for (let offset = 0; offset < binary.length; offset += chunkSize) {
+        const slice = binary.slice(offset, offset + chunkSize);
+        const bytes = new Uint8Array(slice.length);
+        for (let i = 0; i < slice.length; i++) {
+            bytes[i] = slice.charCodeAt(i);
+        }
+        chunks.push(bytes);
+    }
+    return new Blob(chunks, { type: mime });
+}
+
+function extractLskyImageUrl(payload) {
+    if (!payload || typeof payload !== 'object') return '';
+    return String(
+        payload.url
+        || payload.imageUrl
+        || payload.data?.url
+        || payload.data?.imageUrl
+        || payload.data?.links?.url
+        || payload.data?.links?.html
+        || ''
+    ).trim();
+}
+
+async function uploadImageToLsky(base64, imgId, signal) {
+    if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+    const blob = base64ImageToBlob(base64);
+    const form = new FormData();
+    form.append('image', blob, `novel_${imgId}.png`);
+
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), LSKY_UPLOAD_TIMEOUT);
+    const abort = () => controller.abort();
+    if (signal) signal.addEventListener('abort', abort, { once: true });
+
+    try {
+        const res = await fetch(LSKY_UPLOAD_API, {
+            method: 'POST',
+            body: form,
+            signal: controller.signal,
+        });
+        const text = await res.text().catch(() => '');
+        let payload = null;
+        try { payload = text ? JSON.parse(text) : null; } catch {}
+        if (!res.ok) {
+            throw new NovelDrawError(`图床上传失败：HTTP ${res.status}`, ErrorType.NETWORK);
+        }
+        if (payload?.status === false) {
+            throw new NovelDrawError(`图床上传失败：${payload.message || payload.error || '接口返回失败'}`, ErrorType.NETWORK);
+        }
+        const url = extractLskyImageUrl(payload);
+        if (!url) {
+            throw new NovelDrawError('图床上传失败：响应中没有图片 URL', ErrorType.PARSE);
+        }
+        return url;
+    } catch (e) {
+        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+        if (e?.name === 'AbortError') throw new NovelDrawError('图床上传超时', ErrorType.TIMEOUT);
+        throw handleFetchError(e);
+    } finally {
+        clearTimeout(tid);
+        if (signal) signal.removeEventListener('abort', abort);
+    }
+}
+
+async function storeHostedPreview({ base64, signal, ...preview }) {
+    const imgId = preview.imgId || generateImgId();
+    const slotId = preview.slotId || imgId;
+    const savedUrl = await uploadImageToLsky(base64, imgId, signal);
+    const storedPreview = {
+        ...preview,
+        imgId,
+        slotId,
+        base64: null,
+        savedUrl,
+    };
+    await storePreview(storedPreview);
+    if (Number.isFinite(Number(preview.messageId))) {
+        await syncNovelDrawSavedFromPreview(Number(preview.messageId), storedPreview, { slotId, savedUrl });
+    }
+    return storedPreview;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 锚点定位
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2217,7 +2310,7 @@ async function refreshSingleImage(container) {
         });
 
         const newImgId = generateImgId();
-        await storePreview({
+        const preview = await storeHostedPreview({
             imgId: newImgId,
             slotId,
             messageId,
@@ -2229,13 +2322,12 @@ async function refreshSingleImage(container) {
             anchor,
         });
         await setSlotSelection(slotId, newImgId);
-        await clearNovelDrawSavedEntry(messageId, slotId).catch(() => {});
 
-        container.querySelector('img').src = getPreviewDisplayUrl({ imgId: newImgId, base64 });
+        container.querySelector('img').src = preview.savedUrl;
         container.dataset.imgId = newImgId;
         container.dataset.positive = escapeHtml(scene);
         container.dataset.currentIndex = '0';
-        setImageState(container, ImageState.PREVIEW);
+        setImageState(container, ImageState.SAVED);
 
         const previews = await getPreviewsBySlot(slotId);
         const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
@@ -2260,8 +2352,7 @@ async function saveSingleImage(container) {
     if (!preview?.base64) { alert('图片数据丢失，请刷新'); return; }
     setImageState(container, ImageState.SAVING);
     try {
-        const charName = preview.characterName || getChatCharacterName();
-        const url = await saveBase64AsFile(preview.base64, charName, `novel_${imgId}`, 'png');
+        const url = await uploadImageToLsky(preview.base64, imgId);
         preview.savedUrl = url;
         await updatePreviewSavedUrl(imgId, url);
         await setSlotSelection(slotId, imgId);
@@ -2269,7 +2360,7 @@ async function saveSingleImage(container) {
         container.querySelector('img').src = url;
         setImageState(container, ImageState.SAVED);
         container.dataset.imgId = preview.imgId;
-        showToast(`已保存到: ${url}`, 'success', 5000);
+        showToast(`已上传图床: ${url}`, 'success', 5000);
     } catch (e) {
         console.error('[NovelDraw] 保存失败:', e);
         alert('保存失败: ' + e.message);
@@ -2369,7 +2460,7 @@ async function retryFailedImage(container) {
         });
 
         const newImgId = generateImgId();
-        await storePreview({
+        const preview = await storeHostedPreview({
             imgId: newImgId,
             slotId,
             messageId,
@@ -2386,18 +2477,18 @@ async function retryFailedImage(container) {
         const imgHtml = buildImageHtml({
             slotId,
             imgId: newImgId,
-            url: getPreviewDisplayUrl({ imgId: newImgId, base64 }),
+            url: preview.savedUrl,
             tags: tags || '',
             positive: scene,
             messageId,
-            state: ImageState.PREVIEW,
+            state: ImageState.SAVED,
             historyCount: 1,
             currentIndex: 0
         });
         // Template-only UI markup built locally.
         // eslint-disable-next-line no-unsanitized/property
         container.outerHTML = imgHtml;
-        showToast('图片生成成功！');
+        showToast('图片已上传图床并保存！');
     } catch (e) {
         console.error('[NovelDraw] 重试失败:', e);
         const errorType = classifyError(e);
@@ -2664,7 +2755,7 @@ async function generateImagesFromText(options = {}) {
                     },
                 });
                 const imgId = generateImgId();
-                await storePreview({
+                const preview = await storeHostedPreview({
                     ...galleryMeta,
                     imgId,
                     slotId,
@@ -2675,6 +2766,7 @@ async function generateImagesFromText(options = {}) {
                     characterPrompts,
                     negativePrompt,
                     anchor: task.anchor || '',
+                    signal,
                 });
                 await setSlotSelection(slotId, imgId);
                 successCount++;
@@ -2685,7 +2777,7 @@ async function generateImagesFromText(options = {}) {
                     tags: tagsForStore,
                     positive: scene,
                     negativePrompt,
-                    displayUrl: getPreviewDisplayUrl({ imgId, base64 }),
+                    displayUrl: preview.savedUrl,
                     success: true,
                 });
             } catch (e) {
@@ -2909,7 +3001,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     }
                 });
                 const imgId = generateImgId();
-                await storePreview({
+                const preview = await storeHostedPreview({
                     imgId,
                     slotId,
                     messageId,
@@ -2919,17 +3011,18 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     characterPrompts,
                     negativePrompt: preset.negativePrefix,
                     anchor: task.anchor,
+                    signal,
                 });
                 await setSlotSelection(slotId, imgId);
                 results.push({ slotId, imgId, tags: tagsForStore, success: true });
                 incrementalHtml = buildImageHtml({
                     slotId,
                     imgId,
-                    url: getPreviewDisplayUrl({ imgId, base64 }),
+                    url: preview.savedUrl,
                     tags: tagsForStore,
                     positive: scene,
                     messageId,
-                    state: ImageState.PREVIEW,
+                    state: ImageState.SAVED,
                     historyCount: 1,
                     currentIndex: 0,
                 });
@@ -3851,8 +3944,7 @@ async function handleFrameMessage(event) {
                     postStatus('error', '图片数据不存在');
                     break;
                 }
-                const charName = preview.characterName || getChatCharacterName();
-                const url = await saveBase64AsFile(preview.base64, charName, `novel_${data.imgId}`, 'png');
+                const url = await uploadImageToLsky(preview.base64, data.imgId);
                 preview.savedUrl = url;
                 await updatePreviewSavedUrl(data.imgId, url);
                 if (Number.isFinite(preview.messageId)) await syncNovelDrawSavedFromPreview(preview.messageId, preview, { savedUrl: url });
@@ -3861,7 +3953,7 @@ async function handleFrameMessage(event) {
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-NovelDraw');
                 }
                 sendInitData();
-                showToast(`已保存: ${url}`, 'success', 5000);
+                showToast(`已上传图床: ${url}`, 'success', 5000);
             } catch (e) {
                 console.error('[NovelDraw] 保存失败:', e);
                 postStatus('error', '保存失败: ' + e.message);
@@ -3929,11 +4021,12 @@ async function handleFrameMessage(event) {
                 const tags = (typeof data.tags === 'string' && data.tags.trim()) ? data.tags.trim() : '1girl, smile';
                 const scene = joinTags(preset?.positivePrefix, tags);
                 const base64 = await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {} });
+                const url = await uploadImageToLsky(base64, generateImgId());
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url: `data:image/png;base64,${base64}` }, 'LittleWhiteBox-NovelDraw');
+                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url }, 'LittleWhiteBox-NovelDraw');
                 }
-                postStatus('success', `完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+                postStatus('success', `完成并上传图床 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
             } catch (e) {
                 postStatus('error', e?.message);
             }
